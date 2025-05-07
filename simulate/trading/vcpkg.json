@@ -1,0 +1,27 @@
+{
+    "name": "taosim",
+    "version": "0.0.2",
+    "dependencies": [
+        "bde",
+        "benchmark",
+        "boost-accumulators",
+        "boost-asio",
+        "boost-beast",
+        "boost-bimap",
+        "boost-math",
+        "boost-signals2",
+        "boost-uuid",
+        "cereal",
+        "cli11",
+        "date",
+        "eigen3",
+        "fmt",
+        "gtest",
+        "magic-enum",
+        "pugixml",
+        "pybind11",
+        "range-v3",
+        "rapidjson",
+        "spdlog"
+    ]
+}

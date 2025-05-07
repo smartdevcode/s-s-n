@@ -1,0 +1,117 @@
+<Simulation id="{{BG_CONFIG}}" start="0" step="5000000000" duration="86400000000000" timescale="ns" enableCheckpointing="0" traceTime="1" debug="0">
+    <Agents>
+        <MultiBookExchangeAgent name="EXCHANGE" remoteAgentCount="256" gracePeriod="600000000000"
+            priceDecimals="2" volumeDecimals="4" baseDecimals="4" quoteDecimals="10" 
+            maxLeverage="4" maxLoan = "10000" maintenanceMargin = "0.10">
+            <!-- <FeePolicy type="static" makerFee="0.0005" takerFee="0.001" agentIdLowerBound="-100" agentIdUpperBound="-1"/> -->
+            <Books instanceCount="10" algorithm="PriceTime" maxDepth="5">
+                <Processes updatePeriod="4999999999">
+                    <FundamentalPrice name="fundamental" seedInterval="10000000000"  X0="300" mu="0.0" sigma="0.03" dt="2e-5"/>
+                </Processes>
+            </Books>
+            <Balances>
+                <Base total="100.0" maxLeverage = "1" maxLoan = "10000"/>
+                <Quote total="30000.0" maxLeverage = "1" maxLoan = "10000"/>
+            </Balances>
+            <Logging startDate="2024-07-04 00:00:00">
+                <L2 tag="taggy" depth="5"/>
+                <L3 tag="debug"/>
+            </Logging>
+        </MultiBookExchangeAgent>        
+        <InitializationAgent
+            name="INITIALIZATION_AGENT"
+            instanceCount="500"
+            exchange="EXCHANGE"
+            price ="300"
+            tau = "10000000000">
+            <Balances>
+                <Base total="100.0" maxLeverage = "1" maxLoan = "10000"/>
+                <Quote total="30000.0" maxLeverage = "1" maxLoan = "10000"/>
+            </Balances>
+        </InitializationAgent>
+        <HighFrequencyTraderAgent
+            name="HIGH_FREQUENCY_TRADER_AGENT"
+            instanceCount="10"
+            exchange="EXCHANGE"
+            debug = "0"
+            price0 = "300"
+            minMFLatency = "25000000"
+            tau = "2"
+            delta = "5000000000"
+            psiHFT_constant = "100"
+            gHFT = "0.3"
+            GBM_X0 = "0.0001"
+            GBM_mu = "0"
+            GBM_sigma = "0.3"
+            GBM_lambda_jump = "30.3"
+            GBM_mu_jump = "0.0"
+            GBM_sigma_jump = "0.1"
+            GBM_flag_jump = "0"
+            GBM_seed = "10000"
+            omegaACD = "212.897"
+            alphaACD = "0.540"
+            betaACD = "0.774"
+            rACD = "0.280"
+            alphaDelay = "2"
+            betaDelay = "5"
+            opLatencyScaleRay = "0.235"
+            orderMean = "1.6"
+            noiseRay = "0.53"
+            shiftPercentage = "0.05"
+            minOPLatency = "1000000"
+            maxOPLatency = "50000000">
+            <Balances>
+                <Base total="500" maxLeverage = "1" maxLoan = "10000"/>
+                <Quote total="150000.0"  maxLeverage = "1" maxLoan = "10000"/>
+            </Balances>
+        </HighFrequencyTraderAgent>
+        <StylizedTraderAgent
+            name="STYLIZED_TRADER_AGENT"
+            instanceCount="1000"
+            exchange="EXCHANGE"
+            debug = "0"
+            regimeChangeFlag = "0"
+            regimeProb = "0.60"
+            sigmaF = "4"
+            sigmaC = "1.4"
+            sigmaN = "1.0"
+            sigmaFRegime = "0.001"
+            sigmaCRegime = "3.8"
+            sigmaNRegime = "0.7"
+            tau = "10000000000"
+            tauHist = "75"
+            tauFore = "2"
+            tauF = "1"
+            sigmaEps = "0.001"
+            r_aversion = "0.01"
+            price0 = "300"
+            priceF0="300"
+            GBM_X0 = "0.001"
+            GBM_mu = "0"
+            GBM_sigma = "0.3"
+            GBM_lambda_jump = "30.3"
+            GBM_mu_jump = "0.0"
+            GBM_sigma_jump = "0.1"
+            GBM_flag_jump = "0"
+            GBM_seed = "10000"
+            pO_alpha = "0.0"
+            reportInterval="200000000000"
+            alphaDelay = "2"
+            betaDelay = "5"
+            opLatencyScaleRay = "0.235"
+            delayMean = "10000000000"
+            delaySTD = "2000000000"
+            minOPLatency = "90000000"
+            maxOPLatency = "300000000"
+            scaleR = "0.2"
+            MFLmean = "250000000"
+            MFLstd =  "50000000">
+            <Balances>
+                <Base total="100.0" maxLeverage = "1" maxLoan = "10000"/>
+                <Quote total="30000.0" maxLeverage = "1" maxLoan = "10000"/>
+            </Balances>
+        </StylizedTraderAgent>
+        <DistributedProxyAgent host="localhost" port="8000" batchSize="10"
+                            bookStateEndpoint="/orderbook" generalMsgEndpoint="/account"/>
+    </Agents>
+</Simulation>

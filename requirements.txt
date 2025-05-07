@@ -1,0 +1,9 @@
+bittensor
+torch
+loguru
+prometheus_client
+binance-connector
+coinbase-advanced-py
+gitpython
+psutil
+pandas
