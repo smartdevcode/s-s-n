@@ -160,7 +160,13 @@ void Book::placeOrder(LimitOrder::Ptr order)
 bool Book::cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volumeToCancel)
 {
     auto it = m_orderIdMap.find(orderId);
-    if (it == m_orderIdMap.end()) return false;
+    if (it == m_orderIdMap.end()) {
+        m_simulation->logDebug(
+            "ATTEMPT CANCEL NON-EXISTING ORDER {} WITH VOLUME {}",
+            orderId,
+            volumeToCancel.has_value() ? fmt::format("", volumeToCancel.value()) : "nullopt");
+        return false;
+    }
 
     auto order = it->second;
 

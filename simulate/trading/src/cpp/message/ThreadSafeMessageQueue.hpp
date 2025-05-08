@@ -27,6 +27,17 @@ public:
     void clear();
 
 private:
+    void push(const MessageQueue::PrioritizedMessageWithId& realMsg)
+    {
+        std::shared_lock lock{*m_mtx};
+        m_underlying.push(realMsg);
+    }
+
+    [[nodiscard]] const MessageQueue::PrioritizedMessageWithId& prioTop() const
+    {
+        return m_underlying.prioTop();
+    }
+
     MessageQueue m_underlying;
     std::unique_ptr<std::shared_mutex> m_mtx;
 

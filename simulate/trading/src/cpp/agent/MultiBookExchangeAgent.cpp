@@ -434,6 +434,15 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
 
 void MultiBookExchangeAgent::receiveMessage(Message::Ptr msg)
 {
+    try {
+        if (msg->type == "DISTRIBUTED_AGENT_RESET") {
+            return handleDistributedMessage(msg);
+        }
+    }
+    catch (...) {
+        handleException();
+    }
+
     if (m_parallel) {
         try {
             if (msg->type == "PLACE_ORDER_MARKET") {
@@ -684,51 +693,94 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<ResetAgentsPayload>(payload->payload);
 
-    std::vector<AgentId> valid;
-    std::vector<AgentId> missing;
-    for (AgentId agentId : subPayload->agentIds) {
-        if (!accounts().contains(agentId)) {
-            missing.push_back(agentId);
-            continue;
-        }
-        valid.push_back(agentId);
-    }
-
-    if (!missing.empty()) {
-        auto errorMsg = fmt::format("No agents with IDs {} exist", fmt::join(missing, ", "));
-        auto retSubPayload = MessagePayload::create<ResetAgentsErrorResponsePayload>(
-            std::move(missing),
-            subPayload, 
-            MessagePayload::create<ErrorResponsePayload>(std::move(errorMsg)));
-        simulation()->fastRespondToMessage(
-            msg,
-            "ERROR",
-            MessagePayload::create<DistributedAgentResponsePayload>(
-                payload->agentId,
-                retSubPayload));
-    }
+    std::vector<AgentId> valid = subPayload->agentIds
+        | views::filter([&](AgentId agentId) { return accounts().contains(agentId); })
+        | ranges::to<std::vector>;
 
     if (valid.empty()) {
         return;
     }
 
+    std::vector<std::vector<Cancellation>> cancellations;
     for (AgentId agentId : valid) {
+        simulation()->logDebug("{} | AGENT #{} : RESET-CANCELS", simulation()->currentTimestamp(), agentId);
         for (BookId bookId = 0; bookId < m_books.size(); ++bookId) {
-            const auto orders = &accounts()[agentId].activeOrders()[bookId];
-            for (Order::Ptr order : *orders) {       
+            simulation()->logDebug("{} | AGENT #{} BOOK {} : RESET-CANCELS", simulation()->currentTimestamp(), agentId, bookId);
+            std::vector<Cancellation> bookCancellations;
+            const auto orders = accounts()[agentId].activeOrders()[bookId];
+            const auto book = m_books.at(bookId);
+            for (Order::Ptr order : orders) {
                 if (auto limitOrder = std::dynamic_pointer_cast<LimitOrder>(order)) {
-                    m_books.at(bookId)->cancelOrderOpt(limitOrder->id()); 
+                    simulation()->logDebug("{} | AGENT #{} BOOK {} : START RESET-CANCEL OF ORDER {}", simulation()->currentTimestamp(), agentId, bookId, limitOrder->id());
+                    if (book->cancelOrderOpt(limitOrder->id())) {
+                        const Cancellation cancellation{limitOrder->id()};
+                        bookCancellations.push_back(cancellation);
+                        m_signals.at(bookId)->cancelLog(CancellationWithLogContext(
+                            cancellation,
+                            std::make_shared<CancellationLogContext>(
+                                agentId,
+                                bookId,
+                                simulation()->currentTimestamp())));
+                        simulation()->logDebug("{} | AGENT #{} BOOK {} : END RESET-CANCEL OF ORDER {}", simulation()->currentTimestamp(), agentId, bookId, limitOrder->id());
+                    } else {
+                        simulation()->logDebug("{} | AGENT #{} BOOK {} : RESET-CANCEL OF ORDER {} FAILED", simulation()->currentTimestamp(), agentId, bookId, limitOrder->id());
+                    }
                 }
             }
-            accounts().reset(agentId);
+            cancellations.push_back(std::move(bookCancellations));
         }
+        accounts().reset(agentId);
+        simulation()->logDebug("{} | AGENT #{} : RESET-CANCELS DONE", simulation()->currentTimestamp(), agentId);
     }
+    simulation()->logDebug("{} | ALL RESET-CANCELS DONE", simulation()->currentTimestamp());
+
+    const auto allQueuesEmpty =
+        ranges::all_of(m_parallelQueues, [](const auto& queue) { return queue.empty(); });
+    if (m_parallel && !allQueuesEmpty) {
+        simulation()->logDebug("{} | PARALLEL QUEUES NON-EMPTY UPON AGENT RESET", simulation()->currentTimestamp());
+    }	
+	
+    const std::unordered_set<AgentId> resetAgentIds{valid.begin(), valid.end()};
+    std::vector<MessageQueue::PrioritizedMessageWithId> messagesToKeep;
+    auto& mainMsgQueue = simulation()->m_messageQueue;
+    while (!mainMsgQueue.empty()) {
+        auto prioMsgWithId = mainMsgQueue.prioTop();
+        mainMsgQueue.pop();
+        const auto distributedPayload =
+            std::dynamic_pointer_cast<DistributedAgentResponsePayload>(prioMsgWithId.pmsg.msg->payload);
+        if (distributedPayload && resetAgentIds.contains(distributedPayload->agentId)) {
+            continue;
+        }
+        messagesToKeep.push_back(prioMsgWithId);
+    }
+    ThreadSafeMessageQueue newQueue;
+    for (const auto& message : messagesToKeep) {
+        newQueue.push(message);
+    }
+    simulation()->m_messageQueue = std::move(newQueue);
+    simulation()->logDebug("{} | MESSAGE QUEUE CLEARED", simulation()->currentTimestamp());
+
+    // for (const auto [bookId, bookCancellations] : views::enumerate(cancellations)) {
+    //     if (bookCancellations.empty()) continue;
+    //     respondToMessage(
+    //         msg,
+    //         MessagePayload::create<DistributedAgentResponsePayload>(
+    //             payload->agentId,
+    //             MessagePayload::create<CancelOrdersResponsePayload>(
+    //                 bookCancellations
+    //                     | views::transform([](const Cancellation& c) { return c.id; })
+    //                     | ranges::to<std::vector>(),
+    //                 MessagePayload::create<CancelOrdersPayload>(bookCancellations, bookId))),
+    //         0);
+    // }
+    // simulation()->logDebug("{} | bookCancellations NOTIFIED", simulation()->currentTimestamp());
 
     simulation()->fastRespondToMessage(
         msg,
         MessagePayload::create<DistributedAgentResponsePayload>(
             payload->agentId,
-            MessagePayload::create<ResetAgentsResponsePayload>(std::move(valid), subPayload)));
+            MessagePayload::create<ResetAgentsResponsePayload>(valid, subPayload)));
+    simulation()->logDebug("{} | RESET COMPLETE", simulation()->currentTimestamp());
 }
 
 //-------------------------------------------------------------------------

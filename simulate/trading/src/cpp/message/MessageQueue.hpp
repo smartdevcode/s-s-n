@@ -22,6 +22,16 @@ struct PrioritizedMessage
     {}
 };
 
+struct PrioritizedMessageWithId
+{
+    PrioritizedMessage pmsg;
+    uint64_t id;
+
+    PrioritizedMessageWithId(PrioritizedMessage pmsg, uint64_t id) noexcept
+        : pmsg{pmsg}, id{id}
+    {}
+};
+
 //-------------------------------------------------------------------------
 
 class MessageQueue
@@ -53,13 +63,26 @@ private:
         bool operator()(PrioritizedMessageWithId lhs, PrioritizedMessageWithId rhs);
     };
 
-    struct AccessiblePriorityQueue
-        : public std::priority_queue<PrioritizedMessageWithId, std::vector<PrioritizedMessageWithId>, CompareQueueMessages>
+    using QueueType = std::priority_queue<
+        PrioritizedMessageWithId,
+        std::vector<PrioritizedMessageWithId>,
+        CompareQueueMessages>;
+
+    struct AccessiblePriorityQueue : public QueueType
     {
+        AccessiblePriorityQueue() noexcept = default;
+        AccessiblePriorityQueue(std::vector<PrioritizedMessageWithId> messages) noexcept
+            : QueueType{CompareQueueMessages{}, std::move(messages)}
+        {}
+
         [[nodiscard]] const container_type& underlying() const noexcept { return c; }
 
         void clear() { c.clear(); }
     };
+
+    MessageQueue(std::vector<PrioritizedMessageWithId> messages) noexcept;
+
+    [[nodiscard]] const PrioritizedMessageWithId& prioTop() const { return m_queue.top(); }
 
     void push(PrioritizedMessageWithId pmsgWithId) { m_queue.push(pmsgWithId); }
 

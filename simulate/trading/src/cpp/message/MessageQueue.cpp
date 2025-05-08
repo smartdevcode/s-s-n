@@ -6,6 +6,12 @@
 
 //-------------------------------------------------------------------------
 
+MessageQueue::MessageQueue(std::vector<PrioritizedMessageWithId> messages) noexcept
+    : m_queue{std::move(messages)}
+{}
+
+//-------------------------------------------------------------------------
+
 bool MessageQueue::CompareQueueMessages::operator()(PrioritizedMessageWithId lhs, PrioritizedMessageWithId rhs)
 {
     if (lhs.pmsg.marginCallId != rhs.pmsg.marginCallId) [[unlikely]] {
