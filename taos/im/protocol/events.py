@@ -257,7 +257,7 @@ class TradeEvent(FinanceEvent):
         return f"{'BUY ' if self.side == 0 else 'SELL'} TRADE #{self.tradeId} : RESTING ORDER #{self.makerOrderId} (AGENT {self.makerAgentId}) MATCHED AGAINST #{self.takerOrderId} (AGENT {self.takerAgentId}) FOR {self.quantity}@{self.price} AT T={self.timestamp}"
     
 
-class ResetAgentEvent(BaseModel):
+class ResetAgentEvent(FinanceEvent):
     """
     Represents the event generated when a single agent account is reset (requested by validator on deregistration).
 
@@ -266,7 +266,6 @@ class ResetAgentEvent(BaseModel):
     - success: Flag indicating if the agent's accounts was successfully reset or not.
     - message: The message associated with the failure in the case of unsuccessful reset.
     """
-    agentId : int
     success : bool
     message : str
     
@@ -280,7 +279,6 @@ class ResetAgentsEvent(FinanceEvent):
     Attributes:
     - resets: A list of ResetAgentEvent objects representing the individual agent reset events.
     """
-    type : str = "RESET_AGENTS"
     resets : list[ResetAgentEvent] = []
     @classmethod
     def from_simulator(self, message : SimulatorAgentMessage):
@@ -292,16 +290,22 @@ class ResetAgentsEvent(FinanceEvent):
             for agentId in message.payload['payload']['agentIds']:
                 event.resets.append(
                     ResetAgentEvent(
+                        type=message.type,
+                        timestamp=message.timestamp,
                         agentId=agentId,
-                        success=True,message=f"Proxy agent {event.agentId} successfully reset balances for agent {agentId}."
+                        success=True,
+                        message=f"Proxy agent {event.agentId} successfully reset balances for agent {agentId}."
                     )
                 )
         elif message.type == 'ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT':
             for agentId in message.payload['payload']['agentIds']:
                 event.resets.append(
                     ResetAgentEvent(
+                        type=message.type,
+                        timestamp=message.timestamp,
                         agentId=agentId,
-                        success=False,message=f"Proxy agent {event.agentId} failed to reset balance for agent {agentId} : Agent Id does not exist!"
+                        success=False,
+                        message=f"Proxy agent {event.agentId} failed to reset balance for agent {agentId} : Agent Id does not exist!"
                     )
                 )
         return event 

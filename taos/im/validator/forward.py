@@ -114,7 +114,6 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
         response = FinanceAgentResponse(agent_id=self.uid)
         response.reset_agents(agent_ids=self.deregistered_uids)
         responses.append(response)
-        self.deregistered_uids = []
     # Calculate the rewards for the miner based on the latest simulation state.
     rewards = get_rewards(self, synapse)
     bt.logging.debug(f"Agent Rewards Recalculated:\n{rewards}")

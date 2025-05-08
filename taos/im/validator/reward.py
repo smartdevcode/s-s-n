@@ -81,8 +81,8 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
             if len(changeover) > 0:
                 returns = np.delete(returns, changeover)
             returns = returns[-self.config.scoring.sharpe.lookback:]
-            mean = sum(returns) / len(returns)
-            variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) 
+            mean = sum(returns) / len(returns) if len(returns) > 0 else 0.0
+            variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) if len(returns) > 0 else 0.0
             std = variance ** 0.5
             sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0
             self.sharpe_values[uid]['books'][bookId] = sharpe
@@ -95,8 +95,8 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
         if len(changeover) > 0:
             returns = np.delete(returns, changeover)
         returns = returns[-self.config.scoring.sharpe.lookback:]
-        mean = sum(returns) / len(returns)
-        variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) 
+        mean = sum(returns) / len(returns) if len(returns) > 0 else 0.0
+        variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) if len(returns) > 0 else 0.0
         std = variance ** 0.5
         total_sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0   
     else:
@@ -105,7 +105,8 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
     # Calculate the average Sharpe ratio value over all books
     all_sharpes = [sharpe for bookId, sharpe in self.sharpe_values[uid]['books'].items()]
     avg_sharpe = sum(all_sharpes) / len(all_sharpes)
-    return avg_sharpe
+    normalized_sharpe = (max(min(avg_sharpe, 20),-20) + 20) / 40
+    return normalized_sharpe
 
 def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,float]]) -> float:
     """
@@ -141,10 +142,20 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
         self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) for book_id, book in synapse.books.items()}
     else:
         self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
-    self
+    for book_id, trades in self.trades[uid].items():
+        if trades != {}:
+            if min(trades.keys()) < synapse.timestamp - 86400_000_000_000:
+                self.trades[uid][book_id] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - 86400_000_000_000}
+    for notice in synapse.notices[uid]:
+        if notice.type == 'EVENT_TRADE':
+            if not notice.timestamp in self.trades[uid][notice.bookId]:
+                self.trades[uid][notice.bookId][notice.timestamp] = 0.0
+            self.trades[uid][notice.bookId][notice.timestamp] = round(self.trades[uid][notice.bookId][notice.timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
     # Prune the inventory history
     self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])
-    return score_inventory_values(self, uid, self.inventory_history[uid])
+    inventory_score = score_inventory_values(self, uid, self.inventory_history[uid])
+    activity_factor = min(1,min([round(sum(self.trades[uid][book_id].values()), self.simulation.volumeDecimals) / round(self.simulation.start_quote_balance + self.simulation.start_base_balance * self.simulation.init_price, self.simulation.volumeDecimals) for book_id in range(self.simulation.book_count)]))
+    return activity_factor * inventory_score
 
 def get_rewards(
     self : Validator, synapse : MarketSimulationStateUpdate

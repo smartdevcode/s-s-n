@@ -395,6 +395,7 @@ class Validator(BaseValidatorNeuron):
                 "pending_notices": self.pending_notices,
                 "simulation.logDir": self.simulation.logDir,
                 "fundamental_price": self.fundamental_price,
+                "trades" : self.trades,
             },
             self.state_file,
         )
@@ -417,6 +418,7 @@ class Validator(BaseValidatorNeuron):
             self.recent_trades = state["recent_trades"]
             self.simulation.logDir = state["simulation.logDir"]
             self.fundamental_price = state["fundamental_price"]
+            self.trades = state["trades"] if "trades" in state else {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
         else:
             # If no state exists or the neuron.reset flag is set, re-initialize the validator state
             if self.config.neuron.reset and os.path.exists(self.state_file):
@@ -436,6 +438,7 @@ class Validator(BaseValidatorNeuron):
             self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
             self.recent_trades = {bookId : [] for bookId in range(self.simulation.book_count)}
             self.fundamental_price = {bookId : None for bookId in range(self.simulation.book_count)}
+            self.trades = {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
 
     def load_simulation_config(self) -> None:
         """
@@ -531,6 +534,7 @@ class Validator(BaseValidatorNeuron):
         """
         bt.logging.info("-"*40)
         bt.logging.info("SIMULATION STARTED")
+        self.trades = {uid : {bookId : {prev_time - self.simulation_timestamp : volume for prev_time, volume in self.trades[uid][bookId].items()} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
         self.start_time = time.time()
         self.simulation_timestamp = timestamp
         self.start_timestamp = self.simulation_timestamp
@@ -574,6 +578,8 @@ class Validator(BaseValidatorNeuron):
         self.unnormalized_scores[uid] = 0.0
         self.inventory_history[uid] = {}
         self.deregistered_uids.append(uid)
+        self.trades[uid] = {bookId : {} for bookId in range(self.simulation.book_count)}
+        bt.logging.debug(f"UID {uid} Deregistered - Scheduled for reset.")
 
     def report(self) -> None:
         """
@@ -615,6 +621,14 @@ class Validator(BaseValidatorNeuron):
                 debug_text += "EMPTY" + "\n"
         bt.logging.debug("\n" + debug_text.strip("\n"))
         # Forward state synapse to miners, populate response data to simulator object and serialize for returning to simulator.
+        for notice in state.notices[self.uid]:
+            if notice.type == "RESPONSE_DISTRIBUTED_RESET_AGENT" or notice.type == "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT":
+                for reset in notice.resets:
+                    if reset.success:
+                        bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")                        
+                        self.deregistered_uids.remove(reset.agentId)
+                    else:
+                        bt.logging.error(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
         while self.reporting:
             bt.logging.debug(f"Waiting for reporting to complete...")
             time.sleep(1)
