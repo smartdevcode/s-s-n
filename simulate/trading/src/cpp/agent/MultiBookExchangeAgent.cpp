@@ -77,7 +77,7 @@ taosim::exchange::ClearingManager& MultiBookExchangeAgent::clearingManager() noe
 void MultiBookExchangeAgent::publishState()
 {
     const Timestamp now = simulation()->currentTimestamp();
-
+    
     if (now < m_gracePeriod) return;
 
     simulation()->dispatchMessage(
@@ -256,6 +256,8 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
 
 void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
 {
+    static constexpr auto ctx = std::source_location::current().function_name();
+
     Agent::configure(node);
 
     m_config.configure(node);
@@ -263,18 +265,8 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
     // TODO: This monstrosity should be split up somehow.
     try {
         m_gracePeriod = node.attribute("gracePeriod").as_ullong();
-        m_maintenanceMargin = taosim::util::double2decimal(node.attribute("maintenanceMargin").as_double());
-        m_maxLeverage = taosim::util::double2decimal(node.attribute("maxLeverage").as_double());
-        m_maxLoan = taosim::util::double2decimal(node.attribute("maxLoan").as_double());
-        const taosim::decimal_t maxAllowedMaintenance = 1_dec / (2_dec * taosim::util::dec1p(m_maxLeverage));
-        if (m_maintenanceMargin > maxAllowedMaintenance){
-            throw std::invalid_argument(fmt::format(
-                "maintanceMargin {} cannot be less than {} with maxLeverage set to {}",
-                m_maintenanceMargin,
-                maxAllowedMaintenance,
-                m_maxLeverage
-            ));
-        }
+
+        m_config2 = taosim::exchange::makeExchangeConfig(node);
 
         m_eps = taosim::util::double2decimal(node.attribute("eps").as_double());
 
@@ -285,7 +277,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
         const size_t detailedDepth = booksNode.attribute("detailedDepth").as_ullong(maxDepth);
 
         m_bookProcessManager = BookProcessManager::fromXML(
-            booksNode, const_cast<Simulation*>(simulation()));
+            booksNode, const_cast<Simulation*>(simulation()), &m_config2);
         m_clearingManager = std::make_unique<taosim::exchange::ClearingManager>(
             this,
             taosim::exchange::FeePolicyFactory::createFromXML(node.child("FeePolicy")),
@@ -354,13 +346,12 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             m_books.push_back(book);
             m_signals[bookId] = std::make_unique<ExchangeSignals>();
             m_L3Record[bookId] = {};
-            accountTemplate.holdings().emplace_back(
-                taosim::accounting::Balance::fromXML(baseNode,
-                    m_config.parameters().baseIncrementDecimals),
-                taosim::accounting::Balance::fromXML(quoteNode,
-                    m_config.parameters().quoteIncrementDecimals),
-                m_config.parameters().baseIncrementDecimals,
-                m_config.parameters().quoteIncrementDecimals);
+            accountTemplate.holdings().push_back(
+                taosim::accounting::Balances::fromXML(
+                    balancesNode,
+                    taosim::accounting::RoundParams{
+                        .baseDecimals = m_config.parameters().baseIncrementDecimals,
+                        .quoteDecimals = m_config.parameters().quoteIncrementDecimals}));
             accountTemplate.activeOrders().emplace_back();
             if (loggingNode) {
                 if (L2Node) {
@@ -407,6 +398,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             Simulation* simulation = const_cast<Simulation*>(this->simulation());
             simulation->m_messageQueue.clear();
             publishState();
+            if (simulation->m_messageQueue.empty()) return;
             Message::Ptr publishMsg = simulation->m_messageQueue.top();
             simulation->m_messageQueue.pop();
             simulation->deliverMessage(publishMsg);
@@ -1228,26 +1220,18 @@ void MultiBookExchangeAgent::handleLocalRetrieveL1(Message::Ptr msg)
     taosim::decimal_t bestBidPrice{};
     taosim::decimal_t bestBidVolume{}, bidTotalVolume{};
 
-    auto totalVolumeOnSide = [](const OrderContainer<TickContainer>& side) {
-        taosim::decimal_t totalVolume{};
-        for (const auto& level : side) {
-            totalVolume += level.volume();
-        }
-        return totalVolume;
-    };
-
     if (!book->sellQueue().empty()) {
         const auto& bestSellLevel = book->sellQueue().front();
         bestAskPrice = bestSellLevel.price();
         bestAskVolume = bestSellLevel.volume();
-        askTotalVolume = totalVolumeOnSide(book->sellQueue());
+        askTotalVolume = book->sellQueue().volume();
     }
 
     if (!book->buyQueue().empty()) {
         const auto& bestBuyLevel = book->buyQueue().back();
         bestBidPrice = bestBuyLevel.price();
         bestBidVolume = bestBuyLevel.volume();
-        bidTotalVolume = totalVolumeOnSide(book->buyQueue());
+        bidTotalVolume = book->buyQueue().volume();
     }
 
     simulation()->dispatchMessage(
@@ -1275,8 +1259,8 @@ void MultiBookExchangeAgent::handleLocalRetrieveBookAsk(Message::Ptr msg)
 
     const auto book = m_books[payload->bookId];
 
-    auto levels = [=] -> std::vector<TickContainer> {
-        std::vector<TickContainer> levels;
+    auto levels = [=] -> std::vector<TickContainer::ContainerType> {
+        std::vector<TickContainer::ContainerType> levels;
         const auto actualDepth = std::min(payload->depth, book->sellQueue().size());
         std::copy(
             book->sellQueue().cbegin(),
@@ -1299,8 +1283,8 @@ void MultiBookExchangeAgent::handleLocalRetrieveBookBid(Message::Ptr msg)
 
     const auto book = m_books[payload->bookId];
 
-    auto levels = [=] -> std::vector<TickContainer> {
-        std::vector<TickContainer> levels;
+    auto levels = [=] -> std::vector<TickContainer::ContainerType> {
+        std::vector<TickContainer::ContainerType> levels;
         const auto actualDepth = std::min(payload->depth, book->buyQueue().size());
         std::copy(
             book->buyQueue().crbegin(),

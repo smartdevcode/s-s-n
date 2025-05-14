@@ -1,7 +1,3 @@
-/*
- * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
- * SPDX-License-Identifier: MIT
- */
 #include "Book.hpp"
 
 #include "Simulation.hpp"
@@ -26,7 +22,6 @@ Book::Book(
         throw std::invalid_argument("Book detailed depth must be non-zero");
     }
     m_detailedDepth = std::min(detailedDepth, maxDepth);
-
     setupL2Signal();
 }
 
@@ -160,13 +155,7 @@ void Book::placeOrder(LimitOrder::Ptr order)
 bool Book::cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volumeToCancel)
 {
     auto it = m_orderIdMap.find(orderId);
-    if (it == m_orderIdMap.end()) {
-        m_simulation->logDebug(
-            "ATTEMPT CANCEL NON-EXISTING ORDER {} WITH VOLUME {}",
-            orderId,
-            volumeToCancel.has_value() ? fmt::format("", volumeToCancel.value()) : "nullopt");
-        return false;
-    }
+    if (it == m_orderIdMap.end()) return false;
 
     auto order = it->second;
 
@@ -186,27 +175,21 @@ bool Book::cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volu
     m_signals.cancelOrderDetails(order, volumeToCancelActual, m_id);
 
     auto& orderSideLevels = order->direction() == OrderDirection::BUY ? m_buyQueue : m_sellQueue;
-    auto level = std::lower_bound(orderSideLevels.begin(), orderSideLevels.end(), order->price());
+    auto levelIt = std::lower_bound(orderSideLevels.begin(), orderSideLevels.end(), order->price());
 
     if (volumeToCancelActual == orderVolume) {
         std::erase_if(
-            *level, [orderId](const auto orderOnLevel) { return orderOnLevel->id() == orderId; });
-        if (level->empty()) {
-            std::erase_if(
-                orderSideLevels,
-                [&](const TickContainer& levelInBook) {
-                    return level->price() == levelInBook.price();
-                });
+            *levelIt, [orderId](const auto orderOnLevel) { return orderOnLevel->id() == orderId; });
+        levelIt->updateVolume(-volumeToCancelActual);
+        if (levelIt->empty()) {
+            orderSideLevels.erase(levelIt);
         }
         m_orderIdMap.erase(orderId);
     }
     else {
         order->removeVolume(volumeToCancelActual);
+        levelIt->updateVolume(-volumeToCancelActual);
     }
-    level->updateVolume(
-        -taosim::util::round(
-            volumeToCancelActual * taosim::util::dec1p(order->leverage()),
-            m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
 
     m_signals.cancel(order->id(), volumeToCancelActual);
     
@@ -253,7 +236,7 @@ void Book::placeLimitBuy(LimitOrder::Ptr order)
             firstLessThan->push_back(order);
         }
         else {
-            TickContainer tov{order->price()};
+            TickContainer tov{&m_buyQueue, order->price()};
             registerLimitOrder(order);
             tov.push_back(order);
             m_buyQueue.insert(firstLessThan.base(), std::move(tov));
@@ -286,7 +269,7 @@ void Book::placeLimitSell(LimitOrder::Ptr order)
             firstGreaterThan->push_back(order);
         }
         else {
-            TickContainer tov{order->price()};
+            TickContainer tov{&m_sellQueue, order->price()};
             registerLimitOrder(order);
             tov.push_back(order);
             m_sellQueue.insert(firstGreaterThan, std::move(tov));
@@ -364,16 +347,7 @@ void Book::jsonSerialize(rapidjson::Document& json, const std::string& key) cons
             json.AddMember(
                 "price", rapidjson::Value{taosim::util::decimal2double(level.price())}, allocator);
             json.AddMember(
-                "volume",
-                rapidjson::Value{
-                    taosim::util::decimal2double([&level] {
-                        taosim::decimal_t volumeOnLevel{};
-                        for (const auto& order : level) {
-                            volumeOnLevel += order->volume();
-                        }
-                        return volumeOnLevel;
-                    }())},
-                allocator);
+                "volume", rapidjson::Value{taosim::util::decimal2double(level.volume())}, allocator);
         };
 
         rapidjson::Value bidsJson{rapidjson::kArrayType};

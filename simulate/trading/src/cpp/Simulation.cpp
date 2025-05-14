@@ -512,7 +512,9 @@ std::unique_ptr<Simulation> Simulation::fromCheckpoint(const fs::path& path)
     simulation->exchange()->retainRecord(json["retainRecord"].GetBool());
     simulation->m_state = SimulationState{json["state"].GetUint()};
     simulation->exchange()->m_bookProcessManager = BookProcessManager::fromCheckpoint(
-        json["processManager"], simulation.get());
+        json["processManager"],
+        simulation.get(),
+        const_cast<taosim::exchange::ExchangeConfig*>(&simulation->exchange()->config2()));
 
     // Replace log files with those from the checkpoint.
     fmt::println("Aligning Logs with Checkpoint..");
@@ -559,20 +561,22 @@ void Simulation::configureAgents(pugi::xml_node node)
             }
             if (m_exchange->accounts().agentTypeAccountTemplates().contains(agentType)) return;
             if (pugi::xml_node balancesNode = agentNode.child("Balances")) {
+                auto doc = std::make_shared<pugi::xml_document>();
+                doc->append_copy(balancesNode);
                 m_exchange->accounts().setAccountTemplate(
                     agentType,
-                    taosim::accounting::Account{
-                        static_cast<uint32_t>(m_exchange->books().size()),
-                        taosim::accounting::Balances{
-                            taosim::accounting::Balance::fromXML(
-                                balancesNode.child("Base"),
-                                m_exchange->config().parameters().baseIncrementDecimals),
-                            taosim::accounting::Balance::fromXML(
-                                balancesNode.child("Quote"),
-                                m_exchange->config().parameters().quoteIncrementDecimals),
-                            m_exchange->config().parameters().baseIncrementDecimals,
-                            m_exchange->config().parameters().quoteIncrementDecimals
-                        }});
+                    [=, this] -> taosim::accounting::Account {
+                        const auto& params = m_exchange->config().parameters();
+                        return taosim::accounting::Account{
+                            static_cast<uint32_t>(m_exchange->books().size()),
+                            taosim::accounting::Balances::fromXML(
+                                doc->child("Balances"),
+                                taosim::accounting::RoundParams{
+                                    .baseDecimals = params.baseIncrementDecimals,
+                                    .quoteDecimals = params.quoteIncrementDecimals
+                                })
+                            };
+                    });
             }
         });
 
@@ -676,25 +680,39 @@ void Simulation::configureId(pugi::xml_node node)
         date::make_zoned(date::current_zone(), std::chrono::system_clock::now()));
     const std::string duration = node.attribute("duration").as_string();
     const std::string books = getAttr(agentsNode, "MultiBookExchangeAgent/Books", "instanceCount");
-    const std::string baseBalance = getAttr(agentsNode, "MultiBookExchangeAgent/Balances/Base", "total");
-    const std::string quoteBalance = getAttr(agentsNode, "MultiBookExchangeAgent/Balances/Quote", "total");
+
+    const auto balances = [&] -> std::string {
+        try {
+            return fmt::format(
+                "{}_{}",
+                getAttr(agentsNode, "MultiBookExchangeAgent/Balances/Base", "total"),
+                getAttr(agentsNode, "MultiBookExchangeAgent/Balances/Quote", "total"));
+        }
+        catch (...) {
+            return fmt::format(
+                "{}_{}",
+                getAttr(agentsNode, "MultiBookExchangeAgent/Balances", "type"),
+                getAttr(agentsNode, "MultiBookExchangeAgent/Balances", "wealth"));
+        }
+    }();
+
     const std::string priceDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "priceDecimals");
     const std::string volumeDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "volumeDecimals");
     const std::string baseDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "baseDecimals");
     const std::string quoteDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "quoteDecimals");
     const std::string iCount = getAttr(agentsNode, "InitializationAgent", "instanceCount");
-    const std::string iPrice = getAttr(agentsNode, "InitializationAgent", "price");
+    const std::string iPrice = getAttr(agentsNode, "MultiBookExchangeAgent", "initialPrice");
     const std::string fWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaF");
     const std::string cWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaC");
     const std::string nWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaN");
-    const std::string priceF0 = getAttr(agentsNode, "StylizedTraderAgent", "priceF0");
+
     const std::string tau = getAttr(agentsNode, "StylizedTraderAgent", "tau");
     const std::string sigmaEps = getAttr(agentsNode, "StylizedTraderAgent", "sigmaEps");
     const std::string riskAversion = getAttr(agentsNode, "StylizedTraderAgent", "r_aversion");
     m_id = fmt::format(
-        "{}-{}-{}-{}_{}-i{}_p{}-f{}_c{}_n{}_pf{}_t{}_s{}_r{}_d{}_v{}_b{}_q{}",
-        dt, duration, books, baseBalance, quoteBalance, iCount, iPrice, fWeight, cWeight, nWeight,
-        priceF0, tau, sigmaEps, riskAversion, priceDecimals, volumeDecimals, baseDecimals, quoteDecimals);
+        "{}-{}-{}-{}-i{}_p{}-f{}_c{}_n{}_t{}_s{}_r{}_d{}_v{}_b{}_q{}",
+        dt, duration, books, balances, iCount, iPrice, fWeight, cWeight, nWeight,
+        tau, sigmaEps, riskAversion, priceDecimals, volumeDecimals, baseDecimals, quoteDecimals);
 }
 
 //-------------------------------------------------------------------------

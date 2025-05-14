@@ -73,15 +73,43 @@ def add_im_validator_args(cls, parser):
     )
 
     parser.add_argument(
+        "--scoring.sharpe.normalization_min",
+        type=float,
+        help="Sharpe values are normalized to fall within a range so as to produce non-negative value and facilitate scoring calculations.  This is the minimum value in the normalization range.",
+        default=-10.0,
+    )
+
+    parser.add_argument(
+        "--scoring.sharpe.normalization_max",
+        type=float,
+        help="Sharpe values are normalized to fall within a range so as to produce non-negative value and facilitate scoring calculations.  This is the maximum value in the normalization range.",
+        default=10.0,
+    )
+    
+    parser.add_argument(
+        "--scoring.activity.trade_volume_assessment_period",
+        type=int,
+        help="The period in simulation timesteps over which agent trading volumes are aggregated when evaluating activity.",
+        default=86400_000_000_000,
+    )
+
+    parser.add_argument(
+        "--scoring.activity.capital_turnover_rate",
+        type=float,
+        help="The number of times within each `trade_volume_assessment_period` that miner agents must trade the equivalent in volume to their initial capital allocation value in order to receive full rewards for their risk-adjusted performance.",
+        default=1.0,
+    )
+
+    parser.add_argument(
         "--scoring.max_delay",
         type=int,
         help="Maximum simulation timestamp delay to be applied to miner responses.",
-        default=500000000,
+        default=500_000_000,
     )
 
     parser.add_argument(
         "--scoring.min_delay",
         type=int,
         help="Maximum simulation timestamp delay to be applied to miner responses.",
-        default=10000000,
+        default=10_000_000,
     )

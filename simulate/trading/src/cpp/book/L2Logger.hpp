@@ -34,8 +34,8 @@ public:
     [[nodiscard]] const fs::path& filepath() const noexcept;
 
 private:
-    void log(Entry entry);
-    [[nodiscard]] std::string formatEntryAS(Entry entry) const noexcept;
+    void log(const Book* book);
+    [[nodiscard]] std::string createEntryAS(const Book* book) const noexcept;
 
     std::unique_ptr<spdlog::logger> m_logger;
     fs::path m_filepath;

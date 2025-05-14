@@ -25,6 +25,9 @@ echo "HOTKEY_NAME: $HOTKEY_NAME"
 echo "NETUID: $NETUID"
 echo "CHECKPOINT: $CHECKPOINT"
 
+pm2 delete simulator validator
+tmux kill-session -t taos
+
 git pull
 pip install -e .
 echo "Starting Validator"

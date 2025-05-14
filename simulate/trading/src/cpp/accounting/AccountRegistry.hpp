@@ -26,21 +26,6 @@ public:
     [[nodiscard]] Account& at(const std::variant<AgentId, LocalAgentId>& agentId);
     [[nodiscard]] Account& operator[](const std::variant<AgentId, LocalAgentId>& agentId);
 
-    [[nodiscard]] auto&& at(this auto&& self, const std::variant<AgentId, LocalAgentId>& agentId)
-    {
-        return std::visit(
-            [&](auto&& agentId) -> decltype(auto) {
-                using T = std::remove_cvref_t<decltype(agentId)>;
-                if constexpr (std::same_as<T, AgentId>) {
-                    return std::forward_like<decltype(self)>(self.m_underlying.at(agentId));
-                } else {
-                    return std::forward_like<decltype(self)>(
-                        self.m_underlying.at(self.m_idBimap.left.at(agentId)));
-                }
-            },
-            agentId);
-    }
-
     [[nodiscard]] decltype(auto) begin(this auto&& self) { return self.m_underlying.begin(); }
     [[nodiscard]] decltype(auto) end(this auto&& self) { return self.m_underlying.end(); }
     
@@ -56,6 +41,7 @@ public:
     [[nodiscard]] const boost::bimap<LocalAgentId, AgentId>& idBimap() const noexcept;
     [[nodiscard]] const ContainerType& accounts() const noexcept;
     [[nodiscard]] AgentId getAgentId(const std::variant<AgentId, LocalAgentId>& agentId) const;
+    [[nodiscard]] const Account& accountTemplate() const noexcept { return m_accountTemplate; }
 
     [[nodiscard]] auto&& agentTypeAccountTemplates(this auto&& self) noexcept
     {
@@ -63,7 +49,7 @@ public:
     }
 
     void setAccountTemplate(Account account) noexcept;
-    void setAccountTemplate(const std::string& agentType, Account account) noexcept;
+    void setAccountTemplate(const std::string& agentType, std::function<Account()> factory) noexcept;
     void reset(AgentId agentId);
 
     virtual void jsonSerialize(
@@ -78,7 +64,7 @@ private:
 
     ContainerType m_underlying;
     Account m_accountTemplate;
-    std::map<std::string, Account> m_agentTypeAccountTemplates;
+    std::map<std::string, std::function<Account()>> m_agentTypeAccountTemplates;
     boost::bimap<LocalAgentId, AgentId> m_idBimap;
 
     friend class Simulation;

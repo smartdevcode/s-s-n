@@ -13,6 +13,10 @@
 
 //-------------------------------------------------------------------------
 
+class OrderContainer;
+
+//-------------------------------------------------------------------------
+
 class TickContainer
     : public std::list<LimitOrder::Ptr>,
       public JsonSerializable,
@@ -21,13 +25,14 @@ class TickContainer
 public:
     using ContainerType = std::list<value_type>;
 
-    TickContainer(taosim::decimal_t price) noexcept : list{}, m_price{price} {}
+    TickContainer(OrderContainer* orderContainer, taosim::decimal_t price) noexcept;
 
     [[nodiscard]] taosim::decimal_t price() const noexcept { return m_price; }
     [[nodiscard]] taosim::decimal_t volume() const noexcept { return m_volume; }
 
-    void updateVolume(taosim::decimal_t deltaVolume) noexcept { m_volume += deltaVolume; }
+    void updateVolume(taosim::decimal_t deltaVolume) noexcept;
 
+    // TODO: Remove.
     [[nodiscard]] taosim::decimal_t totalVolume() const noexcept
     {
         taosim::decimal_t volume{};
@@ -38,13 +43,9 @@ public:
     };
 
     bool operator<(const TickContainer& rhs) const noexcept { return m_price < rhs.price(); }
+    bool operator<(taosim::decimal_t price) const noexcept { return m_price < price; }
 
-    void push_back(auto&& elem)
-    {
-        ContainerType::push_back(std::forward<decltype(elem)>(elem));
-        m_volume += elem->totalVolume();
-    }
-
+    void push_back(const value_type& elem);
     void pop_front();
 
     virtual void jsonSerialize(
@@ -52,9 +53,8 @@ public:
     virtual void checkpointSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
 
-    [[nodiscard]] static TickContainer fromJson(const rapidjson::Value& json);
-
 private:
+    OrderContainer* m_orderContainer;
     taosim::decimal_t m_price;
     taosim::decimal_t m_volume{};
 };

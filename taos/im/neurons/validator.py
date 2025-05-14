@@ -242,7 +242,7 @@ class Validator(BaseValidatorNeuron):
             return validator_py_files_changed, simulator_config_changed, simulator_py_files_changed, simulator_cpp_files_changed
         except Exception as ex:
             traceback.print_exc()
-            bt.logging.error(f"Failed to update repo : {ex}")
+            self.pagerduty_alert(f"Failed to update repo : {ex}", details={"traceback" : traceback.format_exc()})
             return False, False
 
     def update_validator(self) -> None:
@@ -343,7 +343,7 @@ class Validator(BaseValidatorNeuron):
             if self.check_simulator():
                 bt.logging.success("SIMULATOR RESTART SUCCESSFUL.")
             else:
-                bt.logging.error("FAILED TO RESTART SIMULATOR!  NOT FOUND IN PM2 AFTER RESTART.")                
+                self.pagerduty_alert("FAILED TO RESTART SIMULATOR!  NOT FOUND IN PM2 AFTER RESTART.")
         else:
             raise Exception(f"FAILED TO RESTART SIMULATOR:\nSTDOUT : {simulator.stdout}\nSTDERR : {simulator.stderr}")
 
@@ -358,8 +358,8 @@ class Validator(BaseValidatorNeuron):
             pm2_js = json.loads(pm2_json) if pm2_json else []
             pm2_processes = {p['name'] : p for p in pm2_js}
             if 'simulator' in pm2_processes:
-                if pm2_processes['simulator']['pm2_env']['status'] != 'online':                
-                    bt.logging.error(f"Simulator process (PM2) has stopped!")
+                if pm2_processes['simulator']['pm2_env']['status'] != 'online':
+                    self.pagerduty_alert(f"Simulator process (PM2) has stopped!")
                     return False
                 else: 
                     return True
@@ -369,7 +369,7 @@ class Validator(BaseValidatorNeuron):
                     if '../build/src/cpp/taosim' in ' '.join(proc.cmdline()):
                         found = True
                 if not found:
-                    bt.logging.error(f"Simulator process (No PM2) has stopped!")
+                    self.pagerduty_alert(f"Simulator process (No PM2) has stopped!")
                     return False
                 else: 
                     return True
@@ -377,119 +377,128 @@ class Validator(BaseValidatorNeuron):
 
     def save_state(self) -> None:
         """Saves the state of the validator to a file."""
-        bt.logging.trace("Saving validator state.")
-
+        bt.logging.info("Saving simulation state...")
         # Save the state of the validator to file.
         torch.save(
             {
-                "step": self.step,
                 "start_time": self.start_time,
                 "start_timestamp": self.start_timestamp,
                 "step_rates": self.step_rates,
-                "scores": self.scores,
-                "hotkeys": self.hotkeys,
-                "sharpe_values": self.sharpe_values,
-                "unnormalized_scores": self.unnormalized_scores,
-                "inventory_history": self.inventory_history,
                 "recent_trades": self.recent_trades,
+                "recent_miner_trades": self.recent_miner_trades,
                 "pending_notices": self.pending_notices,
                 "simulation.logDir": self.simulation.logDir,
-                "fundamental_price": self.fundamental_price,
-                "trades" : self.trades,
+                "fundamental_price": self.fundamental_price
             },
-            self.state_file,
+            self.simulation_state_file,
         )
+        bt.logging.success(f"Simulation state saved to {self.simulation_state_file}")
+        bt.logging.info("Saving validator state...")
+        torch.save(
+            {
+                "step": self.step,
+                "hotkeys": self.hotkeys,
+                "scores": self.scores,
+                "activity_factors": self.activity_factors,
+                "inventory_history": self.inventory_history,
+                "sharpe_values": self.sharpe_values,
+                "unnormalized_scores": self.unnormalized_scores,
+                "trade_volumes" : self.trade_volumes,
+            },
+            self.validator_state_file,
+        )
+        bt.logging.success(f"Validator state saved to {self.validator_state_file}")
 
     def load_state(self) -> None:
         """Loads the state of the validator from a file."""
-        if not self.config.neuron.reset and os.path.exists(self.state_file):
-            bt.logging.info(f"Loading validator state from {self.state_file}.")
-            state = torch.load(self.state_file, weights_only=False)
-            self.step = state["step"]
-            self.start_time = state["start_time"]
-            self.start_timestamp = state["start_timestamp"]
-            self.step_rates = state["step_rates"]
-            self.scores = state["scores"]
-            self.hotkeys = state["hotkeys"]
-            self.pending_notices = state["pending_notices"]
-            self.sharpe_values = state["sharpe_values"]
-            self.unnormalized_scores = state["unnormalized_scores"]
-            self.inventory_history = state["inventory_history"]
-            self.recent_trades = state["recent_trades"]
-            self.simulation.logDir = state["simulation.logDir"]
-            self.fundamental_price = state["fundamental_price"]
-            self.trades = state["trades"] if "trades" in state else {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
-        else:
-            # If no state exists or the neuron.reset flag is set, re-initialize the validator state
-            if self.config.neuron.reset and os.path.exists(self.state_file):
-                bt.logging.warning(f"`neuron.reset is True, ignoring previous state info at {self.state_file}.")
+        if not self.config.neuron.reset:
+            if os.path.exists(self.simulation_state_file):
+                bt.logging.info(f"Loading simulation state variables from {self.simulation_state_file}...")
+                simulation_state = torch.load(self.simulation_state_file, weights_only=False)
+                self.start_time = simulation_state["start_time"]
+                self.start_timestamp = simulation_state["start_timestamp"]
+                self.step_rates = simulation_state["step_rates"]
+                self.pending_notices = simulation_state["pending_notices"]
+                self.recent_trades = simulation_state["recent_trades"]
+                self.recent_miner_trades = simulation_state["recent_miner_trades"] if "recent_miner_trades" in simulation_state else {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+                self.simulation.logDir = simulation_state["simulation.logDir"]
+                self.fundamental_price = simulation_state["fundamental_price"]
+                # self.inventory_history = simulation_state["inventory_history"] if "inventory_history" in simulation_state else {uid : {} for uid in range(self.subnet_info.max_uids)}
+                bt.logging.success(f"Loaded simulation state.")
             else:
-                bt.logging.info(f"No previous state information at {self.state_file}, initializing new state.")
-            self.pending_notices = {uid : [] for uid in range(self.subnet_info.max_uids)}
-            self.sharpe_values = {uid :
-                {
-                    'books' : {
-                        bookId : 0.0 for bookId in range(self.simulation.book_count)
-                    },
-                    'total' : 0.0
-                } for uid in range(self.subnet_info.max_uids)
-            }
-            self.unnormalized_scores = {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
-            self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
-            self.recent_trades = {bookId : [] for bookId in range(self.simulation.book_count)}
-            self.fundamental_price = {bookId : None for bookId in range(self.simulation.book_count)}
-            self.trades = {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+                # If no state exists or the neuron.reset flag is set, re-initialize the simulation state
+                if self.config.neuron.reset and os.path.exists(self.simulation_state_file):
+                    bt.logging.warning(f"`neuron.reset is True, ignoring previous state info at {self.simulation_state_file}.")
+                else:
+                    bt.logging.info(f"No previous state information at {self.simulation_state_file}, initializing new simulation state.")
+                self.pending_notices = {uid : [] for uid in range(self.subnet_info.max_uids)}
+                self.recent_trades = {bookId : [] for bookId in range(self.simulation.book_count)}
+                self.recent_miner_trades = {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+                self.fundamental_price = {bookId : None for bookId in range(self.simulation.book_count)}
+                # self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
+                
+            if os.path.exists(self.validator_state_file):
+                bt.logging.info(f"Loading validator state variables from {self.validator_state_file}...")  
+                validator_state = torch.load(self.validator_state_file, weights_only=False)                      
+                self.step = validator_state["step"]
+                self.hotkeys = validator_state["hotkeys"]
+                self.scores = validator_state["scores"]
+                self.activity_factors = validator_state["activity_factors"] if "activity_factors" in validator_state else {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
+                self.inventory_history = validator_state["inventory_history"] if "inventory_history" in validator_state else {uid : {} for uid in range(self.subnet_info.max_uids)}
+                for uid in self.inventory_history:
+                    for timestamp in self.inventory_history[uid]:
+                        if len(self.inventory_history[uid][timestamp]) < self.simulation.book_count:
+                            for bookId in range(len(self.inventory_history[uid][timestamp]),self.simulation.book_count):
+                                self.inventory_history[uid][timestamp][bookId] = 0.0
+                        if len(self.inventory_history[uid][timestamp]) > self.simulation.book_count:
+                            self.inventory_history[uid][timestamp] = {k : v for k, v in self.inventory_history[uid][timestamp].items() if k < self.simulation.book_count}                
+                self.sharpe_values = validator_state["sharpe_values"]
+                for uid in self.sharpe_values:
+                    if len(self.sharpe_values[uid]['books']) < self.simulation.book_count:
+                        for bookId in range(len(self.sharpe_values[uid]['books']),self.simulation.book_count):
+                            self.sharpe_values[uid]['books'][bookId] = 0.0
+                    if len(self.sharpe_values[uid]['books']) > self.simulation.book_count:
+                        self.sharpe_values[uid]['books'] = {k : v for k, v in self.sharpe_values[uid]['books'].items() if k < self.simulation.book_count}
+                self.unnormalized_scores = validator_state["unnormalized_scores"]
+                self.trade_volumes = validator_state["trade_volumes"] if "trade_volumes" in validator_state else {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+                for uid in self.trade_volumes:
+                    if len(self.trade_volumes[uid]) < self.simulation.book_count:
+                        for bookId in range(len(self.trade_volumes[uid]),self.simulation.book_count):
+                            self.trade_volumes[uid][bookId] = {}
+                    if len(self.trade_volumes[uid]) > self.simulation.book_count:
+                        self.trade_volumes[uid] = {k : v for k, v in self.trade_volumes[uid].items() if k < self.simulation.book_count}
+                bt.logging.success(f"Loaded validator state.")
+            else:           
+                # If no state exists or the neuron.reset flag is set, re-initialize the validator state
+                if self.config.neuron.reset and os.path.exists(self.validator_state_file):
+                    bt.logging.warning(f"`neuron.reset is True, ignoring previous state info at {self.validator_state_file}.")
+                else:
+                    bt.logging.info(f"No previous state information at {self.validator_state_file}, initializing new simulation state.") 
+                self.activity_factors = {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
+                self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
+                self.sharpe_values = {uid :
+                    {
+                        'books' : {
+                            bookId : 0.0 for bookId in range(self.simulation.book_count)
+                        },
+                        'total' : 0.0,
+                        'average' : 0.0,
+                        'normalized_average' : 0.0,
+                        'normalized_total' : 0.0
+                    } for uid in range(self.subnet_info.max_uids)
+                }
+                self.unnormalized_scores = {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
+                self.trade_volumes = {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
 
     def load_simulation_config(self) -> None:
         """
         Reads elements from the config XML to populate the simulation config class object.
         """
         self.xml_config = ET.parse(self.config.simulation.xml_config).getroot()
-        Init_config = self.xml_config.find('Agents').find('InitializationAgent')
-        STA_config = self.xml_config.find('Agents').find('StylizedTraderAgent')
-        HFT_config = self.xml_config.find('Agents').find('HighFrequencyTraderAgent')
-        self.simulation = MarketSimulationConfig(
-            time_unit = str(self.xml_config.attrib['timescale']),
-            duration = int(self.xml_config.attrib['duration']),
-            grace_period = int(self.xml_config.find('Agents').find('MultiBookExchangeAgent').attrib['gracePeriod']),
-            publish_interval = int(self.xml_config.attrib['step']),
-
-            book_count = int(self.xml_config.find('Agents').find('MultiBookExchangeAgent').find('Books').attrib['instanceCount']),
-            book_levels = int(self.xml_config.find('Agents').find('MultiBookExchangeAgent').find('Books').attrib['maxDepth']),
-
-            start_base_balance = float(self.xml_config.find('Agents').find('MultiBookExchangeAgent').find('Balances').find('Base').attrib['total']),
-            start_quote_balance = float(self.xml_config.find('Agents').find('MultiBookExchangeAgent').find('Balances').find('Quote').attrib['total']),
-            baseDecimals = int(self.xml_config.find('Agents').find('MultiBookExchangeAgent').attrib['baseDecimals']),
-            quoteDecimals = int(self.xml_config.find('Agents').find('MultiBookExchangeAgent').attrib['quoteDecimals']),
-            priceDecimals = int(self.xml_config.find('Agents').find('MultiBookExchangeAgent').attrib['priceDecimals']),
-            volumeDecimals = int(self.xml_config.find('Agents').find('MultiBookExchangeAgent').attrib['volumeDecimals']),
-
-            init_agent_count = int(Init_config.attrib['instanceCount']),
-            init_price = int(Init_config.attrib['price']),
-
-            fp_GBM_mu = float(STA_config.attrib['GBM_mu']),
-            fp_GBM_sigma = float(STA_config.attrib['GBM_sigma']),
-            fp_GBM_lambda_jump = float(STA_config.attrib['GBM_lambda_jump']),
-            fp_GBM_mu_jump = float(STA_config.attrib['GBM_mu_jump']),
-            fp_GBM_sigma_jump = float(STA_config.attrib['GBM_sigma_jump']),
-            fp_GBM_flag_jump = int(STA_config.attrib['GBM_flag_jump']),
-            fp_GBM_seed = int(STA_config.attrib['GBM_seed']),
-
-            sta_agent_count = int(STA_config.attrib['instanceCount']),
-            sta_noise_agent_weight = float(STA_config.attrib['sigmaN']),
-            sta_chartist_agent_weight = float(STA_config.attrib['sigmaC']),
-            sta_fundamentalist_agent_weight = float(STA_config.attrib['sigmaF']),
-            sta_tau = int(STA_config.attrib['tau']),
-            sta_sigmaEps = float(STA_config.attrib['sigmaEps']),
-            sta_r_aversion = float(STA_config.attrib['r_aversion']),
-
-            hft_agent_count = int(HFT_config.attrib['instanceCount'] if HFT_config else 0),
-            hft_tau = int(HFT_config.attrib['tau']) if HFT_config else None,
-            hft_delta = int(HFT_config.attrib['delta']) if HFT_config else None,
-            hft_psiHFT = float(HFT_config.attrib['psiHFT_constant']) if HFT_config else None,
-            hft_gHFT = float(HFT_config.attrib['gHFT']) if HFT_config else None
-        )
-        self.state_file = self.config.neuron.full_path + f"/{self.simulation.label()}.pt"
+        self.simulation = MarketSimulationConfig.from_xml(self.xml_config)
+        self.validator_state_file = self.config.neuron.full_path + f"/validator.pt"
+        self.simulation_state_file = self.config.neuron.full_path + f"/{self.simulation.label()}.pt"
+        self.load_state()
 
     def __init__(self, config=None) -> None:
         """
@@ -501,10 +510,13 @@ class Validator(BaseValidatorNeuron):
         if not os.path.exists(self.config.simulation.xml_config):
             raise Exception(f"Simulator config does not exist at {self.config.simulation.xml_config}!")
         self.simulator_config_file = os.path.realpath(Path(self.config.simulation.xml_config))
+        
+        # Initialize subnet info and other basic validator/simulation properties
+        self.subnet_info = self.subtensor.get_metagraph_info(self.config.netuid)
+        self.last_state = None
+        self.simulation_timestamp = 0
+        self.reward_weights = {"sharpe" : 1.0}
         self.load_simulation_config()
-        self.repo_path = Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent
-        if self.config.neuron.reset or not os.path.exists(self.state_file):
-            self.update_repo()
         self.start_time = None
         self.start_timestamp = None
         self.last_state_time = None
@@ -515,13 +527,10 @@ class Validator(BaseValidatorNeuron):
         self.router = APIRouter()
         self.router.add_api_route("/orderbook", self.orderbook, methods=["GET"])
         self.router.add_api_route("/account", self.account, methods=["GET"])
-        # Initialize subnet info and other basic validator/simulation properties
-        self.subnet_info = self.subtensor.get_metagraph_info(self.config.netuid)
-        self.last_state = None
-        self.simulation_timestamp = 0
-        self.reward_weights = {"sharpe" : 1.0}
 
-        self.load_state()
+        self.repo_path = Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent
+        if self.config.neuron.reset or not os.path.exists(self.simulation_state_file) or not os.path.exists(self.validator_state_file):
+            self.update_repo()
 
         self.miner_stats = {uid : {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []} for uid in range(self.subnet_info.max_uids)}
         init_metrics(self)
@@ -534,11 +543,11 @@ class Validator(BaseValidatorNeuron):
         """
         bt.logging.info("-"*40)
         bt.logging.info("SIMULATION STARTED")
-        self.trades = {uid : {bookId : {prev_time - self.simulation_timestamp : volume for prev_time, volume in self.trades[uid][bookId].items()} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+        self.load_simulation_config()
+        self.trade_volumes = {uid : {bookId : {prev_time - self.simulation_timestamp : volume for prev_time, volume in self.trade_volumes[uid][bookId].items()} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
         self.start_time = time.time()
         self.simulation_timestamp = timestamp
         self.start_timestamp = self.simulation_timestamp
-        self.load_simulation_config()
         self.last_state_time = None
         self.step_rates = []
         self.simulation.logDir = event.logDir
@@ -550,6 +559,7 @@ class Validator(BaseValidatorNeuron):
         df_fp.set_index('Timestamp')
         self.fundamental_price = {bookId : df_fp[str(bookId)].to_dict() for bookId in range(self.simulation.book_count)}
         self.recent_trades = {bookId : [] for bookId in range(self.simulation.book_count)}
+        self.recent_miner_trades = {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
         self.save_state()
 
     def onEnd(self) -> None:
@@ -569,16 +579,21 @@ class Validator(BaseValidatorNeuron):
         Triggered on deregistration of a UID.
         Zeroes scores and flags the UID for resetting of account state in simulator.
         """
-        self.sharpe_values[uid] = {
-            'books' : {
-                bookId : 0.0 for bookId in range(self.simulation.book_count)
-            },
-            'total' : 0.0
+        self.sharpe_values = {uid :
+            {
+                'books' : {
+                    bookId : 0.0 for bookId in range(self.simulation.book_count)
+                },
+                'total' : 0.0,
+                'average' : 0.0,
+                'normalized_average' : 0.0,
+                'normalized_total' : 0.0
+            } for uid in range(self.subnet_info.max_uids)
         }
         self.unnormalized_scores[uid] = 0.0
         self.inventory_history[uid] = {}
         self.deregistered_uids.append(uid)
-        self.trades[uid] = {bookId : {} for bookId in range(self.simulation.book_count)}
+        self.trade_volumes[uid] = {bookId : {} for bookId in range(self.simulation.book_count)}
         bt.logging.debug(f"UID {uid} Deregistered - Scheduled for reset.")
 
     def report(self) -> None:
@@ -625,10 +640,11 @@ class Validator(BaseValidatorNeuron):
             if notice.type == "RESPONSE_DISTRIBUTED_RESET_AGENT" or notice.type == "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT":
                 for reset in notice.resets:
                     if reset.success:
-                        bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")                        
-                        self.deregistered_uids.remove(reset.agentId)
+                        bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")     
+                        if reset.agentId in self.deregistered_uids:
+                            self.deregistered_uids.remove(reset.agentId)
                     else:
-                        bt.logging.error(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
+                        self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
         while self.reporting:
             bt.logging.debug(f"Waiting for reporting to complete...")
             time.sleep(1)

@@ -4,7 +4,9 @@
  */
 #include "L2Logger.hpp"
 
+#include "Book.hpp"
 #include "Simulation.hpp"
+#include "common.hpp"
 
 #include <fmt/chrono.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -20,7 +22,7 @@ L2Logger::L2Logger(
     : m_filepath{filepath},
       m_depth{std::max(depth, 1u)},
       m_startTimePoint{startTimePoint},
-      m_feed{signals.L2.connect([this](Entry entry) { log(entry); })},
+      m_feed{signals.L2.connect([this](const Book* book) { log(book); })},
       m_simulation{simulation}
 {
     m_logger = std::make_unique<spdlog::logger>(
@@ -39,9 +41,9 @@ const fs::path& L2Logger::filepath() const noexcept
 
 //-------------------------------------------------------------------------
 
-void L2Logger::log(Entry entry)
+void L2Logger::log(const Book* book)
 {
-    std::string newLog = formatEntryAS(entry);
+    std::string newLog = createEntryAS(book);
     if (newLog != "" && newLog != m_lastLog) {
         m_logger->trace(newLog);
         m_logger->flush();
@@ -51,70 +53,50 @@ void L2Logger::log(Entry entry)
 
 //-------------------------------------------------------------------------
 
-std::string L2Logger::formatEntryAS(Entry entry) const noexcept
+std::string L2Logger::createEntryAS(const Book* book) const noexcept
 {
+    if (book->buyQueue().empty() || book->sellQueue().empty()) [[unlikely]] {
+        return {};
+    }
+
     const auto time = m_startTimePoint + m_timeConverter(m_simulation->currentTimestamp());
 
-    //fmt::println("{}", taosim::json::json2str(entry));
     std::stringstream sstrm;
+
     // Date,Time
     sstrm << fmt::format("{:%Y-%m-%d,%H:%M:%S},", time);
     // Symbol,Market
-    const BookId bookId = [this] {
-        BookId bookId{};
-        const char bookIdChar = m_filepath.stem().string().back();
-        std::from_chars(&bookIdChar, &bookIdChar + 1, bookId);
-        return bookId;
-    }();
-    sstrm << fmt::format("S{:0{}}-SIMU,RAYX,", bookId, 3);
+    sstrm << fmt::format("S{:0{}}-SIMU,RAYX,", book->id(), 3);
     // BidVol,BidPrice,AskVol,AskPrice
-    if (!entry["bid"].IsNull() && entry["bid"].GetArray().Size() > 0) {
-        sstrm << fmt::format(
-            "{},{},",
-            entry["bid"][0]["volume"].GetDouble(),
-            entry["bid"][0]["price"].GetDouble());
-    } else {
-        return "";
-    }
-    if (!entry["ask"].IsNull() && entry["ask"].GetArray().Size() > 0) {
-        sstrm << fmt::format(
-            "{},{},",
-            entry["ask"][0]["volume"].GetDouble(),
-            entry["ask"][0]["price"].GetDouble());
-    } else {
-        return "";
-    }
+    sstrm << fmt::format(
+        "{},{},",
+        book->buyQueue().back().volume(),
+        book->buyQueue().back().price());
+    sstrm << fmt::format(
+        "{},{},",
+        book->sellQueue().front().volume(),
+        book->sellQueue().front().price());
     // QuoteCondition,Time,EndTime (legacy)
     sstrm << ",,,";
     // BidLevels,AskLevels
-    auto serializeLevels = [&](const char* side) -> std::string {
-        if (entry[side].IsNull()) return {};
-        const auto& levels = entry[side].GetArray();
-        std::stringstream ss;
-        if (std::string_view{side} == "bid") {
-            const auto& level = levels[std::min(m_depth,levels.Size()) - 1];
-            ss << fmt::format(
-                "({}@{})", level["volume"].GetDouble(), level["price"].GetDouble());
-            for (int32_t i = static_cast<int32_t>(std::min(m_depth,levels.Size()))-2; i >= 0; --i) {
-                const auto& level = levels[i];
-                ss << fmt::format(
-                    " ({}@{})", level["volume"].GetDouble(), level["price"].GetDouble());
-            }
-        } else {
-            const auto& level = levels[0];
-            ss << fmt::format(
-                "({}@{})", level["volume"].GetDouble(), level["price"].GetDouble());
-            for (int32_t i = 1; i < std::min(levels.Size(), m_depth); ++i) {
-                const auto& level = levels[i];
-                ss << fmt::format(
-                    " ({}@{})", level["volume"].GetDouble(), level["price"].GetDouble());
-            }
+    auto serializeLevels = [&]<std::same_as<OrderDirection> auto Side> -> std::string {
+        auto levelFormatter = [](const auto& level) {
+            return fmt::format("({}@{})", level.volume(), level.price());
+        };
+        if constexpr (Side == OrderDirection::BUY) {
+            auto levels = book->buyQueue() | views::reverse | views::take(m_depth) | views::reverse;
+            return fmt::format(
+                "{},", fmt::join(levels | views::transform(levelFormatter), " "));
         }
-        ss << ",";
-        return ss.str();
+        else {
+            auto levels = book->sellQueue() | views::take(m_depth);
+            return fmt::format(
+                "{},", fmt::join(levels | views::transform(levelFormatter), " "));
+        }
     };
-    sstrm << serializeLevels("bid");
-    sstrm << serializeLevels("ask");
+    sstrm << serializeLevels.operator()<OrderDirection::BUY>();
+    sstrm << serializeLevels.operator()<OrderDirection::SELL>();
+
     return sstrm.str();
 }
 

@@ -7,11 +7,13 @@
 #include "GBM.hpp"
 #include "FundamentalPrice.hpp"
 #include "Simulation.hpp"
+#include "taosim/exchange/ExchangeConfig.hpp"
 
 //-------------------------------------------------------------------------
 
-ProcessFactory::ProcessFactory(Simulation* simulation) noexcept
-    : m_simulation{simulation}
+ProcessFactory::ProcessFactory(
+    Simulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig) noexcept
+    : m_simulation{simulation}, m_exchangeConfig{exchangeConfig}
 {}
 
 //-------------------------------------------------------------------------
@@ -23,7 +25,11 @@ std::unique_ptr<Process> ProcessFactory::createFromXML(pugi::xml_node node, uint
     if (name == "GBM") {
         return GBM::fromXML(node, seedShift);
     } else if (name == "FundamentalPrice") {
-        return FundamentalPrice::fromXML(m_simulation, node, seedShift);
+        return FundamentalPrice::fromXML(
+            m_simulation,
+            node,
+            seedShift,
+            taosim::util::decimal2double(m_exchangeConfig->initialPrice));
     }
 
     throw std::invalid_argument(fmt::format(
@@ -39,7 +45,8 @@ std::unique_ptr<Process> ProcessFactory::createFromCheckpoint(const rapidjson::V
     if (name == "GBM") {
         return GBM::fromCheckpoint(json);
     } else if (name == "FundamentalPrice") {
-        return FundamentalPrice::fromCheckpoint(m_simulation, json);
+        return FundamentalPrice::fromCheckpoint(
+            m_simulation, json, taosim::util::decimal2double(m_exchangeConfig->initialPrice));
     }
 
     throw std::invalid_argument(fmt::format(

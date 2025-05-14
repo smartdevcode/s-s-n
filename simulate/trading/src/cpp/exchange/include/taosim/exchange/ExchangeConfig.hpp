@@ -1,0 +1,31 @@
+#pragma once
+
+#include <pugixml.hpp>
+
+#include <taosim/accounting/common.hpp>
+#include <decimal.hpp>
+
+#include <source_location>
+
+//-------------------------------------------------------------------------
+
+namespace taosim::exchange
+{
+
+struct ExchangeConfig
+{
+    uint32_t priceDecimals;
+    uint32_t volumeDecimals;
+    uint32_t baseDecimals;
+    uint32_t quoteDecimals;
+    decimal_t maxLeverage;
+    decimal_t maxLoan;
+    decimal_t maintenanceMargin;
+    decimal_t initialPrice;
+};
+
+[[nodiscard]] ExchangeConfig makeExchangeConfig(pugi::xml_node node);
+
+}  // namespace taosim::exchange
+
+//-------------------------------------------------------------------------

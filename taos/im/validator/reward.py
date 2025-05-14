@@ -70,43 +70,59 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
     Returns:
     float: The overall Sharpe ratio for the given UID
     """
-    if len(inventory_values) <= 1: return 0.0
-    # Calculate the per-book Sharpe ratio values
-    book_inventory_values = {bookId : np.array([inventory_value[bookId] for inventory_value in inventory_values.values() if bookId in inventory_value]) for bookId in list(inventory_values.values())[-1]}
-    timestamps = list(inventory_values.keys())
-    changeover = [i for i in range(len(timestamps)-1) if timestamps[i+1] < timestamps[i]]
-    for bookId, book_inventory_value in book_inventory_values.items():
-        if len(book_inventory_value) > 1:
-            returns = (book_inventory_value[1:] - book_inventory_value[:-1])
+    try:
+        if len(inventory_values) <= 1: return 0.0
+        # Calculate the per-book Sharpe ratio values
+        book_inventory_values = {bookId : np.array([inventory_value[bookId] for inventory_value in inventory_values.values() if bookId in inventory_value]) for bookId in list(inventory_values.values())[-1]}
+        timestamps = list(inventory_values.keys())
+        changeover = [i for i in range(len(timestamps)-1) if timestamps[i+1] < timestamps[i]]
+        for bookId, book_inventory_value in book_inventory_values.items():
+            if len(book_inventory_value) > 1:
+                returns = (book_inventory_value[1:] - book_inventory_value[:-1])
+                if len(changeover) > 0:
+                    returns = np.delete(returns, changeover)
+                returns = returns[-self.config.scoring.sharpe.lookback:]
+                mean = sum(returns) / len(returns) if len(returns) > 0 else 0.0
+                variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) if len(returns) > 0 else 0.0
+                std = variance ** 0.5
+                sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0
+                self.sharpe_values[uid]['books'][bookId] = sharpe
+            else:
+                self.sharpe_values[uid]['books'][bookId] = sharpe
+        # Calculate the total Sharpe ratio value using inventories summed over all books
+        total_inventory_values = np.array([sum(list(inventory_value.values())) for inventory_value in inventory_values.values()])
+        if len(total_inventory_values) > 1:
+            returns = (total_inventory_values[1:] - total_inventory_values[:-1])
             if len(changeover) > 0:
                 returns = np.delete(returns, changeover)
             returns = returns[-self.config.scoring.sharpe.lookback:]
             mean = sum(returns) / len(returns) if len(returns) > 0 else 0.0
             variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) if len(returns) > 0 else 0.0
             std = variance ** 0.5
-            sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0
-            self.sharpe_values[uid]['books'][bookId] = sharpe
+            total_sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0   
         else:
-            self.sharpe_values[uid]['books'][bookId] = sharpe
-    # Calculate the total Sharpe ratio value using inventories summed over all books
-    total_inventory_values = np.array([sum(list(inventory_value.values())) for inventory_value in inventory_values.values()])
-    if len(total_inventory_values) > 1:
-        returns = (total_inventory_values[1:] - total_inventory_values[:-1])
-        if len(changeover) > 0:
-            returns = np.delete(returns, changeover)
-        returns = returns[-self.config.scoring.sharpe.lookback:]
-        mean = sum(returns) / len(returns) if len(returns) > 0 else 0.0
-        variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) if len(returns) > 0 else 0.0
-        std = variance ** 0.5
-        total_sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0   
-    else:
-        total_sharpe = 0.0
-    self.sharpe_values[uid]['total'] = total_sharpe
-    # Calculate the average Sharpe ratio value over all books
-    all_sharpes = [sharpe for bookId, sharpe in self.sharpe_values[uid]['books'].items()]
-    avg_sharpe = sum(all_sharpes) / len(all_sharpes)
-    normalized_sharpe = (max(min(avg_sharpe, 20),-20) + 20) / 40
-    return normalized_sharpe
+            total_sharpe = 0.0
+        self.sharpe_values[uid]['total'] = total_sharpe
+        # Calculate the average Sharpe ratio value over all books
+        all_sharpes = [sharpe for bookId, sharpe in self.sharpe_values[uid]['books'].items()]
+        avg_sharpe = sum(all_sharpes) / len(all_sharpes)
+        self.sharpe_values[uid]['average'] = avg_sharpe
+        # In order to produce non-zero values for Sharpe ratio of the agent, the result of the usual calculation is normalized to fall within a configured range.
+        # This allows to simply multiply scaling factors onto the resulting score, enabling straighforward zeroing of weights for agents behaving undesirably by other assessments.
+        # This also enforces a cap which eliminates extreme Sharpe values which would be considered unrealistic.
+        normalized_avg_sharpe = (
+            max(min(avg_sharpe, self.config.scoring.sharpe.normalization_max), self.config.scoring.sharpe.normalization_min) \
+                + self.config.scoring.sharpe.normalization_max) / (self.config.scoring.sharpe.normalization_max - self.config.scoring.sharpe.normalization_min)
+        normalized_total_sharpe = (
+            max(min(total_sharpe, self.config.scoring.sharpe.normalization_max), self.config.scoring.sharpe.normalization_min) \
+                + self.config.scoring.sharpe.normalization_max) / (self.config.scoring.sharpe.normalization_max - self.config.scoring.sharpe.normalization_min)
+        self.sharpe_values[uid]['normalized_average'] = normalized_avg_sharpe
+        self.sharpe_values[uid]['normalized_total'] = normalized_total_sharpe
+        return normalized_total_sharpe
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        print(ex)
 
 def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,float]]) -> float:
     """
@@ -139,23 +155,34 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
     """
     # Calculate the current value of the agent's inventory and append to the history array
     if uid in synapse.accounts:
-        self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) for book_id, book in synapse.books.items()}
+        self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.simulation.miner_wealth for book_id, book in synapse.books.items()}
     else:
         self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
-    for book_id, trades in self.trades[uid].items():
-        if trades != {}:
-            if min(trades.keys()) < synapse.timestamp - 86400_000_000_000:
-                self.trades[uid][book_id] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - 86400_000_000_000}
-    for notice in synapse.notices[uid]:
-        if notice.type == 'EVENT_TRADE':
-            if not notice.timestamp in self.trades[uid][notice.bookId]:
-                self.trades[uid][notice.bookId][notice.timestamp] = 0.0
-            self.trades[uid][notice.bookId][notice.timestamp] = round(self.trades[uid][notice.bookId][notice.timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
     # Prune the inventory history
     self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])
     inventory_score = score_inventory_values(self, uid, self.inventory_history[uid])
-    activity_factor = min(1,min([round(sum(self.trades[uid][book_id].values()), self.simulation.volumeDecimals) / round(self.simulation.start_quote_balance + self.simulation.start_base_balance * self.simulation.init_price, self.simulation.volumeDecimals) for book_id in range(self.simulation.book_count)]))
-    return activity_factor * inventory_score
+    # In order to ensure that miner agents must actively respond to validator requests to be scored, as well as to encourage the use of more active strategies by miners,
+    # we multiply the risk-adjusted performance measure by an "activity factor".
+    # This is calculated as a ratio of the agent's trading volume in the last `trade_volume_assessment_period` (defined in simulation timesteps) 
+    # to a configured multiple of the value of the initial capital allocated.
+    # Miners are thus required to turn over their initial portfolio value at least `capital_turnover_rate` times per `trade_volume_assessment_period`, 
+    # otherwise they receive only a fraction of the rewards earned as a result of risk-adjusted performance.
+    for book_id, trades in self.trade_volumes[uid].items():
+        if trades != {}:
+            if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
+                self.trade_volumes[uid][book_id] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
+    for notice in synapse.notices[uid]:
+        if notice.type == 'EVENT_TRADE':
+            if not notice.timestamp in self.trade_volumes[uid][notice.bookId]:
+                self.trade_volumes[uid][notice.bookId][notice.timestamp] = 0.0
+            self.trade_volumes[uid][notice.bookId][notice.timestamp] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+    target_volume = round(self.config.scoring.activity.capital_turnover_rate * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
+    self.activity_factors[uid] = round(
+        min(1.0,
+            min([round(sum(self.trade_volumes[uid][book_id].values()), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
+        )
+        ,6)
+    return self.activity_factors[uid] * inventory_score
 
 def get_rewards(
     self : Validator, synapse : MarketSimulationStateUpdate

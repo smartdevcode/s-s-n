@@ -147,6 +147,23 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
         throw std::invalid_argument{fmt::format(
             "{}: attribute 'period' should be > 0, was {}", ctx, m_period)};
     }
+
+    pugi::xml_attribute attr;
+    if (attr = node.attribute("minOPLatency"); attr.as_ullong() == 0) {
+        throw std::invalid_argument(fmt::format(
+            "{}: attribute 'minOPLatency' should have a value greater than 0", ctx));
+    }
+     m_opLatency.min = attr.as_ullong();
+    if (attr = node.attribute("maxOPLatency"); attr.as_ullong() == 0) {
+        throw std::invalid_argument(fmt::format(
+            "{}: attribute 'maxOPLatency' should have a value greater than 0", ctx));
+    }
+    m_opLatency.max = attr.as_ullong();
+    if (m_opLatency.min >= m_opLatency.max) {
+        throw std::invalid_argument(fmt::format(
+            "{}: minD ({}) should be strictly less maxD ({})", ctx, m_opLatency.min, m_opLatency.max));
+    }
+    m_opLatencyScaleRay = node.attribute("opLatencyScaleRay").as_double();
 }
 
 //-------------------------------------------------------------------------
@@ -240,21 +257,21 @@ void ALGOTraderAgent::tryWakeup(BookId bookId, ALGOTraderState& state)
     // TODO: Advancing an RNG is not thread-safe, should have separate RNGs for each book.
     if (!std::bernoulli_distribution{m_wakeupProb}(*m_rng)) return;
 
-    const auto& baseBalance = simulation()->account(name()).at(bookId).base;
+    const auto& balances =  simulation()->account(name()).at(bookId);
+    const auto& baseBalance = balances.base;
 
     state.direction = std::bernoulli_distribution{m_buyProb}(*m_rng)
         ? OrderDirection::BUY : OrderDirection::SELL;
 
     if (state.direction == OrderDirection::BUY) {
         state.volumeToBeExecuted = util::double2decimal(
-            m_volumeDistribution->sample(*m_rng),
-            baseBalance.getRoundingDecimals());
+            m_volumeDistribution->sample(*m_rng), balances.m_baseDecimals);
     }
     else {
         state.volumeToBeExecuted = std::min(
             util::double2decimal(
                 m_volumeDistribution->sample(*m_rng),
-                baseBalance.getRoundingDecimals()),
+                balances.m_baseDecimals),
             baseBalance.getFree());
         if (state.volumeToBeExecuted == 0_dec) {
             return;
@@ -268,12 +285,12 @@ void ALGOTraderAgent::tryWakeup(BookId bookId, ALGOTraderState& state)
 
 void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 {
-    const auto& baseBalance = simulation()->account(name()).at(bookId).base;
+    const auto& balances = simulation()->account(name()).at(bookId) ;
 
     const decimal_t volumeToExecute = std::min(
         util::round(
             m_volumeProp * state.volumeStats.rollingSum(),
-            baseBalance.getRoundingDecimals()),
+            balances.m_baseDecimals),
         state.volumeToBeExecuted);
 
     simulation()->logDebug(
@@ -281,12 +298,28 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        1,
+        orderPlacementLatency(),
         name(),
         m_exchange,
         "PLACE_ORDER_MARKET",
         MessagePayload::create<PlaceOrderMarketPayload>(
             state.direction, volumeToExecute, bookId));
+}
+
+//-------------------------------------------------------------------------
+
+double ALGOTraderAgent::sampleRayleigh(std::mt19937& gen, double scale) const
+{
+    double u = std::generate_canonical<double, 10>(gen);
+    return scale * std::sqrt(-2.0 * std::log(1.0 - u));
+}
+
+//-------------------------------------------------------------------------
+
+Timestamp ALGOTraderAgent::orderPlacementLatency() const {
+    double raySample = sampleRayleigh(*m_rng, m_opLatencyScaleRay);
+    Timestamp latency = static_cast<Timestamp>(m_opLatency.min + (m_opLatency.max - m_opLatency.min) * raySample);
+    return std::min(latency, m_opLatency.max);
 }
 
 //-------------------------------------------------------------------------

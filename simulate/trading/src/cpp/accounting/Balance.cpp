@@ -17,12 +17,15 @@ Balance::Balance(
     uint32_t roundingDecimals)
     : m_symbol{symbol}, m_roundingDecimals{roundingDecimals}
 {
+    total = util::round(total, m_roundingDecimals);
+
     if (total < 0_dec) {
         throw std::invalid_argument(fmt::format(
             "{}: Initial balance must be non-negative, was {}",
             std::source_location::current().function_name(),
             total));
     }
+
     m_free = total;
     m_total = total;
 }
@@ -127,8 +130,9 @@ decimal_t Balance::makeReservation(OrderID id, decimal_t amount)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
-    if (amount < 0_dec){
-        throw std::invalid_argument(fmt::format("{}: Reservation amount cannot be negative {} | {} ", ctx, amount, *this));
+    if (amount < 0_dec) {
+        throw std::invalid_argument{
+            fmt::format("{}: Reservation amount cannot be negative {} | {} ", ctx, amount, *this)};
     }
 
     amount = roundAmount(amount);
@@ -150,13 +154,10 @@ decimal_t Balance::makeReservation(OrderID id, decimal_t amount)
     if (auto reserved = ranges::accumulate(m_reservations | views::values, 0_dec);
         reserved != m_reserved) {
         throw std::runtime_error{fmt::format(
-            "{}: total reservation {} does not match the sum of reservations {} after makeReservation {} amount for order #{} | {}.",
-            ctx,
-            m_reserved,
-            reserved,
-            amount,
-            id,
-            *this)};
+            "{}: total reservation {} does not match the sum of reservations {} "
+            "after makeReservation {} amount for order #{} | {}.",
+            ctx, m_reserved, reserved,
+            amount, id, *this)};
     }
     return amount;
 }

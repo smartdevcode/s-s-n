@@ -23,6 +23,7 @@
 #include "Order.hpp"
 #include "ClearingManager.hpp"
 #include "SubscriptionRegistry.hpp"
+#include "taosim/exchange/ExchangeConfig.hpp"
 
 #include <set>
 #include <span>
@@ -46,9 +47,10 @@ public:
     [[nodiscard]] ExchangeSignals* signals(BookId bookId);
     [[nodiscard]] Process* process(const std::string& name, BookId bookId);
     [[nodiscard]] taosim::exchange::ClearingManager& clearingManager() noexcept;
-    [[nodiscard]] const taosim::decimal_t getMaintenanceMargin() const noexcept { return m_maintenanceMargin; }
-    [[nodiscard]] const taosim::decimal_t getMaxLeverage() const noexcept { return m_maxLeverage; }
-    [[nodiscard]] const taosim::decimal_t getMaxLoan() const noexcept { return m_maxLoan; }
+    [[nodiscard]] taosim::decimal_t getMaintenanceMargin() const noexcept { return m_config2.maintenanceMargin; }
+    [[nodiscard]] taosim::decimal_t getMaxLeverage() const noexcept { return m_config2.maxLeverage; }
+    [[nodiscard]] taosim::decimal_t getMaxLoan() const noexcept { return m_config2.maxLoan; }
+    [[nodiscard]] const taosim::exchange::ExchangeConfig& config2() const noexcept { return m_config2; }
 
     void publishState();
     void retainRecord(bool flag) noexcept;
@@ -62,7 +64,7 @@ public:
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
 
-    [[nodiscard]] const taosim::config::ExchangeAgentConfig config() const noexcept { return m_config; }
+    [[nodiscard]] const taosim::config::ExchangeAgentConfig& config() const noexcept { return m_config; }
 
 private:
     void handleException();
@@ -101,9 +103,6 @@ private:
     void timeProgressCallback([[maybe_unused]] Timespan timespan);
     
     taosim::decimal_t m_eps;
-    taosim::decimal_t m_maintenanceMargin;
-    taosim::decimal_t m_maxLeverage;
-    taosim::decimal_t m_maxLoan;
     taosim::config::ExchangeAgentConfig m_config;
     std::vector<Book::Ptr> m_books;
     std::map<BookId, std::unique_ptr<ExchangeSignals>> m_signals;
@@ -118,6 +117,7 @@ private:
     std::vector<std::unique_ptr<taosim::accounting::BalanceLogger>> m_balanceLoggers;
     std::unique_ptr<taosim::exchange::ClearingManager> m_clearingManager;
     uint64_t m_marginCallCounter{};
+    taosim::exchange::ExchangeConfig m_config2;
 
     SubscriptionRegistry<LocalAgentId> m_localMarketOrderSubscribers;
     SubscriptionRegistry<LocalAgentId> m_localLimitOrderSubscribers;

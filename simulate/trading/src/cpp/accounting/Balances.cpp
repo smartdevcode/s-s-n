@@ -303,6 +303,32 @@ Balances Balances::fromJson(const rapidjson::Value& json)
 
 //-------------------------------------------------------------------------
 
+Balances Balances::fromXML(pugi::xml_node node, const RoundParams& roundParams)
+{
+    if (std::string_view{node.attribute("type").as_string()} == "pareto") {
+        const auto scale = node.attribute("scale").as_double();
+        const auto shape = node.attribute("shape").as_double();
+        const auto wealth = node.attribute("wealth").as_double();
+        const auto price = node.attribute("price").as_double();
+        const auto symbol = node.attribute("symbol").as_string();
+        std::mt19937 rng{std::random_device{}()};
+        const auto u = std::uniform_real_distribution{0.0, 1.0}(rng);
+        const auto r = scale * std::pow(1.0 - u, -1.0 / shape);
+        return Balances({
+            .base = Balance{
+                decimal_t{1 / (1 + r) * wealth / price}, symbol, roundParams.baseDecimals},
+            .quote = Balance{
+                decimal_t{r / (1 + r) * wealth}, symbol, roundParams.quoteDecimals},
+            .roundParams = roundParams});
+    }
+    return Balances({
+        .base = Balance::fromXML(node.child("Base"), roundParams.baseDecimals),
+        .quote = Balance::fromXML(node.child("Quote"), roundParams.quoteDecimals),
+        .roundParams = roundParams});
+}
+
+//-------------------------------------------------------------------------
+
 std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
     OrderDirection direction, decimal_t amount, decimal_t price)
 {
@@ -310,15 +336,10 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
         Settles the loan based on FIFO by default, unless the marginOrderId is specified
     */
 
-    // for (auto& l: m_loans){
-    //     fmt::println("Current Loans ==> id:{} | amount: {} | collateral({} | {}) | Margin:{}", 
-    //             l.first, l.second.amount(), l.second.collateral().base(), l.second.collateral().quote(), l.second.marginCallPrice());
-    // }
-
     std::vector<std::pair<OrderID, decimal_t>> ids;
 
-    if (m_loans.empty()) 
-        return {};
+    if (m_loans.empty()) return {};
+
     auto it = m_loans.begin();
     while (amount > 0_dec && it != m_loans.end() && !m_loans.empty()) {
         auto& loan = it->second;
@@ -332,7 +353,7 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
             price,
             {.baseDecimals = m_baseDecimals, .quoteDecimals = m_quoteDecimals});            
         amount = roundAmount(amount - settleAmount, loan.direction());
-        if (direction == OrderDirection::BUY){
+        if (direction == OrderDirection::BUY) {
             base.deposit(collateral.base() - settleAmount);
             quote.deposit(collateral.quote());
             m_baseLoan -= settleAmount;
@@ -341,15 +362,10 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
             quote.deposit(collateral.quote() - settleAmount);
             m_quoteLoan -= settleAmount;
         }
-        
-        // fmt::println("#### SETTELED LOAN of {} (remaining={}) in {} and released {} Base + {} Quote as collateral (={} Base | ={} Quote | curPrice:{}) for BUY order #{} with lev {} ({})",
-        //     settleAmount, amount, direction == OrderDirection::BUY ? "BASE" : "QUOTE",
-        //     collateral.base(), collateral.quote(), collateral.valueInQuote(price), collateral.valueInQuote(price),
-        //     price, it->first, loan.leverage(), *this
-        // );
+
         if (loan.amount() == 0_dec) {
             ids.push_back(std::make_pair(it->first, loan.marginCallPrice()));
-            if (getReservationInQuote(it->first, price) == 0_dec){
+            if (getReservationInQuote(it->first, price) == 0_dec) {
                 (direction == OrderDirection::BUY ? m_sellLeverages : m_buyLeverages).erase(it->first);
             }
             it = m_loans.erase(it);
@@ -378,7 +394,7 @@ void Balances::borrow(
     Collateral collateral;
     const decimal_t collateralAmount = roundUpAmount(amount / util::dec1p(leverage), direction);
 
-    if (direction == OrderDirection::BUY){
+    if (direction == OrderDirection::BUY) {
         const auto quoteReserved = quote.getReservation(id).value_or(0_dec);
         if (quoteReserved >= collateralAmount) {
             collateral.quote() = collateralAmount;
@@ -412,13 +428,6 @@ void Balances::borrow(
         }
     }();
 
-    // fmt::println("Freeing {} Base + {} Quote Collateral when borrowing {} in {}",
-    //     collateral.base(),
-    //     collateral.quote(),
-    //     loanAmount,
-    //     direction == OrderDirection::BUY ? "QUOTE" : "BASE"
-    // );
-
     if (collateral.base() > 0_dec) base.voidReservation(id, collateral.base());
     if (collateral.quote() > 0_dec) quote.voidReservation(id, collateral.quote());
 
@@ -436,14 +445,6 @@ void Balances::borrow(
     } else {
         m_loans.insert({id, loan});
     }
-
-    // fmt::println("#### BORROWED LOAN of {} in {} by reserving {} Base + {} Quote as collateral (={} Base | ={} Quote | bestBid:{} | bestAsk:{}) for {} order #{} with lev {} (Margin: {}) | ({})",
-    //     loanAmount, direction == OrderDirection::BUY ? "QUOTE" : "BASE", 
-    //     collateral.base(), collateral.quote(), collateral.valueInBase(bestBid), collateral.valueInQuote(bestAsk), 
-    //     bestBid, bestAsk,
-    //     direction == OrderDirection::BUY ? "BUY" : "SELL", id, leverage, marginCallPrice, *this
-    // );
-    
 
     base.checkConsistency(std::source_location::current());
     quote.checkConsistency(std::source_location::current());

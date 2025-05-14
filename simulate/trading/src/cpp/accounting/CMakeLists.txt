@@ -8,6 +8,7 @@ add_library(accounting STATIC
     Collateral.cpp
     FreeInfo.cpp
     Loan.cpp
+    common.cpp
     margin_utils.cpp
 )
 add_library(taosim::accounting ALIAS accounting)

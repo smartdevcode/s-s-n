@@ -78,6 +78,7 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static Balances fromJson(const rapidjson::Value& json);
+    [[nodiscard]] static Balances fromXML(pugi::xml_node node, const RoundParams& roundParams);
 
 private:
     [[nodiscard]] std::vector<std::pair<OrderID, decimal_t>> settleLoan(

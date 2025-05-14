@@ -54,7 +54,6 @@ INSTANTIATE_TEST_SUITE_P(
         RoundUpTestParams{
             .value = DEC(0.0), .decimalPlaces = 10, .refValue = DEC(0.0)
         },
-        // Rounds "down" with negative numbers, conditional ceil -> floor fixes this if needed.
         RoundUpTestParams{
             .value = DEC(-29358.2416619814), .decimalPlaces = 7, .refValue = DEC(-29358.2416619)
         },

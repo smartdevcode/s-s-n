@@ -50,10 +50,10 @@ Collateral Loan::settle(decimal_t amount, decimal_t price, const RoundParams& ro
             std::source_location::current().function_name(), amount, m_amount)};
     }
 
-    const decimal_t r = amount / m_amount;  //# round
+    const decimal_t r = amount / m_amount;
     m_amount -= amount;
 
-    const decimal_t q1 = m_collateral.base() * price / m_collateral.valueInQuote(price);  //# round
+    const decimal_t q1 = m_collateral.base() * price / m_collateral.valueInQuote(price);
     const decimal_t q2 = util::dec1m(q1);
 
     if (m_direction == OrderDirection::BUY) {
@@ -62,7 +62,7 @@ Collateral Loan::settle(decimal_t amount, decimal_t price, const RoundParams& ro
             : m_collateral.base();
         m_collateral.base() -= baseCollateralToRelease;
         if (r <= q1) {
-            return Collateral({.base = baseCollateralToRelease, .quote={}});
+            return Collateral({.base = baseCollateralToRelease});
         }
         const decimal_t rPrime = r - q1;
         const decimal_t quoteCollateralToRelease =
@@ -79,7 +79,7 @@ Collateral Loan::settle(decimal_t amount, decimal_t price, const RoundParams& ro
             : m_collateral.quote();
         m_collateral.quote() -= quoteCollateralToRelease;
         if (r <= q2) {
-            return Collateral({.base = {}, .quote = quoteCollateralToRelease});
+            return Collateral({.quote = quoteCollateralToRelease});
         }
         const decimal_t rPrime = r - q2;
         const decimal_t baseCollateralToRelease =

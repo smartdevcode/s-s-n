@@ -5,6 +5,7 @@
 #include "BookProcessManager.hpp"
 
 #include "Simulation.hpp"
+#include "taosim/exchange/ExchangeConfig.hpp"
 
 //-------------------------------------------------------------------------
 
@@ -89,7 +90,7 @@ void BookProcessManager::checkpointSerialize(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<BookProcessManager> BookProcessManager::fromXML(
-    pugi::xml_node node, Simulation* simulation)
+    pugi::xml_node node, Simulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -100,7 +101,7 @@ std::unique_ptr<BookProcessManager> BookProcessManager::fromXML(
 
     const uint32_t bookCount = node.attribute("instanceCount").as_uint(1);
 
-    auto processFactory = std::make_unique<ProcessFactory>(simulation);
+    auto processFactory = std::make_unique<ProcessFactory>(simulation, exchangeConfig);
 
     ProcessContainer container;
     LoggerContainer loggers;
@@ -137,9 +138,9 @@ std::unique_ptr<BookProcessManager> BookProcessManager::fromXML(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<BookProcessManager> BookProcessManager::fromCheckpoint(
-    const rapidjson::Value& json, Simulation* simulation)
+    const rapidjson::Value& json, Simulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig)
 {
-    auto processFactory = std::make_unique<ProcessFactory>(simulation);
+    auto processFactory = std::make_unique<ProcessFactory>(simulation, exchangeConfig);
 
     BookProcessManager::ProcessContainer container;
     BookProcessManager::LoggerContainer loggers;

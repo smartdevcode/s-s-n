@@ -84,11 +84,11 @@ void ExchangeAgentConfig::setBaseDecimals(pugi::xml_node node)
     pugi::xml_attribute attr = node.attribute(attrName);
     if (attr.empty()) return;
 
-    if (uint32_t value = attr.as_uint(); value < m_parameters.volumeIncrementDecimals) {
+    if (uint32_t value = attr.as_uint(); value < Parameters::kMinimumVolumeIncrementDecimals) {
         throw ExchangeAgentConfigException{fmt::format(
             "Value of attribute '{}' should be at least {}, was {}",
             attrName,
-            m_parameters.volumeIncrementDecimals,
+            Parameters::kMinimumVolumeIncrementDecimals,
             value)};
     } else {
         m_parameters.baseIncrementDecimals = value;
@@ -105,11 +105,11 @@ void ExchangeAgentConfig::setQuoteDecimals(pugi::xml_node node)
     pugi::xml_attribute attr = node.attribute(attrName);
     if (attr.empty()) return;
 
-    if (uint32_t value = attr.as_uint(); value < m_parameters.priceIncrementDecimals) {
+    if (uint32_t value = attr.as_uint(); value < Parameters::kMinimumPriceIncrementDecimals) {
         throw ExchangeAgentConfigException{fmt::format(
             "Value of attribute '{}' should be at least {}, was {}",
             attrName,
-            m_parameters.priceIncrementDecimals,
+            Parameters::kMinimumPriceIncrementDecimals,
             value)};
     } else {
         m_parameters.quoteIncrementDecimals = value;

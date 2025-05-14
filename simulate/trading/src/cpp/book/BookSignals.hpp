@@ -8,9 +8,9 @@
 #include "Trade.hpp"
 #include "common.hpp"
 
-#include "rapidjson/document.h"
-
 //-------------------------------------------------------------------------
+
+class Book;
 
 struct BookSignals
 {
@@ -21,7 +21,7 @@ struct BookSignals
     bs2::signal<void(OrderID, taosim::decimal_t)> cancel;
     bs2::signal<void(LimitOrder::Ptr, taosim::decimal_t, BookId)> cancelOrderDetails;
     bs2::signal<void(LimitOrder::Ptr, BookId)> unregister;
-    bs2::signal<void(const rapidjson::Value&)> L2;
+    bs2::signal<void(const Book*)> L2;
 };
 
 //-------------------------------------------------------------------------

@@ -1,7 +1,3 @@
-/*
- * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
- * SPDX-License-Identifier: MIT
- */
 #include "ExchangeAgentMessagePayloads.hpp"
 #include "MultiBookExchangeAgent.hpp"
 #include "Process.hpp"
@@ -224,7 +220,7 @@ PYBIND11_EMBEDDED_MODULE(thesimulator, m)
         RetrieveBookResponsePayload,
         MessagePayload,
         std::shared_ptr<RetrieveBookResponsePayload>>(m, "RetrieveBookResponsePayload")
-        .def(py::init<Timestamp, std::vector<TickContainer>>())
+        .def(py::init<Timestamp, std::vector<TickContainer::ContainerType>>())
         .def_readwrite("time", &RetrieveBookResponsePayload::time)
         .def_readwrite("tickContainers", &RetrieveBookResponsePayload::tickContainers)
         ;

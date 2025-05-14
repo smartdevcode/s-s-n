@@ -23,10 +23,10 @@ public:
         Simulation* simulation,
         uint64_t bookId,
         uint64_t seedInterval,
-        double X0,
         double mu,
         double sigma,
-        double dt) noexcept;
+        double dt,
+        double X0) noexcept;
     
     virtual void update(Timestamp timestamp) override;
     virtual double value() const override;
@@ -34,9 +34,9 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static std::unique_ptr<FundamentalPrice> fromXML(
-        Simulation* simulation, pugi::xml_node node, uint64_t bookId);
+        Simulation* simulation, pugi::xml_node node, uint64_t bookId, double X0);
     [[nodiscard]] static std::unique_ptr<FundamentalPrice> fromCheckpoint(
-        Simulation* simulation, const rapidjson::Value& json);
+        Simulation* simulation, const rapidjson::Value& json, double X0);
 
 private:
     Simulation* m_simulation;

@@ -135,7 +135,7 @@ struct SettleTest : TestWithParam<LoanTestParams>
         loan = makeLoan(loanCreationDesc);
         this->settleAmount = settleAmount;
         this->price = price;
-        this->refCollateral= refCollateral;
+        this->refCollateral = refCollateral;
     }
 
     Loan loan;
@@ -146,7 +146,7 @@ struct SettleTest : TestWithParam<LoanTestParams>
 
 TEST_P(SettleTest, WorksCorrectly)
 {
-    const Collateral releasedCollateral = loan.settle(settleAmount, price, s_roundParams);
+    const auto releasedCollateral = loan.settle(settleAmount, price, s_roundParams);
     EXPECT_EQ(releasedCollateral, refCollateral);
 }
 

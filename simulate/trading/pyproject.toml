@@ -30,6 +30,3 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["src/python"]
-
-[tool.pytest.ini_options]
-testpaths = "test/python-tests"

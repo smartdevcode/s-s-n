@@ -389,14 +389,14 @@ struct RetrieveBookResponsePayload : public MessagePayload
     using Ptr = std::shared_ptr<RetrieveBookResponsePayload>;
 
     Timestamp time;
-    std::vector<TickContainer> tickContainers;
+    std::vector<TickContainer::ContainerType> tickContainers;
 
     RetrieveBookResponsePayload(Timestamp time) noexcept
-        : RetrieveBookResponsePayload(time, std::vector<TickContainer>{})
+        : RetrieveBookResponsePayload(time, std::vector<TickContainer::ContainerType>{})
     {}
 
     RetrieveBookResponsePayload(
-        Timestamp time, std::vector<TickContainer> tickContainers) noexcept
+        Timestamp time, std::vector<TickContainer::ContainerType> tickContainers) noexcept
         : time{time}, tickContainers{std::move(tickContainers)}
     {}
 

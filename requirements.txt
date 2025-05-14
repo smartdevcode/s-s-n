@@ -7,3 +7,4 @@ coinbase-advanced-py
 gitpython
 psutil
 pandas
+pypd

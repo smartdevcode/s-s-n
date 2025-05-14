@@ -150,11 +150,13 @@ OrderPlacementValidator::ExpectedResult
     const auto payloadTotalVolume = util::round(
         payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);
     
-    if (payload->leverage < 0_dec || payload->leverage > maxLeverage)
+    if (payload->leverage < 0_dec || payload->leverage > maxLeverage) {
         return std::unexpected{OrderErrorCode::INVALID_LEVERAGE};
+    }
 
-    if (payload->volume <= 0_dec)
+    if (payload->volume <= 0_dec) {
         return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+    }   
 
     auto violationChecker = limitOrderFlag2ViolationChecker.at(std::to_underlying(payload->flag));
     const bool violatesContract = violationChecker(book, payload);

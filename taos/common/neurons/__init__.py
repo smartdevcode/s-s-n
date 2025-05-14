@@ -28,6 +28,7 @@ from abc import ABC, abstractmethod
 # Sync calls set weights and also resyncs the metagraph.
 from taos.common.config import check_config, add_args, config
 from taos.common.utils.misc import ttl_get_block
+from taos.common.utils.pagerduty import triggerPagerDutyIncident, resolvePagerDutyIncident
 from taos import __spec_version__ as spec_version
 from taos.mock import MockSubtensor, MockMetagraph
 
@@ -221,3 +222,19 @@ class BaseNeuron(ABC):
         bt.logging.warning(
             "load_state() not implemented for this neuron."
         )
+
+    def pagerduty_alert(self, incident_text : str, method : str = "unknown", dedup_key : str | None = None, details : dict | None = None, event_class : str = "ERROR", severity : str = "error"):
+        bt.logging.error(incident_text)
+        if self.config.alerting.pagerduty.integration_key:
+            triggerPagerDutyIncident(
+                integration_keys=[self.config.alerting.pagerduty.integration_key], 
+                source=f"{self.config.wallet.name}:{self.config.wallet.hotkey}:{method}", 
+                group=f"{self.config.wallet.name}:{self.config.wallet.hotkey}",
+                event_class=event_class, 
+                msg=f"τaos {self.config.wallet.name}:{self.config.wallet.hotkey} - {method} : {incident_text}",
+                custom_details=details, 
+                severity=severity,
+                dedup_key=dedup_key
+            )
+        else:
+            bt.logging.debug(f"pagerduty_alert : PagerDuty is not configured.")

@@ -1,7 +1,7 @@
 add_library(agent STATIC
     Agent.cpp
     DelayDistribution.cpp
-    #ALGOTraderAgent.cpp
+    ALGOTraderAgent.cpp
     DistributedProxyAgent.cpp
     ExchangeAgentConfig.cpp
     InitializationAgent.cpp

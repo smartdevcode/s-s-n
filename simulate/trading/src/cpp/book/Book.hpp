@@ -47,11 +47,12 @@ public:
 
     virtual ~Book() noexcept = default;
 
+    [[nodiscard]] Simulation* simulation() const noexcept { return m_simulation; }
     [[nodiscard]] BookId id() const noexcept { return m_id; }    
     [[nodiscard]] const OrderFactory& orderFactory() const noexcept { return m_orderFactory; }
     [[nodiscard]] const TradeFactory& tradeFactory() const noexcept { return m_tradeFactory; }
-    [[nodiscard]] const OrderContainer<TickContainer>& buyQueue() const { return m_buyQueue; }
-    [[nodiscard]] const OrderContainer<TickContainer>& sellQueue() const { return m_sellQueue; }
+    [[nodiscard]] const OrderContainer& buyQueue() const { return m_buyQueue; }
+    [[nodiscard]] const OrderContainer& sellQueue() const { return m_sellQueue; }
     [[nodiscard]] BookSignals& signals() noexcept { return m_signals; }
     [[nodiscard]] taosim::decimal_t midPrice() const noexcept;
     [[nodiscard]] taosim::decimal_t bestBid() const noexcept;
@@ -80,6 +81,7 @@ public:
     virtual taosim::decimal_t calculatCorrespondingVolume(taosim::decimal_t quotePrice) = 0;
     bool tryGetOrder(OrderID id, LimitOrder::Ptr& orderPtr) const;
     std::optional<LimitOrder::Ptr> getOrder(OrderID orderId) const;
+    void L2Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     virtual void printCSV() const override;
     virtual void jsonSerialize(
@@ -105,9 +107,9 @@ protected:
     TradeFactory m_tradeFactory;
     BookSignals m_signals;
     std::map<OrderID, OrderClientContext> m_order2clientCtx;
-    OrderContainer<TickContainer> m_buyQueue;
+    OrderContainer m_buyQueue;
     LimitOrder::Ptr m_lastBetteringBuyOrder = nullptr;
-    OrderContainer<TickContainer> m_sellQueue;
+    OrderContainer m_sellQueue;
     LimitOrder::Ptr m_lastBetteringSellOrder = nullptr;
     bool m_initMode = false;
 
@@ -138,11 +140,7 @@ private:
 template<typename... Args>
 void Book::emitL2Signal(Args&&... args) const
 {
-    m_signals.L2([this] {
-        rapidjson::Document json;
-        jsonSerialize(json);
-        return json;
-    }());
+    m_signals.L2(this);
 }
 
 //-------------------------------------------------------------------------

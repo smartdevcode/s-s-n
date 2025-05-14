@@ -75,16 +75,9 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     };
     m_weightNormalizer = 1.0f / (m_weight.F + m_weight.C + m_weight.N);
 
-    if (attr = node.attribute("priceF0"); attr.empty() || attr.as_double() <= 0.0) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'priceF0' should have a value greater than 0.0", ctx));
-    }
-    m_priceF0 = attr.as_double();
-    if (attr = node.attribute("price0"); attr.empty() || attr.as_double() <= 0.0) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'price0' should have a value greater than 0.0", ctx));
-    }
-    m_price0 = attr.as_double();
+    m_priceF0 = simulation()->exchange()->process("fundamental", BookId{})->value();
+
+    m_price0 = taosim::util::decimal2double(simulation()->exchange()->config2().initialPrice);
 
     if (attr = node.attribute("tau"); attr.empty() || attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
@@ -100,6 +93,7 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
             "{}: attribute 'tauF' should have a value greater than 0.0", ctx));
     }
     m_tauF = attr.as_double();
+    m_tauFOrig = m_tauF;
 
     if (attr = node.attribute("sigmaEps"); attr.empty() || attr.as_double() <= 0.0f) {
         throw std::invalid_argument(fmt::format(
@@ -142,34 +136,16 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     m_historySize = std::min(std::max(
         50ul, static_cast<Timestamp>(std::ceil(m_tauHist * (1.0 + m_weight.F) / (1.0 + m_weight.C)))),500ul);
 
-    if (attr = node.attribute("tauFore"); attr.empty() || attr.as_ullong() == 0) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'tauFore' should have a value greater than 0", ctx));
-    }
-    m_tauFore0 = attr.as_ullong();
-    m_tauFore = std::min(std::max(
-        1ul, static_cast<Timestamp>(m_tauFore0*std::ceil((1.0 + m_weight.F) / (1.0 + m_weight.C)))),10ul);
+  
+    attr = node.attribute("GBM_X0");
+    const double gbmX0 = (attr.empty() || attr.as_double() <= 0.0f) ?  0.001 : attr.as_double();
+    attr = node.attribute("GBM_mu");
+    const double gbmMu = (attr.empty() || attr.as_double() < 0.0f) ? 0 : attr.as_double();
+    attr = node.attribute("GBM_sigma");
+    const double gbmSigma = (attr.empty() || attr.as_double() < 0.0f) ? 0.3 : attr.as_double();
+    attr = node.attribute("GBM_seed");
+    const uint64_t gbmSeed = attr.empty() ? 10000 : attr.as_ullong(); 
 
-    if (attr = node.attribute("GBM_X0"); attr.empty() || attr.as_double() <= 0.0f) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'GBM_X0' should have a value greater than 0.0f", ctx));
-    }
-    const double gbmX0 = attr.as_double();
-    if (attr = node.attribute("GBM_mu"); attr.empty() || attr.as_double() < 0.0f) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'GBM_mu' should have a value of at least 0.0f", ctx));
-    }
-    const double gbmMu = attr.as_double();
-    if (attr = node.attribute("GBM_sigma"); attr.empty() || attr.as_double() < 0.0f) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'GBM_sigma' should have a value of at least 0.0f", ctx));
-    }
-    const double gbmSigma = attr.as_double();
-    if (attr = node.attribute("GBM_seed"); attr.empty()) {
-        throw std::invalid_argument(fmt::format(
-            "{}: missing required attribute 'GBM_seed", ctx));
-    }
-    const uint64_t gbmSeed = attr.as_ullong();
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
         m_topLevel.push_back(TopLevel{});
         GBMValuationModel gbmPrice{gbmX0, gbmMu, gbmSigma, gbmSeed + bookId + 1};
@@ -202,9 +178,13 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     m_sigmaNRegime = node.attribute("sigmaNRegime").as_float();
     m_regimeChangeFlag = node.attribute("regimeChangeFlag").as_bool();
     m_regimeChangeProb = std::clamp(node.attribute("regimeProb").as_float(), 0.0f, 1.0f);
+    m_regimeState = RegimeState::NORMAL;
     m_weightOrig = m_weight;
-    // fmt::println(
-        // "{} : regimeChangeFlag={} regimeProb={}", name(), m_regimeChangeFlag, m_regimeChangeProb);
+    if (attr = node.attribute("tauFRegime"); attr.empty() || attr.as_double() == 0.0) {
+        throw std::invalid_argument(fmt::format(
+            "{}: attribute 'tauFRegime' should have a value greater than 0.0", ctx));
+    }
+    m_tauFRegime = attr.as_double();
 
     if (attr = node.attribute("pO_alpha"); attr.empty() || attr.as_double() < 0.0f || attr.as_double() >= 1.0f){
         // throw std::invalid_argument(fmt::format(
@@ -256,27 +236,15 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     };
 
     m_tradePrice.resize(m_bookCount);
-
-    m_orderPlacementLatencyDistribution = boost::random::beta_distribution<double>{
-        [&] {
-            static constexpr const char* name = "alphaDelay";
-            if (auto alpha = node.attribute(name).as_double(); !(alpha > 0)) {
-                throw std::invalid_argument{fmt::format(
-                    "{}: Attribute '{}' should be > 0, was {}", ctx, name, alpha)};
-            } else {
-                return alpha;
-            }
-        }(),
-        [&] {
-            static constexpr const char* name = "betaDelay";
-            if (auto beta = node.attribute(name).as_double(); !(beta > 0)) {
-                throw std::invalid_argument{fmt::format(
-                    "{}: Attribute '{}' should be > 0, was {}", ctx, name, beta)};
-            } else {
-                return beta;
-            }
-        }()
-    };
+    if (attr = node.attribute("opLatencyScaleRay"); attr.empty() || attr.as_double() == 0.0) {
+        throw std::invalid_argument{fmt::format(
+                    "{}: Attribute '{}' should be > 0", ctx, "opLatencyScaleRay")};
+    }
+    const double scale = attr.as_double();
+        
+    m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
+    const double percentile = 1-std::exp(-1/(2*scale*scale));
+    m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
 
     m_rayleigh = boost::math::rayleigh_distribution{
         [&] {
@@ -450,16 +418,14 @@ void StylizedTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
 
     const auto categoryIdDraws =
         views::iota(0u, numActingAgents)
-        | views::transform([&](auto) { return multinomial(rng); })
-        | ranges::to<std::vector>;
+        | views::transform([&](auto) { return multinomial(rng); });
 
     const auto actorIdsNonCanon =
         categoryIdDraws
         | views::transform([&](auto draw) {
             return std::uniform_int_distribution<uint32_t>{
                 0, agentBaseNamesToCounts.at(categoryIdToAgentType.left.at(draw)) - 1}(rng);
-        })
-        | ranges::to<std::vector>;
+        });
 
     for (auto [categoryId, actorId] : views::zip(categoryIdDraws, actorIdsNonCanon)) {
         if (categoryIdToAgentType.right.at(m_baseName) != categoryId) continue;
@@ -514,15 +480,11 @@ void StylizedTraderAgent::handleCancelOrdersErrorResponse(Message::Ptr msg)
 void StylizedTraderAgent::handleTrade(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<EventTradePayload>(msg->payload);
-
     const double tradePrice = taosim::util::decimal2double(payload->trade.price());
-
     m_tradePrice.at(payload->bookId) = {
         .timestamp = msg->arrival,
         .price = tradePrice
     };
-
-
 }
 
 //-------------------------------------------------------------------------
@@ -561,7 +523,6 @@ void StylizedTraderAgent::placeOrderChiarella(BookId bookId)
     if (m_riskAversion * forecastResult.varianceOfLastLogReturns == 0.0) {
         return;
     }
-
     const auto freeBase =
         taosim::util::decimal2double(simulation()->account(name()).at(bookId).base.getFree());
     const auto freeQuote =
@@ -576,8 +537,6 @@ void StylizedTraderAgent::placeOrderChiarella(BookId bookId)
     if (!minimumPriceConverged) return;
 
     const auto maximumPrice = forecastResult.price;
-
- 
 
     if (minimumPrice <= 0.0
         || minimumPrice > indifferencePrice
@@ -710,8 +669,7 @@ void StylizedTraderAgent::placeLimitBuy(
 
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        static_cast<Timestamp>(
-            std::lerp(m_opl.min, m_opl.max, m_orderPlacementLatencyDistribution(*m_rng))),
+        orderPlacementLatency(),
         name(),
         m_exchange,
         "PLACE_ORDER_LIMIT",
@@ -749,8 +707,7 @@ void StylizedTraderAgent::placeLimitSell(
     LimitOrderFlag flag = (draw < m_alpha) ? LimitOrderFlag::POST_ONLY : LimitOrderFlag::NONE;
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        static_cast<Timestamp>(
-            std::lerp(m_opl.min, m_opl.max, m_orderPlacementLatencyDistribution(*m_rng))),
+        orderPlacementLatency(),
         name(),
         m_exchange,
         "PLACE_ORDER_LIMIT",
@@ -761,6 +718,14 @@ void StylizedTraderAgent::placeLimitSell(
             bookId,
             std::nullopt,
             flag));
+}
+
+//-------------------------------------------------------------------------
+
+Timestamp StylizedTraderAgent::orderPlacementLatency() {
+    const double rayleighDraw = boost::math::quantile(m_rayleigh, m_placementDraw(*m_rng));
+
+    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, rayleighDraw));
 }
 
 //-------------------------------------------------------------------------
@@ -776,20 +741,13 @@ void StylizedTraderAgent::updateRegime()
 {
     if (!m_regimeChangeFlag) return;
 
-    if (std::bernoulli_distribution{m_regimeChangeProb}(*m_rng)) {
-        m_weight = {
-            .F = std::abs(br::laplace_distribution{m_sigmaFRegime, m_sigmaFRegime}(*m_rng)),
-            .C = std::abs(br::laplace_distribution{m_sigmaCRegime, m_sigmaCRegime}(*m_rng)),
-            .N = std::abs(br::laplace_distribution{m_sigmaNRegime, m_sigmaNRegime}(*m_rng))
-        };
-        m_tau = std::min(
-            static_cast<Timestamp>(std::ceil(
-                m_tau0 * (1.0f + m_weight.F) / (1.0f + m_weight.C))),
-            simulation()->duration() - 1);
-        m_riskAversion = m_riskAversion0 * (1.0f + m_weight.F) / (1.0f + m_weight.C);
-        m_weightNormalizer = 1.0f / (m_weight.F + m_weight.C + m_weight.N);
+    if ((m_regimeState == RegimeState::NORMAL && std::bernoulli_distribution{m_regimeChangeProb}(*m_rng)) || 
+    (m_regimeState == RegimeState::REGIME_A && std::bernoulli_distribution{1 - m_regimeChangeProb}(*m_rng))) {
+        m_tauF = m_tauFRegime;
+        m_regimeState = RegimeState::REGIME_A;
     } else {
-        m_weight = m_weightOrig;
+        m_tauF = m_tauFOrig;
+        m_regimeState = RegimeState::NORMAL;
     }
 }
 

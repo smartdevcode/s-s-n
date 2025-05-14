@@ -125,6 +125,12 @@ def add_args(cls, parser):
         default="",
     )
 
+    parser.add_argument(
+        "--alerting.pagerduty.integration_key",
+        type=str,
+        help="Integration key to enable triggering PagerDuty alerts for critical validation or mining errors.",
+        default=None,
+    )
 
 def add_miner_args(cls, parser):
     """Add miner specific arguments to the parser."""
@@ -163,21 +169,21 @@ def add_miner_args(cls, parser):
         default="opentensor-dev",
         help="Wandb entity to log to.",
     )
-    
+
     parser.add_argument(
         "--agent.path",
         type=str,
         help="Path where simulation agent logic files are located.",
         default="../../agents",
     )
-    
+
     parser.add_argument(
         "--agent.name",
         type=str,
         help="Name of the agent (must correspond to file and class name in agent.path directory). ",
         default="RandomMakerAgent",
     )
-    
+
     parser.add_argument(
         "--agent.params",
         nargs='*',
@@ -278,7 +284,7 @@ def config(cls):
     bt.wallet.add_args(parser)
     bt.subtensor.add_args(parser)
     bt.logging.add_args(parser)
-    bt.axon.add_args(parser)    
+    bt.axon.add_args(parser)
     prometheus.add_args( parser )
     cls.add_args(parser)
     return bt.config(parser)

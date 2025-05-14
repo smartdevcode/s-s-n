@@ -49,7 +49,7 @@ void LocalAgentManager::createAgentsInstanced(
             createAgentInstanced<TradeLogAgent>(child);
         }
         else if (name == "ALGOTraderAgent") {
-            // createAgentInstanced <taosim::agent::ALGOTraderAgent>(child);
+            createAgentInstanced <taosim::agent::ALGOTraderAgent>(child);
         }
         else if (name == "RandomTraderAgent") {
             createAgentInstanced<taosim::agent::RandomTraderAgent>(child);

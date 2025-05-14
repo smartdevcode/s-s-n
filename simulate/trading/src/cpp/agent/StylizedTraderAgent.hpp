@@ -55,6 +55,13 @@ private:
         Timestamp timestamp{};
         double price{};
     };
+    
+    enum RegimeState {
+        NORMAL,
+        REGIME_A,
+        REGIME_B
+    };
+
 
     void handleSimulationStart();
     void handleSimulationStop();
@@ -85,6 +92,7 @@ private:
         double freeBase);
     double getProcessValue(BookId bookId, const std::string& name);
     void updateRegime();
+    Timestamp orderPlacementLatency();
 
     std::mt19937* m_rng;
     std::string m_exchange;
@@ -96,8 +104,6 @@ private:
     Timestamp m_tau;
     Timestamp m_tau0;
     Timestamp m_tauHist;
-    Timestamp m_tauFore;
-    Timestamp m_tauFore0;
     double m_tauF;
     double m_sigmaEps;
     double m_riskAversion;
@@ -116,9 +122,12 @@ private:
     float m_sigmaFRegime;
     float m_sigmaCRegime;
     float m_sigmaNRegime;
+    double m_tauFRegime;
     bool m_regimeChangeFlag;
     float m_regimeChangeProb;
+    RegimeState m_regimeState;
     Weight m_weightOrig;
+    double m_tauFOrig;
 
     double m_alpha;
 
@@ -126,7 +135,8 @@ private:
     std::normal_distribution<double> m_marketFeedLatencyDistribution;
     std::normal_distribution<double> m_decisionMakingDelayDistribution;
     std::vector<TimestampedTradePrice> m_tradePrice;
-    boost::random::beta_distribution<double> m_orderPlacementLatencyDistribution;
+    boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
+    std::uniform_real_distribution<double> m_placementDraw;
     boost::math::rayleigh_distribution<double> m_rayleigh;
     std::string m_baseName;
 };

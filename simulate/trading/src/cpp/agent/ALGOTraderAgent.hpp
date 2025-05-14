@@ -83,7 +83,13 @@ public:
     virtual void configure(const pugi::xml_node& node) override;
     virtual void receiveMessage(Message::Ptr msg) override;
 
-private:
+private:    
+
+    struct DelayBounds
+    {
+        Timestamp min, max;
+    };
+
     void handleSimulationStart(Message::Ptr msg);
     void handleTrade(Message::Ptr msg);
     void handleWakeup(Message::Ptr msg);
@@ -91,6 +97,10 @@ private:
 
     void tryWakeup(BookId bookId, ALGOTraderState& state);
     void execute(BookId bookId, ALGOTraderState& state);
+    
+    Timestamp orderPlacementLatency() const;
+    Timestamp rayleighLatencyNs(double scale) const;
+    double sampleRayleigh(std::mt19937& gen, double scale) const;
 
     std::mt19937* m_rng;
     std::string m_exchange;
@@ -101,6 +111,11 @@ private:
     std::unique_ptr<stats::Distribution> m_volumeDistribution;
     std::vector<ALGOTraderState> m_state;
     Timestamp m_period;
+
+    double m_opLatencyScaleRay;
+    DelayBounds m_opLatency;
+
+
 };
 
 //-------------------------------------------------------------------------

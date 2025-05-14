@@ -621,9 +621,13 @@ void RetrieveBookResponsePayload::jsonSerialize(
         auto& allocator = json.GetAllocator();
         json.AddMember("time", rapidjson::Value{time}, allocator);
         rapidjson::Value tickContainersJson{rapidjson::kArrayType};
-        for (const TickContainer& tickContainer : tickContainers) {
-            rapidjson::Document tickContainerJson{rapidjson::kObjectType, &allocator};
-            tickContainer.jsonSerialize(tickContainerJson);
+        for (const TickContainer::ContainerType& tickContainer : tickContainers) {
+            rapidjson::Document tickContainerJson{rapidjson::kArrayType, &allocator};
+            for (const TickContainer::value_type& order : tickContainer) {
+                rapidjson::Document orderJson{rapidjson::kObjectType, &allocator};
+                order->jsonSerialize(orderJson);
+                tickContainerJson.PushBack(orderJson, allocator);
+            }
             tickContainersJson.PushBack(tickContainerJson, allocator);
         }
         json.AddMember("tickContainers", tickContainersJson, allocator);
@@ -641,9 +645,13 @@ void RetrieveBookResponsePayload::checkpointSerialize(
         auto& allocator = json.GetAllocator();
         json.AddMember("time", rapidjson::Value{time}, allocator);
         rapidjson::Value tickContainersJson{rapidjson::kArrayType};
-        for (const TickContainer& tickContainer : tickContainers) {
-            rapidjson::Document tickContainerJson{rapidjson::kObjectType, &allocator};
-            tickContainer.checkpointSerialize(tickContainerJson);
+        for (const TickContainer::ContainerType& tickContainer : tickContainers) {
+            rapidjson::Document tickContainerJson{rapidjson::kArrayType, &allocator};
+            for (const TickContainer::value_type& order : tickContainer) {
+                rapidjson::Document orderJson{rapidjson::kObjectType, &allocator};
+                order->jsonSerialize(orderJson);
+                tickContainerJson.PushBack(orderJson, allocator);
+            }
             tickContainersJson.PushBack(tickContainerJson, allocator);
         }
         json.AddMember("tickContainers", tickContainersJson, allocator);
@@ -656,12 +664,22 @@ void RetrieveBookResponsePayload::checkpointSerialize(
 RetrieveBookResponsePayload::Ptr RetrieveBookResponsePayload::fromJson(
     const rapidjson::Value& json)
 {
-    std::vector<TickContainer> tickContainers;
-    for (const auto& tickContainer : json["tickContainers"].GetArray()) {
-        tickContainers.push_back(TickContainer::fromJson(tickContainer));
-    }
     return MessagePayload::create<RetrieveBookResponsePayload>(
-        json["time"].GetUint64(), std::move(tickContainers));
+        json["time"].GetUint64(),
+        [&] {
+            std::vector<TickContainer::ContainerType> tickContainers;
+            for (const rapidjson::Value& tickContainerJson : json["tickContainers"].GetArray()) {
+                tickContainers.push_back([&] {
+                    TickContainer::ContainerType tickContainer;
+                    for (const rapidjson::Value& orderJson : tickContainerJson.GetArray()) {
+                        // Just provide conservative enough rounding details for now...
+                        tickContainer.push_back(LimitOrder::fromJson(orderJson, 12, 12));
+                    }
+                    return tickContainer;
+                }());
+            }
+            return tickContainers;
+        }());
 }
 
 //-------------------------------------------------------------------------

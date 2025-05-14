@@ -21,15 +21,19 @@ PriceTimeBook::PriceTimeBook(
 
 void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice)
 {
+    const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
+    const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
+
     auto bestBuyDeque = &m_buyQueue.back();
-    order->setVolume(taosim::util::round(order->volume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
-    order->setLeverage(taosim::util::round(order->leverage(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
+
+    order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
+    order->setLeverage(taosim::util::round(order->leverage(), volumeDecimals));
 
     while (order->volume() > 0_dec && bestBuyDeque->price() >= minPrice) {
         LimitOrder::Ptr iop = bestBuyDeque->front();
-        iop->setPrice(taosim::util::round(iop->price(), m_simulation->exchange()->config().parameters().priceIncrementDecimals));
+        iop->setPrice(taosim::util::round(iop->price(), priceDecimals));
 
-        iop->setLeverage(taosim::util::round(iop->leverage(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
+        iop->setLeverage(taosim::util::round(iop->leverage(), volumeDecimals));
         const taosim::decimal_t usedVolume = std::min(iop->totalVolume(), order->totalVolume());
         
         OrderClientContext aggCtx, restCtx;
@@ -48,13 +52,15 @@ void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_
         order->removeLeveragedVolume(usedVolume);
         iop->removeLeveragedVolume(usedVolume);
 
-        order->setVolume(taosim::util::round(order->volume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
-        iop->setVolume(taosim::util::round(iop->volume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
+        order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
+        iop->setVolume(taosim::util::round(iop->volume(), volumeDecimals));
 
-        if (taosim::util::round(iop->totalVolume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals) == 0_dec) {
+        bestBuyDeque->updateVolume(-usedVolume);
+
+        if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
             bestBuyDeque->pop_front();
             unregisterLimitOrder(iop);
-             m_simulation->logDebug("BOOK {} : UNREGISTERING ORDER #{}", m_id, iop->id());
+            m_simulation->logDebug("BOOK {} : UNREGISTERING ORDER #{}", m_id, iop->id());
         }
 
         if (m_simulation->debug()) {
@@ -78,16 +84,18 @@ void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_
 
 void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice)
 {
-    
+    const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
+    const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
+
     auto bestSellDeque = &m_sellQueue.front();
 
-    order->setVolume(taosim::util::round(order->volume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
-    order->setLeverage(taosim::util::round(order->leverage(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
+    order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
+    order->setLeverage(taosim::util::round(order->leverage(), volumeDecimals));
     
     while ( order->volume() > 0_dec && bestSellDeque->price() <= maxPrice) {
         LimitOrder::Ptr iop = bestSellDeque->front();
-        iop->setPrice(taosim::util::round(iop->price(), m_simulation->exchange()->config().parameters().priceIncrementDecimals));
-        iop->setLeverage(taosim::util::round(iop->leverage(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
+        iop->setPrice(taosim::util::round(iop->price(), priceDecimals));
+        iop->setLeverage(taosim::util::round(iop->leverage(), volumeDecimals));
         const taosim::decimal_t usedVolume = std::min(iop->totalVolume(), order->totalVolume());
 
         OrderClientContext aggCtx, restCtx;
@@ -96,7 +104,6 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
             const auto& aggBalances = m_simulation->exchange()->accounts()[aggCtx.agentId][m_id];        
             restCtx = m_order2clientCtx[iop->id()];
             const auto& restingBalances = m_simulation->exchange()->accounts()[restCtx.agentId][m_id];    
-            // m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), aggCtx.agentId, m_id, aggBalances.quote, aggBalances.base);
             m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), restCtx.agentId, m_id, restingBalances.quote, restingBalances.base);
         }
 
@@ -107,13 +114,15 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
         order->removeLeveragedVolume(usedVolume);
         iop->removeLeveragedVolume(usedVolume);
 
-        order->setVolume(taosim::util::round(order->volume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
-        iop->setVolume(taosim::util::round(iop->volume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals));
+        order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
+        iop->setVolume(taosim::util::round(iop->volume(), volumeDecimals));
 
-        if (taosim::util::round(iop->totalVolume(), m_simulation->exchange()->config().parameters().volumeIncrementDecimals) == 0_dec) {
+        bestSellDeque->updateVolume(-usedVolume);
+
+        if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
             bestSellDeque->pop_front();
             unregisterLimitOrder(iop);
-             m_simulation->logDebug("BOOK {} : UNREGISTERING ORDER #{}", m_id, iop->id());
+            m_simulation->logDebug("BOOK {} : UNREGISTERING ORDER #{}", m_id, iop->id());
         }
 
         if (m_simulation->debug()) {
@@ -140,11 +149,10 @@ taosim::decimal_t PriceTimeBook::calculatCorrespondingVolume(taosim::decimal_t q
     taosim::decimal_t volume = {};
     
     for (auto buyDequeIt = m_buyQueue.begin(); buyDequeIt != m_buyQueue.end(); ++buyDequeIt) {
-
         if (quotePrice - buyDequeIt->price() * buyDequeIt->totalVolume() > 0_dec){
             volume += buyDequeIt->totalVolume();
             quotePrice -= buyDequeIt->price() * buyDequeIt->totalVolume();
-        }else{
+        } else {
             volume += taosim::util::round(quotePrice / buyDequeIt->price(), 
                 m_simulation->exchange()->config().parameters().volumeIncrementDecimals);
             break;
@@ -154,3 +162,4 @@ taosim::decimal_t PriceTimeBook::calculatCorrespondingVolume(taosim::decimal_t q
     return volume;
 }
 
+//-------------------------------------------------------------------------

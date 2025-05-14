@@ -13,6 +13,7 @@
 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/variance.hpp>
+#include <boost/math/distributions/rayleigh.hpp>
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -51,6 +52,12 @@ private:
         bool canceled;
     };
 
+    struct TimestampedTradePrice
+    {
+        Timestamp timestamp{};
+        double price{};
+    };
+    
     void handleSimulationStart();
     void handleSimulationStop();
     void handleTradeSubscriptionResponse();
@@ -68,9 +75,7 @@ private:
         double volume, double limitPrice, double wealth);
     void sendOrder(std::optional<PlaceOrderLimitPayload::Ptr> payload);
     void cancelClosestToBestPrice(BookId bookId, OrderDirection direction, double bestPrice);
-    Timestamp orderPlacementLatency() const;
-    Timestamp rayleighLatencyNs(double scale) const;
-    double sampleRayleigh(std::mt19937& gen, double scale) const;
+    Timestamp orderPlacementLatency();
     void recordOrder(PlaceOrderLimitResponsePayload::Ptr payload);
     void removeOrder(BookId bookId, OrderID orderId, std::optional<double> amount = {});
 
@@ -82,12 +87,13 @@ private:
     double m_wealthFrac;
     double m_priceInit;
     double m_gHFT;
+    double m_kappa;
+    double m_spread;
     double m_delta;
     Timestamp m_tau;
     Timestamp m_minMFLatency;
     double m_psi;
     
-    double m_opLatencyScaleRay;
     double m_noiseRay;
     double m_shiftPercentage;
     double m_orderMean;
@@ -95,7 +101,7 @@ private:
     double m_pRes;
     double m_sigmaSqrInit;
     Timestamp m_sigmaScalingBase;
-    DelayBounds m_opLatency;
+    DelayBounds m_opl;
 
     uint32_t m_priceDecimals;
     uint32_t m_volumeDecimals;
@@ -118,5 +124,9 @@ private:
 
     std::vector<LimitedDeque<double>> m_priceHist;
     std::vector<LimitedDeque<double>> m_logReturns;
+    std::vector<TimestampedTradePrice> m_tradePrice;
+    boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
+    boost::math::rayleigh_distribution<double> m_rayleighSample;
+    std::uniform_real_distribution<double> m_placementDraw;
 
 };

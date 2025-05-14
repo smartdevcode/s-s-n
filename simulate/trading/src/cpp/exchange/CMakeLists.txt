@@ -1,6 +1,7 @@
 add_library(exchange STATIC
     ClearingManager.cpp
     Exchange.cpp
+    ExchangeConfig.cpp
     ExchangeSignals.cpp
     FeePolicy.cpp
     FeePolicyFactory.cpp
@@ -16,7 +17,8 @@ target_compile_definitions(exchange PRIVATE ${internal_compile_definitions})
 target_link_options(exchange PRIVATE ${internal_link_options})
 
 target_include_directories(exchange
-    PRIVATE
+    PUBLIC
+        include
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${src_dir}"
         "${src_dir}/accounting"

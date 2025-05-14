@@ -18,6 +18,13 @@
 
 class Simulation;
 
+namespace taosim::exchange
+{
+
+class ExchangeConfig;
+
+}  // namespace taosim::exchange
+
 //-------------------------------------------------------------------------
 
 class BookProcessManager : public CheckpointSerializable
@@ -50,9 +57,9 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static std::unique_ptr<BookProcessManager> fromXML(
-        pugi::xml_node node, Simulation* simulation);
+        pugi::xml_node node, Simulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig);
     [[nodiscard]] static std::unique_ptr<BookProcessManager> fromCheckpoint(
-        const rapidjson::Value& json, Simulation* simulation);
+        const rapidjson::Value& json, Simulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig);
 
 private:
     ProcessContainer m_container;

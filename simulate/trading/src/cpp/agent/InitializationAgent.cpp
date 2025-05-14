@@ -40,11 +40,7 @@ void InitializationAgent::configure(const pugi::xml_node& node)
     }
     m_bookCount = simulation()->exchange()->books().size();
 
-    if (attr = node.attribute("price"); attr.empty()) {
-        throw std::invalid_argument(fmt::format(
-            "{}: Missing required attribute 'price'", ctx));
-    }
-    m_price = attr.as_double();
+    m_price = taosim::util::decimal2double(simulation()->exchange()->config2().initialPrice);
 
     if (attr = node.attribute("tau"); attr.empty()) {
         throw std::invalid_argument(fmt::format(
@@ -52,8 +48,10 @@ void InitializationAgent::configure(const pugi::xml_node& node)
     }
     m_tau = attr.as_double();    
 
-    m_priceIncrement = 1 / std::pow(10, simulation()->exchange()->config().parameters().priceIncrementDecimals);
-    m_volumeIncrement = 1 / std::pow(10, simulation()->exchange()->config().parameters().volumeIncrementDecimals);
+    m_priceIncrement =
+        1 / std::pow(10, simulation()->exchange()->config().parameters().priceIncrementDecimals);
+    m_volumeIncrement =
+        1 / std::pow(10, simulation()->exchange()->config().parameters().volumeIncrementDecimals);
 }
 
 //-------------------------------------------------------------------------

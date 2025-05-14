@@ -64,24 +64,33 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     }
     m_gHFT = attr.as_double();
 
-    if (attr = node.attribute("price0"); attr.empty() || attr.as_double() == 0.0) {
+    if (attr = node.attribute("kappa"); attr.empty() || attr.as_double() == 0.0) {
         throw std::invalid_argument(fmt::format(
-            "{}: attribute 'price0' should have a value greater than 0.0", ctx));
+            "{}: attribute 'kappa' should have a value greater than 0.0", ctx));
     }
-    m_priceInit = attr.as_double();
+    m_kappa = attr.as_double();
+
+    if (attr = node.attribute("spread"); attr.empty() || attr.as_double() == 0.0) {
+        throw std::invalid_argument(fmt::format(
+            "{}: attribute 'spread' should have a value greater than 0.0", ctx));
+    }
+    m_spread = attr.as_double();
+
+    m_priceInit = taosim::util::decimal2double(simulation()->exchange()->config2().initialPrice);
+
     if (attr = node.attribute("minOPLatency"); attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'minOPLatency' should have a value greater than 0", ctx));
     }
-    m_opLatency.min = attr.as_ullong();
+    m_opl.min = attr.as_ullong();
     if (attr = node.attribute("maxOPLatency"); attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'maxOPLatency' should have a value greater than 0", ctx));
     }
-    m_opLatency.max = attr.as_ullong();
-    if (m_opLatency.min >= m_opLatency.max) {
+    m_opl.max = attr.as_ullong();
+    if (m_opl.min >= m_opl.max) {
         throw std::invalid_argument(fmt::format(
-            "{}: minD ({}) should be strictly less maxD ({})", ctx, m_opLatency.min, m_opLatency.max));
+            "{}: minD ({}) should be strictly less maxD ({})", ctx, m_opl.min, m_opl.max));
     }
 
     if (attr = node.attribute("psiHFT_constant"); attr.empty()) {
@@ -96,42 +105,31 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     m_inventory = std::vector<double>(m_bookCount, 0.);
     m_deltaHFT = std::vector<double>(m_bookCount, 0.);
     m_tauHFT = std::vector<Timestamp>(m_bookCount, Timestamp{});
-    //---------------------------------------------------------------------------------
     
-    if (attr = node.attribute("GBM_X0"); attr.empty() || attr.as_double() <= 0.0f) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'GBM_X0' should have a value greater than 0.0f", ctx));
-    }
-    const double gbmX0 = attr.as_double();
-    if (attr = node.attribute("GBM_mu"); attr.empty() || attr.as_double() < 0.0f) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'GBM_mu' should have a value of at least 0.0f", ctx));
-    }
-    const double gbmMu = attr.as_double();
-    if (attr = node.attribute("GBM_sigma"); attr.empty() || attr.as_double() < 0.0f) {
-        throw std::invalid_argument(fmt::format(
-            "{}: attribute 'GBM_sigma' should have a value of at least 0.0f", ctx));
-    }
-    const double gbmSigma = attr.as_double();
-    if (attr = node.attribute("GBM_seed"); attr.empty()) {
-        throw std::invalid_argument(fmt::format(
-            "{}: missing required attribute 'GBM_seed", ctx));
-    }
-    const uint64_t gbmSeed = attr.as_ullong();
+
+    attr = node.attribute("GBM_X0");
+    const double gbmX0 = (attr.empty() || attr.as_double() <= 0.0f) ?  0.001 : attr.as_double();
+    attr = node.attribute("GBM_mu");
+    const double gbmMu = (attr.empty() || attr.as_double() < 0.0f) ? 0 : attr.as_double();
+    attr = node.attribute("GBM_sigma");
+    const double gbmSigma = (attr.empty() || attr.as_double() < 0.0f) ? 0.3 : attr.as_double();
+    attr = node.attribute("GBM_seed");
+    const uint64_t gbmSeed = attr.empty() ? 10000 : attr.as_ullong(); 
+    attr = node.attribute("historySize"); 
+    Timestamp historySize =  (attr.empty() || attr.as_ullong() == 0) ? 200 : attr.as_ullong();
+
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
         GBMValuationModel gbmPrice{gbmX0, gbmMu, gbmSigma, gbmSeed * (bookId + 1)}; //#
-        // should be adapted, duration is not efficient
-        const Timestamp adjustedDuration = static_cast<Timestamp>(simulation()->duration() / std::pow(10, 9));
-        const auto Xt = gbmPrice.generatePriceSeries(1, adjustedDuration);
+        const auto Xt = gbmPrice.generatePriceSeries(1, historySize);
         m_priceHist.push_back([&] {
-            decltype(m_priceHist)::value_type hist{adjustedDuration};
-            for (uint32_t i = 0; i < adjustedDuration; ++i) {
+            decltype(m_priceHist)::value_type hist{historySize};
+            for (uint32_t i = 0; i < historySize; ++i) {
                 hist.push_back(m_priceInit * (1.0 + Xt[i]));
             }
             return hist;
         }());
         m_logReturns.push_back([&] {
-            decltype(m_logReturns)::value_type logReturns{adjustedDuration};
+            decltype(m_logReturns)::value_type logReturns{historySize};
             const auto& priceHist = m_priceHist.at(bookId);
             logReturns.push_back(Xt[0]);
             for (uint32_t i = 1; i < priceHist.capacity(); ++i) {
@@ -140,27 +138,37 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
             return logReturns;
         }());
     }
+    m_tradePrice.resize(m_bookCount);
 
-    m_opLatencyScaleRay = node.attribute("opLatencyScaleRay").as_double();
+    
+    if (attr = node.attribute("opLatencyScaleRay"); attr.empty() || attr.as_double() == 0.0) {
+            throw std::invalid_argument{fmt::format(
+                 "{}: Attribute '{}' should be > 0", ctx, "opLatencyScaleRay")};
+    }
+    const double scale = attr.as_double();
+    m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
+    const double percentile = 1-std::exp(-1/(2*scale*scale));
+    m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
+
     m_orderMean = node.attribute("orderMean").as_double();
     m_noiseRay = node.attribute("noiseRay").as_double();
+    m_rayleighSample = boost::math::rayleigh_distribution<double>{m_noiseRay};
     m_minMFLatency = node.attribute("minMFLatency").as_ullong();
     m_shiftPercentage = node.attribute("shiftPercentage").as_double();
 
     m_sigmaScalingBase = node.parent().child("MultiBookExchangeAgent").child("Books")
         .child("Processes").attribute("updatePeriod").as_llong();
     m_sigmaSqrInit = std::pow(node.parent().child("MultiBookExchangeAgent").child("Books")
-        .child("Processes").child("GBM").attribute("sigma").as_double(), 2) * std::pow((m_delta/m_sigmaScalingBase),2);
+        .child("Processes").child("GBM").attribute("sigma").as_double(), 2) * std::pow((m_delta/m_sigmaScalingBase), 2);
 
     m_debug = node.attribute("debug").as_bool();
 
-    m_priceIncrement = 1 / std::pow(10, simulation()->exchange()->config().parameters().priceIncrementDecimals);
-    m_volumeIncrement = 1 / std::pow(10, simulation()->exchange()->config().parameters().volumeIncrementDecimals);
+    m_priceIncrement =
+        1 / std::pow(10, simulation()->exchange()->config().parameters().priceIncrementDecimals);
+    m_volumeIncrement =
+        1 / std::pow(10, simulation()->exchange()->config().parameters().volumeIncrementDecimals);
     m_maxLeverage = taosim::util::decimal2double(simulation()->exchange()->getMaxLeverage());
     m_maxLoan = taosim::util::decimal2double(simulation()->exchange()->getMaxLoan());
-
-     
-    
 }
 
 //-------------------------------------------------------------------------
@@ -265,17 +273,38 @@ void HighFrequencyTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
     topLevel.bid = taosim::util::decimal2double(payload->bestBidPrice);
     topLevel.ask = taosim::util::decimal2double(payload->bestAskPrice);
     
-    if (topLevel.bid == 0.0 || topLevel.ask == 0.0) 
-        return;
+    if (topLevel.bid == 0.0)
+        topLevel.bid = m_tradePrice.at(payload->bookId).price;
+    if (topLevel.ask == 0.0) 
+        topLevel.ask = m_tradePrice.at(payload->bookId).price;
+
 
     const double midPrice = (topLevel.bid + topLevel.ask) / 2;
-
+    const double price = 
+        m_tradePrice.at(payload->bookId).timestamp - simulation()->currentTimestamp() < 1'000'000'000
+        ? m_tradePrice.at(payload->bookId).price
+        : midPrice;
+    m_logReturns.at(payload->bookId).push_back(
+                    std::log(price / m_priceHist.at(payload->bookId).back()));
+    m_priceHist.at(payload->bookId).push_back(price);
     m_baseFree[bookId] = m_wealthFrac * 
         taosim::util::decimal2double(simulation()->exchange()->account(name()).at(bookId).base.getFree());
     m_quoteFree[bookId] = m_wealthFrac * 
         taosim::util::decimal2double(simulation()->exchange()->account(name()).at(bookId).quote.getFree());
     
-    m_pRes = midPrice - m_gHFT * m_inventory[bookId] * m_sigmaSqrInit;
+    // const auto& logReturns = m_logReturns.at(bookId);
+    // double sigmaSqr = [&] {
+    //         namespace bacc = boost::accumulators;
+    //         bacc::accumulator_set<double, bacc::stats<bacc::tag::lazy_variance>> acc;
+    //         const auto n = logReturns.capacity();
+    //         for (auto logRet : logReturns) {
+    //             acc(logRet);
+    //         }
+    //         return bacc::variance(acc) * (n - 1) / n;
+    //     }();
+
+    double timescaling = 1-simulation()->currentTimestamp()/simulation()->duration();
+    m_pRes = price - m_gHFT * m_inventory[bookId] * m_sigmaSqrInit*timescaling;
 
     placeOrder(bookId, topLevel);
 }
@@ -350,11 +379,17 @@ void HighFrequencyTraderAgent::handleTrade(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<EventTradePayload>(msg->payload);
     BookId bookId = payload->bookId;
 
+    const double tradePrice = taosim::util::decimal2double(payload->trade.price());
+
+    m_tradePrice.at(payload->bookId) = {
+        .timestamp = msg->arrival,
+        .price = tradePrice
+    };
+
     if (m_id == payload->context.aggressingAgentId) {
         m_inventory[bookId] += payload->trade.direction() == OrderDirection::BUY ? 
             taosim::util::decimal2double(payload->trade.volume()) : 
             taosim::util::decimal2double(-payload->trade.volume());
-        // NOTE order not recorded
         removeOrder(bookId, payload->trade.aggressingOrderID(), taosim::util::decimal2double(payload->trade.volume()));
     }
     if (m_id == payload->context.restingAgentId) {
@@ -413,26 +448,37 @@ std::optional<PlaceOrderLimitPayload::Ptr> HighFrequencyTraderAgent::makeOrder(B
 void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
 
     // Seed the random number generator
-    std::random_device rd;
-    m_rng->seed(rd());
+    m_rng->seed(std::random_device{}());
     std::lognormal_distribution<> lognormalDist(m_orderMean, 1); // mean=m_orderMean, stddev=1
+    const double orderVolume = lognormalDist(*m_rng);
     
     const double rayleighShift = m_noiseRay * std::sqrt(-2.0 * std::log(1.0 - m_shiftPercentage));
     const double actualSpread = topLevel.ask - topLevel.bid;
+    const double optimalSpread = m_sigmaSqrInit*m_gHFT*(1-simulation()->currentTimestamp()/simulation()->duration()) + 2/m_gHFT * std::log(1 + m_gHFT/m_kappa);
+    const double spread = actualSpread < m_spread ? actualSpread : optimalSpread;
+    
 
     // ----- Bid Placement -----
     double wealthBid = topLevel.ask * m_baseFree[bookId] + m_quoteFree[bookId];
-    double orderVolumeBid = lognormalDist(*m_rng);
-    double noiseBid = sampleRayleigh(*m_rng, m_noiseRay) - rayleighShift;
-    double priceOrderBid = m_pRes - (actualSpread / 2.0) - noiseBid;
+    double orderVolumeBid = m_inventory[bookId] >= m_psi ? orderVolume*(0.5 - m_inventory[bookId]/m_psi) : lognormalDist(*m_rng);
+    double noiseBid =  [&] { static std::uniform_real_distribution<double> s_unif{0.0, 1.0};
+                                const double rayleighDraw = boost::math::quantile(m_rayleighSample, s_unif(*m_rng)); 
+                                return rayleighDraw;
+                        }();
+    noiseBid -= rayleighShift;
+    double priceOrderBid = m_pRes - (spread / 2.0) - noiseBid;
     double limitPriceBid = std::round(priceOrderBid / m_priceIncrement) * m_priceIncrement;
     const auto bidPayload = makeOrder(bookId, OrderDirection::BUY, orderVolumeBid, limitPriceBid, wealthBid);
 
     // ----- Ask Placement -----
     double wealthAsk = topLevel.bid * m_baseFree[bookId] + m_quoteFree[bookId];
-    double orderVolumeAsk = lognormalDist(*m_rng);
-    double noiseAsk = sampleRayleigh(*m_rng, m_noiseRay) - rayleighShift;
-    double priceOrderAsk = m_pRes + (actualSpread / 2.0) + noiseAsk;
+    double orderVolumeAsk = m_inventory[bookId] >= m_psi ? orderVolume*(0.5 + m_inventory[bookId]/m_psi) : lognormalDist(*m_rng);
+    double noiseAsk = [&] { static std::uniform_real_distribution<double> s_unif{0.0, 1.0};
+                                const double rayleighDraw = boost::math::quantile(m_rayleighSample, s_unif(*m_rng)); 
+                                return rayleighDraw;
+                        }();
+    noiseAsk -= rayleighShift;
+    double priceOrderAsk = m_pRes + (spread / 2.0) + noiseAsk;
     double limitPriceAsk = std::round(priceOrderAsk / m_priceIncrement) * m_priceIncrement;
     const auto askPayload = makeOrder(bookId, OrderDirection::SELL, orderVolumeAsk, limitPriceAsk, wealthAsk);
 
@@ -505,27 +551,11 @@ void HighFrequencyTraderAgent::cancelClosestToBestPrice(BookId bookId, OrderDire
 
 //-------------------------------------------------------------------------
 
-double HighFrequencyTraderAgent::sampleRayleigh(std::mt19937& gen, double scale) const
-{
-    double u = std::generate_canonical<double, 10>(gen);
-    return scale * std::sqrt(-2.0 * std::log(1.0 - u));
+Timestamp HighFrequencyTraderAgent::orderPlacementLatency()  {
+    const double rayleighDraw = boost::math::quantile(m_orderPlacementLatencyDistribution, m_placementDraw(*m_rng));
+    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, rayleighDraw));
 }
 
-//-------------------------------------------------------------------------
-
-Timestamp HighFrequencyTraderAgent::orderPlacementLatency() const {
-    double raySample = sampleRayleigh(*m_rng, m_opLatencyScaleRay);
-    Timestamp latency = static_cast<Timestamp>(m_opLatency.min + (m_opLatency.max - m_opLatency.min) * raySample);
-    return std::min(latency, m_opLatency.max);
-}
-
-//-------------------------------------------------------------------------
-
-Timestamp HighFrequencyTraderAgent::rayleighLatencyNs(double scale) const {
-    double raySample = sampleRayleigh(*m_rng, m_opLatencyScaleRay);
-    Timestamp latency = static_cast<Timestamp>(raySample + m_opLatency.min);
-    return std::min(latency, m_opLatency.max);
-}
 
 //-------------------------------------------------------------------------
 
@@ -565,3 +595,5 @@ void HighFrequencyTraderAgent::removeOrder(BookId bookId, OrderID orderId, std::
         }
     }
 }
+
+//-------------------------------------------------------------------------

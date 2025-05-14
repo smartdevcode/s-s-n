@@ -15,20 +15,20 @@ FundamentalPrice::FundamentalPrice(
     Simulation* simulation,
     uint64_t bookId,
     uint64_t seedInterval,
-    double X0,
     double mu,
     double sigma,
-    double dt) noexcept
+    double dt,
+    double X0) noexcept
     : m_simulation{simulation},
       m_bookId{bookId},
       m_seedInterval{seedInterval},
-      m_X0{X0},
       m_mu{mu},
       m_sigma{sigma},
       m_dt{dt},
       m_gaussian{0.0, std::sqrt(dt)},
-      m_value{X0}
+      m_X0{X0}
 {
+    m_value = m_X0;
     m_seedfile = (simulation->logDir() / "fundamental_seed.csv").generic_string();
 }
 
@@ -111,7 +111,7 @@ void FundamentalPrice::checkpointSerialize(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
-    Simulation* simulation, pugi::xml_node node, uint64_t bookId)
+    Simulation* simulation, pugi::xml_node node, uint64_t bookId, double X0)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -139,25 +139,25 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
         simulation,
         bookId,
         getNonNegativeUint64Attribute(node, "seedInterval"),
-        getNonNegativeFloatAttribute(node, "X0"),
         getNonNegativeFloatAttribute(node, "mu"),
         getNonNegativeFloatAttribute(node, "sigma"),
-        getNonNegativeFloatAttribute(node, "dt"));
+        getNonNegativeFloatAttribute(node, "dt"),
+        X0);
 }
 
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FundamentalPrice> FundamentalPrice::fromCheckpoint(
-    Simulation* simulation, const rapidjson::Value& json)
+    Simulation* simulation, const rapidjson::Value& json, double X0)
 {
     auto fp = std::make_unique<FundamentalPrice>(
         simulation,
         json["bookId"].GetUint64(),
         json["seedInterval"].GetUint64(),
-        json["X0"].GetDouble(),
         json["mu"].GetDouble(),
         json["sigma"].GetDouble(),
-        json["dt"].GetDouble());
+        json["dt"].GetDouble(),
+        X0);
     fp->m_t = json["t"].GetDouble();
     fp->m_W = json["W"].GetDouble();
     fp->m_value = json["value"].GetDouble();

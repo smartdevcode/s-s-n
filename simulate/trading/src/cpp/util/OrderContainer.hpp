@@ -8,7 +8,15 @@
 
 //-------------------------------------------------------------------------
 
-template<typename TickContainer>
-using OrderContainer = std::deque<TickContainer>;
+class OrderContainer : public std::deque<TickContainer>
+{
+public:
+    [[nodiscard]] taosim::decimal_t volume() const noexcept { return m_volume; }
+
+    void updateVolume(taosim::decimal_t deltaVolume) noexcept { m_volume += deltaVolume; }
+
+private:
+    taosim::decimal_t m_volume{};
+};
 
 //-------------------------------------------------------------------------

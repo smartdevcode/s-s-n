@@ -55,7 +55,7 @@ void AccountRegistry::registerLocal(
         [&] -> std::optional<taosim::accounting::Account> {
             auto it = m_agentTypeAccountTemplates.find(agentType);
             if (it == m_agentTypeAccountTemplates.end()) return std::nullopt;
-            return std::make_optional(it->second);
+            return std::make_optional(it->second());
         })
         .value_or(m_accountTemplate);
 }
@@ -150,9 +150,10 @@ void AccountRegistry::setAccountTemplate(Account holdings) noexcept
 
 //-------------------------------------------------------------------------
 
-void AccountRegistry::setAccountTemplate(const std::string& agentType, Account account) noexcept
+void AccountRegistry::setAccountTemplate(
+    const std::string& agentType, std::function<Account()> factory) noexcept
 {
-    m_agentTypeAccountTemplates.emplace(agentType, std::move(account));
+    m_agentTypeAccountTemplates.emplace(agentType, factory);
 }
 
 //-------------------------------------------------------------------------
