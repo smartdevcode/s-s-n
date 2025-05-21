@@ -14,10 +14,10 @@
 #include "ExchangeAgentConfig.hpp"
 #include "ExchangeAgentMessagePayloads.hpp"
 #include "ExchangeSignals.hpp"
-#include "FeePolicy.hpp"
 #include "JsonSerializable.hpp"
 #include "L2Logger.hpp"
 #include "L3EventLogger.hpp"
+#include "taosim/book/FeeLogger.hpp"
 #include "MessageQueue.hpp"
 #include "MultiBookMessagePayloads.hpp"
 #include "Order.hpp"
@@ -41,9 +41,10 @@ public:
 
     MultiBookExchangeAgent(Simulation* simulation) noexcept;
 
+    [[nodiscard]] auto&& accounts(this auto&& self) noexcept { return self.m_accounts; }
+
     [[nodiscard]] std::span<Book::Ptr> books() noexcept;
     [[nodiscard]] taosim::accounting::Account& account(const LocalAgentId& agentId);
-    [[nodiscard]] taosim::accounting::AccountRegistry& accounts() noexcept;
     [[nodiscard]] ExchangeSignals* signals(BookId bookId);
     [[nodiscard]] Process* process(const std::string& name, BookId bookId);
     [[nodiscard]] taosim::exchange::ClearingManager& clearingManager() noexcept;
@@ -110,6 +111,7 @@ private:
     bool m_retainRecord = false;
     std::map<BookId, std::unique_ptr<L2Logger>> m_L2Loggers;
     std::map<BookId, std::unique_ptr<L3EventLogger>> m_L3EventLoggers;
+    std::map<BookId, std::unique_ptr<FeeLogger>> m_feeLoggers;
     Timestamp m_gracePeriod{};
     std::unique_ptr<BookProcessManager> m_bookProcessManager;
     std::vector<MessageQueue> m_parallelQueues;
@@ -118,6 +120,7 @@ private:
     std::unique_ptr<taosim::exchange::ClearingManager> m_clearingManager;
     uint64_t m_marginCallCounter{};
     taosim::exchange::ExchangeConfig m_config2;
+    taosim::accounting::AccountRegistry m_accounts;
 
     SubscriptionRegistry<LocalAgentId> m_localMarketOrderSubscribers;
     SubscriptionRegistry<LocalAgentId> m_localLimitOrderSubscribers;

@@ -153,17 +153,20 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'minOPLatency' should have a value greater than 0", ctx));
     }
-     m_opLatency.min = attr.as_ullong();
+     m_opl.min = attr.as_ullong();
     if (attr = node.attribute("maxOPLatency"); attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'maxOPLatency' should have a value greater than 0", ctx));
     }
-    m_opLatency.max = attr.as_ullong();
-    if (m_opLatency.min >= m_opLatency.max) {
+    m_opl.max = attr.as_ullong();
+    if (m_opl.min >= m_opl.max) {
         throw std::invalid_argument(fmt::format(
-            "{}: minD ({}) should be strictly less maxD ({})", ctx, m_opLatency.min, m_opLatency.max));
+            "{}: minD ({}) should be strictly less maxD ({})", ctx, m_opl.min, m_opl.max));
     }
-    m_opLatencyScaleRay = node.attribute("opLatencyScaleRay").as_double();
+    const double scale = node.attribute("opLatencyScaleRay").as_double();
+    m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
+    const double percentile = 1-std::exp(-1/(2*scale*scale));
+    m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
 }
 
 //-------------------------------------------------------------------------
@@ -308,18 +311,9 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 
 //-------------------------------------------------------------------------
 
-double ALGOTraderAgent::sampleRayleigh(std::mt19937& gen, double scale) const
-{
-    double u = std::generate_canonical<double, 10>(gen);
-    return scale * std::sqrt(-2.0 * std::log(1.0 - u));
-}
-
-//-------------------------------------------------------------------------
-
-Timestamp ALGOTraderAgent::orderPlacementLatency() const {
-    double raySample = sampleRayleigh(*m_rng, m_opLatencyScaleRay);
-    Timestamp latency = static_cast<Timestamp>(m_opLatency.min + (m_opLatency.max - m_opLatency.min) * raySample);
-    return std::min(latency, m_opLatency.max);
+Timestamp ALGOTraderAgent::orderPlacementLatency() {
+    const double rayleighDraw = boost::math::quantile(m_orderPlacementLatencyDistribution, m_placementDraw(*m_rng));
+    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, rayleighDraw));
 }
 
 //-------------------------------------------------------------------------

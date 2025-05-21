@@ -26,7 +26,7 @@ class ProcessFactory
 public:
     ProcessFactory(Simulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig) noexcept;
 
-    [[nodiscard]] std::unique_ptr<Process> createFromXML(pugi::xml_node node, uint64_t seedShift = 0);
+    [[nodiscard]] std::unique_ptr<Process> createFromXML(pugi::xml_node node, uint64_t seedShift = 0, uint64_t updatePeriod = 1'000'000'000);
     [[nodiscard]] std::unique_ptr<Process> createFromCheckpoint(const rapidjson::Value& json);
 
 private:

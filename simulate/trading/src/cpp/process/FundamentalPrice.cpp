@@ -18,7 +18,10 @@ FundamentalPrice::FundamentalPrice(
     double mu,
     double sigma,
     double dt,
-    double X0) noexcept
+    double X0,
+    double lambda, 
+    double sigmaJump, 
+    double muJump) noexcept
     : m_simulation{simulation},
       m_bookId{bookId},
       m_seedInterval{seedInterval},
@@ -26,7 +29,10 @@ FundamentalPrice::FundamentalPrice(
       m_sigma{sigma},
       m_dt{dt},
       m_gaussian{0.0, std::sqrt(dt)},
-      m_X0{X0}
+      m_X0{X0},
+      m_poisson{lambda},
+      m_jump{muJump,sigmaJump},
+      m_dJ{0}
 {
     m_value = m_X0;
     m_seedfile = (simulation->logDir() / "fundamental_seed.csv").generic_string();
@@ -70,7 +76,8 @@ void FundamentalPrice::update(Timestamp timestamp)
         }
         m_t += m_dt;
         m_W += m_gaussian(m_rng);
-        m_value = m_X0 * std::exp((m_mu - 0.5 * m_sigma * m_sigma) * m_t + m_sigma * m_W);
+        m_dJ += m_poisson(m_rng)* m_jump(m_rng);
+        m_value = m_X0 * std::exp((m_mu - 0.5 * m_sigma * m_sigma) * m_t + m_sigma * m_W + m_dJ);
         m_valueSignal(m_value);
     } else {
         fmt::println("FundamentalPrice::update : NO SEED FILE PRESENT AT {}", m_seedfile);
@@ -111,7 +118,7 @@ void FundamentalPrice::checkpointSerialize(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
-    Simulation* simulation, pugi::xml_node node, uint64_t bookId, double X0)
+    Simulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -125,6 +132,7 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
         }
     };
 
+    const float dt = updatePeriod/86'400'000'000'000.0;
     auto getNonNegativeUint64Attribute = [&](pugi::xml_node node, const char* name) {
         pugi::xml_attribute attr = node.attribute(name);
         if (uint64_t value = attr.as_ullong(); attr.empty() || value < 0.0) {
@@ -141,8 +149,11 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
         getNonNegativeUint64Attribute(node, "seedInterval"),
         getNonNegativeFloatAttribute(node, "mu"),
         getNonNegativeFloatAttribute(node, "sigma"),
-        getNonNegativeFloatAttribute(node, "dt"),
-        X0);
+        dt,
+        X0,       
+        getNonNegativeFloatAttribute(node, "lambda"),
+        getNonNegativeFloatAttribute(node, "muJump"),
+        getNonNegativeFloatAttribute(node, "sigmaJump"));
 }
 
 //-------------------------------------------------------------------------
@@ -157,7 +168,10 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromCheckpoint(
         json["mu"].GetDouble(),
         json["sigma"].GetDouble(),
         json["dt"].GetDouble(),
-        X0);
+        X0,
+        json["lambda"].GetDouble(),
+        json["muJump"].GetDouble(),
+        json["sigmaJump"].GetDouble());
     fp->m_t = json["t"].GetDouble();
     fp->m_W = json["W"].GetDouble();
     fp->m_value = json["value"].GetDouble();

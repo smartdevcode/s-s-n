@@ -8,6 +8,7 @@ add_library(book STATIC
     L3EventLogger.cpp
     PriceTimeBook.cpp
     UpdateCounter.cpp
+    FeeLogger.cpp
 )
 add_library(taosim::book ALIAS book)
 
@@ -17,6 +18,7 @@ target_link_options(book PRIVATE ${internal_link_options})
 
 target_include_directories(book
     PUBLIC
+        include
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${src_dir}"
         "${src_dir}/agent"

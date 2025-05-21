@@ -143,7 +143,22 @@ class SimulatorBalance(BaseModel):
     reserved: float
     total: float
     symbol: str | None
+    roundingDecimals: int
 
+class SimulatorHoldings(BaseModel):
+    """
+    Represents the balances for a specific account and book in the simulator.
+
+    Attributes:
+    - bookId: Unique identifier for the book.
+    - base: Base currency balance.
+    - quote: Quote currency balance.
+    """
+    baseDecimals: int
+    quoteDecimals: int
+    base: SimulatorBalance
+    quote: SimulatorBalance
+    
 class SimulatorBalances(BaseModel):
     """
     Represents the balances for a specific account and book in the simulator.
@@ -153,10 +168,22 @@ class SimulatorBalances(BaseModel):
     - base: Base currency balance.
     - quote: Quote currency balance.
     """
-    bookId: int
-    base: SimulatorBalance
-    quote: SimulatorBalance
+    holdings : list[SimulatorHoldings]
+    activeOrders : list[list[dict]]
+    
+class SimulatorFees(BaseModel):
+    """
+    Represents fees details for and agent in the simulator.
 
+    Attributes:
+    - volume_traded: Total volume traded in the aggregation period for tiered fees assignment.
+    - maker_fee_rate: The current maker fee rate for the agent.
+    - maker_fee_rate: The current taker fee rate for the agent.
+    """
+    volume: float
+    makerFeeRate: float
+    takerFeeRate: float
+    
 class SimulatorAccount(BaseModel):
     """
     Represents an account in the simulator.
@@ -167,46 +194,9 @@ class SimulatorAccount(BaseModel):
     - orders: List of orders associated with the account.
     """
     agentId: int
-    balances: list[SimulatorBalances]
+    balances: SimulatorBalances
     orders: list[list[dict] | None] | None
-    
-class SimulatorBalances(BaseModel):
-    """
-    Represents the balances for a specific account and book in the simulator.
-
-    Attributes:
-    - bookId: Unique identifier for the book.
-    - base: Base currency balance.
-    - quote: Quote currency balance.
-    """
-    bookId: int | None = None
-    base: SimulatorBalance
-    quote: SimulatorBalance
-    
-class SimulatorBalancesNew(BaseModel):
-    """
-    Represents the balances for a specific account and book in the simulator.
-
-    Attributes:
-    - bookId: Unique identifier for the book.
-    - base: Base currency balance.
-    - quote: Quote currency balance.
-    """
-    holdings : list[SimulatorBalances]
-    activeOrders : list[list[dict]]
-    
-class SimulatorAccountNew(BaseModel):
-    """
-    Represents an account in the simulator.
-
-    Attributes:
-    - agentId: Identifier for the agent.
-    - balances: List of balances for the account.
-    - orders: List of orders associated with the account.
-    """
-    agentId: int
-    balances: SimulatorBalancesNew
-    orders: list[list[dict] | None] | None
+    fees: dict[int, SimulatorFees] | None = None
 
 class SimulatorAgentMessage(BaseModel):
     """
@@ -245,7 +235,7 @@ class SimulatorStateUpdate(BaseModel):
     """
     logDir : str | None = None
     books: list[SimulatorBook]
-    accounts: dict[int, SimulatorAccountNew]
+    accounts: dict[int, SimulatorAccount]
     notices: list[SimulatorAgentMessage]
 
     def serialize(self) -> dict:

@@ -4,6 +4,9 @@
  */
 #include "AccountRegistry.hpp"
 
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string_regex.hpp>
+
 //-------------------------------------------------------------------------
 
 namespace taosim::accounting
@@ -39,7 +42,12 @@ void AccountRegistry::registerLocal(
 {
     const auto id = --m_localIdCounter;
     m_idBimap.insert({agentId, id});
-    m_underlying[id] = account.value_or(m_accountTemplate);
+    m_underlying[id] = account.value_or(m_accountTemplate());
+    m_agentIdToBaseName[id] = [&] {
+        std::string res = agentId;
+        boost::algorithm::erase_regex(res, boost::regex("(_\\d+)$"));
+        return res;
+    }();
 }
 
 //-------------------------------------------------------------------------
@@ -57,14 +65,19 @@ void AccountRegistry::registerLocal(
             if (it == m_agentTypeAccountTemplates.end()) return std::nullopt;
             return std::make_optional(it->second());
         })
-        .value_or(m_accountTemplate);
+        .value_or(m_accountTemplate());
+    m_agentIdToBaseName[id] = [&] {
+        std::string res = agentId;
+        boost::algorithm::erase_regex(res, boost::regex("(_\\d+)$"));
+        return res;
+    }();
 }
 
 //-------------------------------------------------------------------------
 
 AgentId AccountRegistry::registerRemote(std::optional<Account> account) noexcept
 {
-    m_underlying[m_remoteIdCounter] = account.value_or(m_accountTemplate);
+    m_underlying[m_remoteIdCounter] = account.value_or(m_accountTemplate());
     return m_remoteIdCounter++;
 }
 
@@ -143,9 +156,19 @@ AgentId AccountRegistry::getAgentId(const std::variant<AgentId, LocalAgentId>& a
 
 //-------------------------------------------------------------------------
 
-void AccountRegistry::setAccountTemplate(Account holdings) noexcept
+std::optional<std::reference_wrapper<const std::string>> AccountRegistry::getAgentBaseName(
+    AgentId agentId) const noexcept
 {
-    m_accountTemplate = std::move(holdings);
+    auto it = m_agentIdToBaseName.find(agentId);
+    if (it == m_agentIdToBaseName.end()) return std::nullopt;
+    return std::make_optional(std::cref(it->second));
+}
+
+//-------------------------------------------------------------------------
+
+void AccountRegistry::setAccountTemplate(std::function<Account()> factory) noexcept
+{
+    m_accountTemplate = factory;
 }
 
 //-------------------------------------------------------------------------
@@ -160,7 +183,17 @@ void AccountRegistry::setAccountTemplate(
 
 void AccountRegistry::reset(AgentId agentId)
 {
-    m_underlying[agentId] = m_accountTemplate;
+    auto baseNameIt = m_agentIdToBaseName.find(agentId);
+    if (baseNameIt == m_agentIdToBaseName.end()) {
+        m_underlying[agentId] = m_accountTemplate();
+        return;
+    }
+    auto typeTemplateIt = m_agentTypeAccountTemplates.find(baseNameIt->second);
+    if (typeTemplateIt == m_agentTypeAccountTemplates.end()) {
+        m_underlying[agentId] = m_accountTemplate();
+        return;
+    }
+    m_underlying[agentId] = typeTemplateIt->second();
 }
 
 //-------------------------------------------------------------------------

@@ -112,7 +112,7 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     attr = node.attribute("GBM_mu");
     const double gbmMu = (attr.empty() || attr.as_double() < 0.0f) ? 0 : attr.as_double();
     attr = node.attribute("GBM_sigma");
-    const double gbmSigma = (attr.empty() || attr.as_double() < 0.0f) ? 0.3 : attr.as_double();
+    const double gbmSigma = (attr.empty() || attr.as_double() < 0.0f) ? 0.01 : attr.as_double();
     attr = node.attribute("GBM_seed");
     const uint64_t gbmSeed = attr.empty() ? 10000 : attr.as_ullong(); 
     attr = node.attribute("historySize"); 
@@ -156,11 +156,8 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     m_minMFLatency = node.attribute("minMFLatency").as_ullong();
     m_shiftPercentage = node.attribute("shiftPercentage").as_double();
 
-    m_sigmaScalingBase = node.parent().child("MultiBookExchangeAgent").child("Books")
-        .child("Processes").attribute("updatePeriod").as_llong();
-    m_sigmaSqrInit = std::pow(node.parent().child("MultiBookExchangeAgent").child("Books")
-        .child("Processes").child("GBM").attribute("sigma").as_double(), 2) * std::pow((m_delta/m_sigmaScalingBase), 2);
-
+    attr = node.attribute("sigmaSqr");
+    m_sigmaSqr =  (attr.empty() || attr.as_double() < 0.0f) ? 0.00001 : attr.as_double();
     m_debug = node.attribute("debug").as_bool();
 
     m_priceIncrement =
@@ -304,7 +301,7 @@ void HighFrequencyTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
     //     }();
 
     double timescaling = 1-simulation()->currentTimestamp()/simulation()->duration();
-    m_pRes = price - m_gHFT * m_inventory[bookId] * m_sigmaSqrInit*timescaling;
+    m_pRes = price - m_gHFT * m_inventory[bookId] * m_sigmaSqr *timescaling;
 
     placeOrder(bookId, topLevel);
 }
@@ -451,10 +448,10 @@ void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
     m_rng->seed(std::random_device{}());
     std::lognormal_distribution<> lognormalDist(m_orderMean, 1); // mean=m_orderMean, stddev=1
     const double orderVolume = lognormalDist(*m_rng);
-    
+    const double currentInventory = m_inventory[bookId];
     const double rayleighShift = m_noiseRay * std::sqrt(-2.0 * std::log(1.0 - m_shiftPercentage));
     const double actualSpread = topLevel.ask - topLevel.bid;
-    const double optimalSpread = m_sigmaSqrInit*m_gHFT*(1-simulation()->currentTimestamp()/simulation()->duration()) + 2/m_gHFT * std::log(1 + m_gHFT/m_kappa);
+    const double optimalSpread = m_sigmaSqr*m_gHFT*(1-simulation()->currentTimestamp()/simulation()->duration()) + 2/m_gHFT * std::log(1 + m_gHFT/m_kappa);
     const double spread = actualSpread < m_spread ? actualSpread : optimalSpread;
     
 
@@ -487,8 +484,8 @@ void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
         simulation()->logDebug("BOOK {} | p_ask_raw={}, limit={}, volume={}\n", bookId, priceOrderAsk, limitPriceAsk, orderVolumeAsk);
     }
 
-    if (std::abs(m_inventory[bookId]) > m_psi){
-        if (m_inventory[bookId] < 0){
+    if (std::abs(currentInventory) > m_psi){
+        if (currentInventory < 0){
             sendOrder(bidPayload);
             if (std::uniform_real_distribution{0.0,1.0}(*m_rng) < 0.75) {
                 cancelClosestToBestPrice(bookId, OrderDirection::SELL, topLevel.ask);

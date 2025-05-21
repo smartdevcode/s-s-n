@@ -23,8 +23,6 @@ static constexpr RoundParams s_roundParams{
     .quoteDecimals = 8
 };
 
-static constexpr uint32_t s_qDecimals = 4;
-
 struct CollateralCreationDesc
 {
     decimal_t quoteValue;

@@ -7,6 +7,7 @@
 #include "SimulationException.hpp"
 #include "util.hpp"
 
+#include <boost/algorithm/string/regex.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -21,8 +22,6 @@
 #include <regex>
 #include <set>
 #include <source_location>
-
-
 #include <stdexcept>
 
 //-------------------------------------------------------------------------
@@ -554,30 +553,51 @@ void Simulation::configureAgents(pugi::xml_node node)
     m_localAgentManager->createAgentsInstanced(
         agentsNode,
         [&](pugi::xml_node agentNode) {
-            const std::string agentType = agentNode.name();
             if (specialAgents.contains(agentNode.attribute("name").as_string())) return;
             if (m_exchange == nullptr) {
                 throw std::runtime_error{fmt::format("{}: m_exchange == nullptr!", ctx)};
             }
-            if (m_exchange->accounts().agentTypeAccountTemplates().contains(agentType)) return;
-            if (pugi::xml_node balancesNode = agentNode.child("Balances")) {
-                auto doc = std::make_shared<pugi::xml_document>();
-                doc->append_copy(balancesNode);
-                m_exchange->accounts().setAccountTemplate(
-                    agentType,
-                    [=, this] -> taosim::accounting::Account {
-                        const auto& params = m_exchange->config().parameters();
-                        return taosim::accounting::Account{
-                            static_cast<uint32_t>(m_exchange->books().size()),
-                            taosim::accounting::Balances::fromXML(
-                                doc->child("Balances"),
-                                taosim::accounting::RoundParams{
-                                    .baseDecimals = params.baseIncrementDecimals,
-                                    .quoteDecimals = params.quoteIncrementDecimals
-                                })
-                            };
-                    });
-            }
+            [&] {
+                const std::string agentType = agentNode.name();
+                auto& accounts = m_exchange->accounts();
+                if (m_exchange->accounts().agentTypeAccountTemplates().contains(agentType)) return;
+                if (pugi::xml_node balancesNode = agentNode.child("Balances")) {
+                    auto doc = std::make_shared<pugi::xml_document>();
+                    doc->append_copy(balancesNode);
+                    m_exchange->accounts().setAccountTemplate(
+                        agentType,
+                        [=, this] -> taosim::accounting::Account {
+                            const auto& params = m_exchange->config().parameters();
+                            return taosim::accounting::Account{
+                                static_cast<uint32_t>(m_exchange->books().size()),
+                                taosim::accounting::Balances::fromXML(
+                                    doc->child("Balances"),
+                                    taosim::accounting::RoundParams{
+                                        .baseDecimals = params.baseIncrementDecimals,
+                                        .quoteDecimals = params.quoteIncrementDecimals
+                                    })
+                                };
+                        });
+                }
+            }();
+            [&] {
+                if (pugi::xml_node feePolicyNode = agentNode.child("FeePolicy")) {
+                    auto feePolicy = m_exchange->clearingManager().feePolicy();
+                    const auto agentBaseName = agentNode.attribute("name").as_string();
+                    if (feePolicy->contains(agentBaseName)) return;
+                    (*feePolicy)[agentBaseName] =
+                        taosim::exchange::FeePolicy::fromXML(feePolicyNode, this);
+                    logDebug("TIERED FEE POLICY - {}", agentBaseName);
+                    int c = 0;
+                    for (taosim::exchange::Tier tier : (*feePolicy)[agentBaseName]->tiers()) {
+                        logDebug("TIER {} : VOL >= {} | MAKER {} TAKER {}", c, 
+                            tier.volumeRequired, 
+                            tier.makerFeeRate, tier.takerFeeRate
+                        );
+                        c++;
+                    }
+                }
+            }();
         });
 
     auto it = std::find_if(
@@ -813,6 +833,8 @@ void Simulation::start()
 void Simulation::step()
 {
     const Timestamp cutoff = m_time.current + m_time.step;
+
+    m_exchange->clearingManager().updateFeeTiers(cutoff);        
 
     m_exchange->checkMarginCall();
 

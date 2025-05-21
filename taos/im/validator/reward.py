@@ -20,6 +20,7 @@
 
 import torch
 import math
+import traceback
 import bittensor as bt
 import numpy as np
 from typing import List, Dict
@@ -120,9 +121,7 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
         self.sharpe_values[uid]['normalized_total'] = normalized_total_sharpe
         return normalized_total_sharpe
     except Exception as ex:
-        import traceback
-        traceback.print_exc()
-        print(ex)
+        bt.logging.error(f"Failed to calculate Sharpe for UID {uid} : {traceback.format_exc()}")
 
 def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,float]]) -> float:
     """
@@ -174,12 +173,18 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
     for notice in synapse.notices[uid]:
         if notice.type == 'EVENT_TRADE':
             if not notice.timestamp in self.trade_volumes[uid][notice.bookId]:
-                self.trade_volumes[uid][notice.bookId][notice.timestamp] = 0.0
-            self.trade_volumes[uid][notice.bookId][notice.timestamp] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+                self.trade_volumes[uid][notice.bookId][notice.timestamp] = {'total' : 0.0, 'maker' : 0.0, 'taker' : 0.0, 'self' : 0.0}
+            self.trade_volumes[uid][notice.bookId][notice.timestamp]['total'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['total'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+            if notice.makerAgentId == notice.takerAgentId:                
+                self.trade_volumes[uid][notice.bookId][notice.timestamp]['self'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['self'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+            elif notice.makerAgentId == uid:
+                self.trade_volumes[uid][notice.bookId][notice.timestamp]['maker'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['maker'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+            elif notice.takerAgentId == uid:
+                self.trade_volumes[uid][notice.bookId][notice.timestamp]['taker'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['taker'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
     target_volume = round(self.config.scoring.activity.capital_turnover_rate * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
     self.activity_factors[uid] = round(
         min(1.0,
-            min([round(sum(self.trade_volumes[uid][book_id].values()), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
+            min([round(sum([book_volume['total'] for book_volume in self.trade_volumes[uid][book_id].values()]), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
         )
         ,6)
     return self.activity_factors[uid] * inventory_score

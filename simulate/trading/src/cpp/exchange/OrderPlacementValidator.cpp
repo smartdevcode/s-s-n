@@ -27,7 +27,7 @@ OrderPlacementValidator::ExpectedResult
         const accounting::Account& account,
         Book::Ptr book,
         PlaceOrderMarketPayload::Ptr payload,
-        FeePolicy& feePolicy,
+        FeePolicyWrapper& feePolicy,
         decimal_t maxLeverage,
         decimal_t maxLoan,
         AgentId agentId) const
@@ -52,6 +52,8 @@ OrderPlacementValidator::ExpectedResult
     const auto& balances = account.at(book->id());
     const auto& baseBalance = balances.base;
     const auto& quoteBalance = balances.quote;
+    
+    const Fees feeRates = feePolicy.getRates(book->id(), agentId);
 
     if (payload->direction == OrderDirection::BUY) {
         if (book->sellQueue().empty()) {
@@ -65,19 +67,21 @@ OrderPlacementValidator::ExpectedResult
                 if (volume + tick->totalVolume() >= payloadTotalVolume) {
                     const decimal_t partialVolume = payloadTotalVolume - volume;
                     volume += partialVolume;
-                    decimal_t tradeCost = util::round(tick->price() * partialVolume * util::dec1p(feePolicy.getRates().taker), m_params.quoteIncrementDecimals);
+                    decimal_t tradeCost = util::round(tick->price() * partialVolume * util::dec1p(feeRates.taker), m_params.quoteIncrementDecimals);
                     volumeWeightedPrice += tradeCost;
                     m_exchange->simulation()->logDebug(
                         "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY ORDER {}x{}@MARKET AGAINST {}@{}",
-                         m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, partialVolume, tick->price(), util::dec1p(feePolicy.getRates().taker), util::dec1p(payload->leverage), payload->volume, tick->totalVolume(), tick->price());
+                        m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, partialVolume, tick->price(),
+                        util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, tick->totalVolume(), tick->price());
                     goto checkQuoteBalance;
                 }
                 volume += tick->totalVolume();
-                const decimal_t tradeCost = util::round(tick->price() * tick->totalVolume() * util::dec1p(feePolicy.getRates().taker), m_params.quoteIncrementDecimals);
+                const decimal_t tradeCost = util::round(tick->price() * tick->totalVolume() * util::dec1p(feeRates.taker), m_params.quoteIncrementDecimals);
                 volumeWeightedPrice += tradeCost;
                 m_exchange->simulation()->logDebug(
                     "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY ORDER {}x{}@MARKET AGAINST {}@{}",
-                     m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, tick->totalVolume(), tick->price(), util::dec1p(feePolicy.getRates().taker), util::dec1p(payload->leverage), payload->volume, tick->totalVolume(), tick->price());
+                    m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, tick->totalVolume(), tick->price(),
+                    util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, tick->totalVolume(), tick->price());
             }
         }
         checkQuoteBalance:
@@ -118,10 +122,12 @@ OrderPlacementValidator::ExpectedResult
                 return std::unexpected{OrderErrorCode::EXCEEDING_LOAN};
             }
         }
-        return Result{
-            .direction = payload->direction,
-            .amount = payload->volume,
-            .leverage = payload->leverage
+        return OrderPlacementValidator::ExpectedResult{
+            Result{
+                .direction = payload->direction,
+                .amount = payload->volume,
+                .leverage = payload->leverage
+            }
         };
     }
 }
@@ -133,7 +139,7 @@ OrderPlacementValidator::ExpectedResult
         const accounting::Account& account,
         Book::Ptr book,
         PlaceOrderLimitPayload::Ptr payload,
-        FeePolicy& feePolicy,
+        FeePolicyWrapper& feePolicy,
         decimal_t maxLeverage,
         decimal_t maxLoan,
         AgentId agentId) const
@@ -168,6 +174,8 @@ OrderPlacementValidator::ExpectedResult
     const auto& baseBalance = balances.base;
     const auto& quoteBalance = balances.quote;
 
+    const Fees feeRates = feePolicy.getRates(book->id(), agentId);
+
     if (payload->direction == OrderDirection::BUY) {
         decimal_t takerVolume{};
         decimal_t takerTotalPrice{};
@@ -178,32 +186,32 @@ OrderPlacementValidator::ExpectedResult
                 if (takerVolume + tick->totalVolume() >= payloadTotalVolume) {
                     const decimal_t partialVolume = payloadTotalVolume - takerVolume;
                     takerVolume += partialVolume;
-                    decimal_t tradeCost = util::round(tick->price() * partialVolume * util::dec1p(feePolicy.getRates().taker), m_params.quoteIncrementDecimals);
+                    decimal_t tradeCost = util::round(tick->price() * partialVolume * util::dec1p(feeRates.taker), m_params.quoteIncrementDecimals);
                     takerTotalPrice += tradeCost;
                     m_exchange->simulation()->logDebug(
                         "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY ORDER {}x{}@{} AGAINST {}@{}",
-                         m_exchange->simulation()->currentTimestamp(), agentId, book->id(),
-                          tradeCost, partialVolume, tick->price(), util::dec1p(feePolicy.getRates().taker), util::dec1p(payload->leverage), payload->volume, payload->price, tick->totalVolume(), tick->price());
+                        m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, partialVolume, tick->price(),
+                        util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, payload->price, tick->totalVolume(), tick->price());
                     goto checkQuoteBalance;
                 }
                 takerVolume += tick->totalVolume();
-                decimal_t tradeCost = util::round(tick->price() * tick->totalVolume() * util::dec1p(feePolicy.getRates().taker), m_params.quoteIncrementDecimals);
+                decimal_t tradeCost = util::round(tick->price() * tick->totalVolume() * util::dec1p(feeRates.taker), m_params.quoteIncrementDecimals);
                 takerTotalPrice += tradeCost;
                 m_exchange->simulation()->logDebug(
                     "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY ORDER {}x{}@{} AGAINST {}@{}",
-                     m_exchange->simulation()->currentTimestamp(), agentId, book->id(), 
-                     tradeCost, tick->totalVolume(), tick->price(), util::dec1p(feePolicy.getRates().taker), util::dec1p(payload->leverage), payload->volume, payload->price, tick->totalVolume(), tick->price());
+                    m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, tick->totalVolume(), tick->price(), 
+                    util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, payload->price, tick->totalVolume(), tick->price());
             }
         }
         checkQuoteBalance:
         takerTotalPrice = util::round(takerTotalPrice, m_params.quoteIncrementDecimals);
         
         const decimal_t makerVolume = payloadTotalVolume - takerVolume;
-        const decimal_t makerTotalPrice = util::round(payload->price * makerVolume * util::dec1p(feePolicy.getRates().maker), m_params.quoteIncrementDecimals);
+        const decimal_t makerTotalPrice = util::round(payload->price * makerVolume * util::dec1p(feeRates.maker), m_params.quoteIncrementDecimals);
         m_exchange->simulation()->logDebug(
             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR PLACE OF BUY ORDER {}x{}@{}",
-             m_exchange->simulation()->currentTimestamp(), agentId, book->id(), 
-             makerTotalPrice, makerVolume, payload->price, util::dec1p(feePolicy.getRates().maker), util::dec1p(payload->leverage), payload->volume, payload->price);
+            m_exchange->simulation()->currentTimestamp(), agentId, book->id(), makerTotalPrice, makerVolume, payload->price,
+            util::dec1p(feeRates.maker), util::dec1p(payload->leverage), payload->volume, payload->price);
         decimal_t volumeWeightedPrice = util::round(takerTotalPrice + makerTotalPrice, m_params.quoteIncrementDecimals);
 
 

@@ -1,5 +1,6 @@
 add_library(process STATIC
     GBM.cpp
+    JumpDiffusion.cpp
     FundamentalPrice.cpp
     Process.hpp
     ProcessFactory.cpp

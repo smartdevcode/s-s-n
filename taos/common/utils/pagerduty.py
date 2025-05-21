@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
+# SPDX-License-Identifier: MIT
 import pypd
 
 import bittensor as bt

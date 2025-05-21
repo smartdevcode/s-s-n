@@ -5,8 +5,8 @@
 #include "MultiBookExchangeAgent.hpp"
 
 #include "BookFactory.hpp"
-#include "FeePolicyFactory.hpp"
 #include "Simulation.hpp"
+#include "taosim/exchange/FeePolicy.hpp"
 #include "util.hpp"
 
 #include <boost/uuid/random_generator.hpp>
@@ -42,13 +42,6 @@ std::span<Book::Ptr> MultiBookExchangeAgent::books() noexcept
 taosim::accounting::Account& MultiBookExchangeAgent::account(const LocalAgentId& agentId)
 {
     return m_clearingManager->accounts()[agentId];
-}
-
-//-------------------------------------------------------------------------
-
-taosim::accounting::AccountRegistry& MultiBookExchangeAgent::accounts() noexcept
-{
-    return m_clearingManager->accounts();
 }
 
 //-------------------------------------------------------------------------
@@ -280,14 +273,25 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             booksNode, const_cast<Simulation*>(simulation()), &m_config2);
         m_clearingManager = std::make_unique<taosim::exchange::ClearingManager>(
             this,
-            taosim::exchange::FeePolicyFactory::createFromXML(node.child("FeePolicy")),
+            std::make_unique<taosim::exchange::FeePolicyWrapper>(
+                taosim::exchange::FeePolicy::fromXML(
+                    node.child("FeePolicy"), const_cast<Simulation*>(simulation())), &accounts()),
             taosim::exchange::OrderPlacementValidator::Parameters{
                 .volumeIncrementDecimals = m_config.parameters().volumeIncrementDecimals,
                 .priceIncrementDecimals = m_config.parameters().priceIncrementDecimals,
                 .baseIncrementDecimals = m_config.parameters().baseIncrementDecimals,
                 .quoteIncrementDecimals = m_config.parameters().quoteIncrementDecimals
             });
-
+        
+        simulation()->logDebug("TIERED FEE POLICY");
+        int c = 0;
+        for (taosim::exchange::Tier tier : m_clearingManager->feePolicy()->defaultPolicy()->tiers()) {
+            simulation()->logDebug("TIER {} : VOL >= {} | MAKER {} TAKER {}", c, 
+                tier.volumeRequired, 
+                tier.makerFeeRate, tier.takerFeeRate
+            );
+            c++;
+        }
 
         const auto balancesNode = node.child("Balances");
         const auto baseNode = balancesNode.child("Base");
@@ -297,9 +301,11 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
         std::string L2LogTag;
         int L2Depth;
         std::string L3LogTag;
+        std::string feeLogTag;
         pugi::xml_node loggingNode;
         pugi::xml_node L2Node;
         pugi::xml_node L3Node;
+        pugi::xml_node feeLogNode;
         if (loggingNode = node.child("Logging")) {
             std::istringstream in{loggingNode.attribute("startDate").as_string()};
             // TODO: Handle the timezone
@@ -311,9 +317,11 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             if (L3Node = loggingNode.child("L3")) {
                 L3LogTag = L3Node.attribute("tag").as_string();
             }
+            if (feeLogNode = loggingNode.child("FeeLog")) {
+                feeLogTag = feeLogNode.attribute("tag").as_string();
+            }
         }
 
-        taosim::accounting::Account accountTemplate;        
         const fs::path logDir = simulation()->logDir();
         for (uint16_t bookId{}; bookId < bookCount; ++bookId) {
             auto book = BookFactory::createBook(
@@ -346,20 +354,13 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             m_books.push_back(book);
             m_signals[bookId] = std::make_unique<ExchangeSignals>();
             m_L3Record[bookId] = {};
-            accountTemplate.holdings().push_back(
-                taosim::accounting::Balances::fromXML(
-                    balancesNode,
-                    taosim::accounting::RoundParams{
-                        .baseDecimals = m_config.parameters().baseIncrementDecimals,
-                        .quoteDecimals = m_config.parameters().quoteIncrementDecimals}));
-            accountTemplate.activeOrders().emplace_back();
             if (loggingNode) {
                 if (L2Node) {
                     const fs::path logPath =
-                    logDir / fmt::format(
-                        "{}L2-{}.log",
-                        !L2LogTag.empty() ? L2LogTag + "-" : "",
-                        bookId);
+                        logDir / fmt::format(
+                            "{}L2-{}.log",
+                            !L2LogTag.empty() ? L2LogTag + "-" : "",
+                            bookId);
                     m_L2Loggers[bookId] = std::make_unique<L2Logger>(
                         logPath,
                         L2Depth,
@@ -369,19 +370,47 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                 }
                 if (L3Node) {
                     const fs::path logPath =
-                    logDir / fmt::format(
-                        "{}L3-{}.log",
-                        !L3LogTag.empty() ? L3LogTag + "-" : "",
-                        bookId);
+                        logDir / fmt::format(
+                            "{}L3-{}.log",
+                            !L3LogTag.empty() ? L3LogTag + "-" : "",
+                            bookId);
                     m_L3EventLoggers[bookId] = std::make_unique<L3EventLogger>(
                         logPath,
                         startTimePoint,
                         m_signals.at(bookId)->L3,
                         simulation());
                 }
+                if (feeLogNode) {
+                    const fs::path logPath =
+                        logDir / fmt::format(
+                            "{}fees-{}.log",
+                            !feeLogTag.empty() ? feeLogTag + "-" : "",
+                            bookId);
+                    m_feeLoggers[bookId] = std::make_unique<FeeLogger>(
+                        logPath,
+                        startTimePoint,
+                        m_signals.at(bookId)->feeLog,
+                        simulation());
+                }
             }
         }
-        m_clearingManager->accounts().setAccountTemplate(std::move(accountTemplate));
+
+        auto doc = std::make_shared<pugi::xml_document>();
+        doc->append_copy(balancesNode);
+        m_clearingManager->accounts().setAccountTemplate([this, doc, bookCount] {
+            const pugi::xml_node balancesNode = doc->child("Balances");
+            taosim::accounting::Account accountTemplate;
+            for (auto bookId : views::iota(BookId{}, bookCount)) {
+                accountTemplate.holdings().push_back(
+                    taosim::accounting::Balances::fromXML(
+                        balancesNode,
+                        taosim::accounting::RoundParams{
+                            .baseDecimals = m_config.parameters().baseIncrementDecimals,
+                            .quoteDecimals = m_config.parameters().quoteIncrementDecimals}));
+                accountTemplate.activeOrders().emplace_back();
+            }
+            return accountTemplate;
+        });
 
         if (const uint32_t remoteAgentCount = node.attribute("remoteAgentCount").as_uint()) {
             for (AgentId agentId{}; agentId < remoteAgentCount; ++agentId) {
@@ -597,15 +626,42 @@ void MultiBookExchangeAgent::jsonSerialize(
         auto serializeAccounts = [this](rapidjson::Document& json) {
             auto& allocator = json.GetAllocator();
             m_clearingManager->accounts().jsonSerialize(json);
-            for (AgentId agentId : views::keys(m_clearingManager->accounts())) {
+            for (AgentId agentId : views::keys(accounts())) {
                 const auto agentIdStr = std::to_string(agentId);
                 const char* agentIdCStr = agentIdStr.c_str();
                 rapidjson::Document ordersJson{rapidjson::kArrayType, &allocator};
                 json[agentIdCStr].AddMember("orders", ordersJson, allocator);
+                const auto feePolicy = m_clearingManager->feePolicy();
+                rapidjson::Document feesJson{rapidjson::kObjectType, &allocator};
+                for (BookId bookId : views::iota(0u, m_books.size())) {
+                    taosim::json::serializeHelper(
+                        feesJson,
+                        std::to_string(bookId).c_str(),
+                        [&](rapidjson::Document& feeJson) {
+                            feeJson.SetObject();
+                            auto& allocator = feeJson.GetAllocator();
+                            feeJson.AddMember(
+                                "volume",
+                                rapidjson::Value{taosim::util::decimal2double(
+                                    feePolicy->agentVolume(bookId, agentId))},
+                                allocator);
+                            const auto rates = feePolicy->getRates(bookId, agentId);
+                            feeJson.AddMember(
+                                "makerFeeRate",
+                                rapidjson::Value{taosim::util::decimal2double(rates.maker)},
+                                allocator);
+                            feeJson.AddMember(
+                                "takerFeeRate",
+                                rapidjson::Value{taosim::util::decimal2double(rates.taker)},
+                                allocator);
+                        });
+                }
+                json[agentIdCStr].AddMember("fees", feesJson, allocator);
             }
             for (const auto book : m_books) {
                 const BookId bookId = book->id();
-                for (const auto& [agentId, holdings] : m_clearingManager->accounts()) {
+                const auto bookIdStr = std::to_string(bookId);
+                for (const auto& [agentId, holdings] : accounts()) {
                     const auto agentIdStr = std::to_string(agentId);
                     const char* agentIdCStr = agentIdStr.c_str();
                     json[agentIdCStr]["orders"].PushBack(
@@ -685,7 +741,7 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<ResetAgentsPayload>(payload->payload);
 
-    std::vector<AgentId> valid = subPayload->agentIds
+    const auto valid = subPayload->agentIds
         | views::filter([&](AgentId agentId) { return accounts().contains(agentId); })
         | ranges::to<std::vector>;
 
@@ -726,46 +782,26 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     }
     simulation()->logDebug("{} | ALL RESET-CANCELS DONE", simulation()->currentTimestamp());
 
-    const auto allQueuesEmpty =
+    const std::unordered_set<AgentId> resetAgentIds{valid.begin(), valid.end()};
+
+    m_clearingManager->feePolicy()->resetHistory(resetAgentIds);    
+
+    const bool allQueuesEmpty =
         ranges::all_of(m_parallelQueues, [](const auto& queue) { return queue.empty(); });
     if (m_parallel && !allQueuesEmpty) {
         simulation()->logDebug("{} | PARALLEL QUEUES NON-EMPTY UPON AGENT RESET", simulation()->currentTimestamp());
     }	
 	
-    const std::unordered_set<AgentId> resetAgentIds{valid.begin(), valid.end()};
-    std::vector<MessageQueue::PrioritizedMessageWithId> messagesToKeep;
-    auto& mainMsgQueue = simulation()->m_messageQueue;
-    while (!mainMsgQueue.empty()) {
-        auto prioMsgWithId = mainMsgQueue.prioTop();
-        mainMsgQueue.pop();
-        const auto distributedPayload =
-            std::dynamic_pointer_cast<DistributedAgentResponsePayload>(prioMsgWithId.pmsg.msg->payload);
-        if (distributedPayload && resetAgentIds.contains(distributedPayload->agentId)) {
-            continue;
-        }
-        messagesToKeep.push_back(prioMsgWithId);
-    }
-    ThreadSafeMessageQueue newQueue;
-    for (const auto& message : messagesToKeep) {
-        newQueue.push(message);
-    }
-    simulation()->m_messageQueue = std::move(newQueue);
+    simulation()->m_messageQueue = ThreadSafeMessageQueue{MessageQueue{
+        simulation()->m_messageQueue.m_underlying.m_queue.underlying()
+            | views::filter([&](const auto& prioMsgWithId) {
+                const auto distributedPayload =
+                    std::dynamic_pointer_cast<DistributedAgentResponsePayload>(
+                        prioMsgWithId.pmsg.msg->payload);
+                return !distributedPayload || resetAgentIds.contains(distributedPayload->agentId);
+            })
+            | ranges::to<std::vector>}};
     simulation()->logDebug("{} | MESSAGE QUEUE CLEARED", simulation()->currentTimestamp());
-
-    // for (const auto [bookId, bookCancellations] : views::enumerate(cancellations)) {
-    //     if (bookCancellations.empty()) continue;
-    //     respondToMessage(
-    //         msg,
-    //         MessagePayload::create<DistributedAgentResponsePayload>(
-    //             payload->agentId,
-    //             MessagePayload::create<CancelOrdersResponsePayload>(
-    //                 bookCancellations
-    //                     | views::transform([](const Cancellation& c) { return c.id; })
-    //                     | ranges::to<std::vector>(),
-    //                 MessagePayload::create<CancelOrdersPayload>(bookCancellations, bookId))),
-    //         0);
-    // }
-    // simulation()->logDebug("{} | bookCancellations NOTIFIED", simulation()->currentTimestamp());
 
     simulation()->fastRespondToMessage(
         msg,
@@ -1503,7 +1539,7 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
     const auto [aggressingAgentId, aggressingClientOrderId] =
         m_books[bookId]->orderClientContext(aggressingOrderId);
 
-    const auto fees = m_clearingManager->handleTrade(taosim::exchange::TradeDesc{
+    const auto& feeLogs = m_clearingManager->handleTrade(taosim::exchange::TradeDesc{
         .bookId = bookId,
         .restingAgentId = restingAgentId,
         .aggressingAgentId = aggressingAgentId,
@@ -1512,11 +1548,11 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
 
     m_L3Record[bookId].push(
         std::make_shared<TradeEvent>(
-            trade, TradeContext(bookId, aggressingAgentId, restingAgentId, fees)));
+            trade, TradeContext(bookId, aggressingAgentId, restingAgentId, feeLogs.fees)));
 
     auto tradeWithCtx = std::make_shared<TradeWithLogContext>(
         trade,
-        std::make_shared<TradeLogContext>(aggressingAgentId, restingAgentId, bookId, fees));
+        std::make_shared<TradeLogContext>(aggressingAgentId, restingAgentId, bookId, feeLogs.fees));
 
     const Timestamp now = simulation()->currentTimestamp();
     const std::array<std::pair<AgentId, std::optional<ClientOrderID>>, 2> idPairs{
@@ -1539,6 +1575,8 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
     }
 
     m_signals[bookId]->tradeLog(*tradeWithCtx);
+    m_signals[bookId]->feeLog(feeLogs.makerFeeLog);
+    m_signals[bookId]->feeLog(feeLogs.takerFeeLog);
 
     notifyTradeSubscribers(tradeWithCtx);
 }

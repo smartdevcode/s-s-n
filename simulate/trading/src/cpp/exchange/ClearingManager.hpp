@@ -6,7 +6,8 @@
 
 #include "AccountRegistry.hpp"
 #include "OrderPlacementValidator.hpp"
-#include "FeePolicy.hpp"
+#include "taosim/exchange/FeePolicyWrapper.hpp"
+#include "taosim/book/FeeLogger.hpp"
 
 #include <map>
 #include <memory>
@@ -47,6 +48,13 @@ struct CancelOrderDesc
     decimal_t volumeToCancel;
 };
 
+struct FeeLogs
+{
+    Fees fees;
+    FeeLogEvent makerFeeLog;
+    FeeLogEvent takerFeeLog;
+};
+
 //-------------------------------------------------------------------------
 
 class ClearingManager
@@ -62,22 +70,24 @@ public:
 
     explicit ClearingManager(
         MultiBookExchangeAgent* exchange,
-        std::unique_ptr<FeePolicy> feePolicy,
+        std::unique_ptr<FeePolicyWrapper> feePolicy,
         OrderPlacementValidator::Parameters validatorParams) noexcept;
 
-    [[nodiscard]] auto exchange(this auto&& self) noexcept { return self.m_exchange; }
-    [[nodiscard]] auto& accounts(this auto&& self) noexcept { return self.m_accounts; }
+    [[nodiscard]] MultiBookExchangeAgent* exchange() noexcept;
+    [[nodiscard]] accounting::AccountRegistry& accounts() noexcept;
     [[nodiscard]] MarginCallContainer& getMarginBuys() { return m_marginBuy; };
     [[nodiscard]] MarginCallContainer& getMarginSells() { return m_marginSell; };
+    
+    [[nodiscard]] FeePolicyWrapper* feePolicy() { return m_feePolicy.get(); };
 
     [[nodiscard]] OrderErrorCode handleOrder(const OrderDesc& orderDesc);
     void handleCancelOrder(const CancelOrderDesc& cancelDesc);
-    Fees handleTrade(const TradeDesc& tradeDesc);
+    FeeLogs handleTrade(const TradeDesc& tradeDesc);
+    void updateFeeTiers(Timestamp time) noexcept;
 
 private:
     MultiBookExchangeAgent* m_exchange;
-    accounting::AccountRegistry m_accounts;
-    std::unique_ptr<FeePolicy> m_feePolicy;
+    std::unique_ptr<FeePolicyWrapper> m_feePolicy;
     MarginCallContainer m_marginBuy;
     MarginCallContainer m_marginSell;
     OrderPlacementValidator m_orderPlacementValidator;

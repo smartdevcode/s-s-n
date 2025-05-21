@@ -235,7 +235,7 @@ bool violatesPostOnly(Book::Ptr book, PlaceOrderLimitPayload::Ptr limitOrderPayl
                 && limitOrderPayload->price >= book->sellQueue().front().price();
         case OrderDirection::SELL:
             return !book->buyQueue().empty()
-                && limitOrderPayload->price <= book->buyQueue().front().price();
+                && limitOrderPayload->price <= book->buyQueue().back().price();
         default:
             std::unreachable();
     }

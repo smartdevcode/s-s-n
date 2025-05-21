@@ -108,7 +108,7 @@ std::unique_ptr<BookProcessManager> BookProcessManager::fromXML(
     for (pugi::xml_node processNode : node.child("Processes")) {
         ProcessContainer::mapped_type bookId2Process(bookCount);
         for (BookId bookId = 0; bookId < bookCount; ++bookId) {
-            bookId2Process[bookId] = processFactory->createFromXML(processNode, bookId);
+            bookId2Process[bookId] = processFactory->createFromXML(processNode, bookId, node.child("Processes").attribute("updatePeriod").as_ullong(1));
         }
         pugi::xml_attribute attr;
         if (attr = processNode.attribute("name"); attr.empty()) {

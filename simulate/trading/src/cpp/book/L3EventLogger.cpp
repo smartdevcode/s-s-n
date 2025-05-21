@@ -28,6 +28,9 @@ L3EventLogger::L3EventLogger(
 
     m_timeConverter = taosim::simulation::timescaleToConverter(m_simulation->config().time().scale);
     m_feed = signal.connect([this](taosim::L3LogEvent event) { log(event); });
+
+    m_logger->trace("date,time,event");
+    m_logger->flush();
 }
 
 //-------------------------------------------------------------------------

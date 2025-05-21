@@ -41,14 +41,15 @@ public:
     [[nodiscard]] const boost::bimap<LocalAgentId, AgentId>& idBimap() const noexcept;
     [[nodiscard]] const ContainerType& accounts() const noexcept;
     [[nodiscard]] AgentId getAgentId(const std::variant<AgentId, LocalAgentId>& agentId) const;
-    [[nodiscard]] const Account& accountTemplate() const noexcept { return m_accountTemplate; }
+    [[nodiscard]] std::optional<std::reference_wrapper<const std::string>> getAgentBaseName(
+        AgentId agentId) const noexcept;
 
     [[nodiscard]] auto&& agentTypeAccountTemplates(this auto&& self) noexcept
     {
         return self.m_agentTypeAccountTemplates;
     }
 
-    void setAccountTemplate(Account account) noexcept;
+    void setAccountTemplate(std::function<Account()> factory) noexcept;
     void setAccountTemplate(const std::string& agentType, std::function<Account()> factory) noexcept;
     void reset(AgentId agentId);
 
@@ -63,9 +64,10 @@ private:
     AgentId m_remoteIdCounter{};
 
     ContainerType m_underlying;
-    Account m_accountTemplate;
+    std::function<Account()> m_accountTemplate;
     std::map<std::string, std::function<Account()>> m_agentTypeAccountTemplates;
     boost::bimap<LocalAgentId, AgentId> m_idBimap;
+    std::map<AgentId, std::string> m_agentIdToBaseName;
 
     friend class Simulation;
 };

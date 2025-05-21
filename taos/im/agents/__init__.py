@@ -41,6 +41,7 @@ class FinanceSimulationAgent(SimulationAgent):
         self.accounts = state.accounts[self.uid]
         self.events = state.notices[self.uid]
         self.simulation_config = state.config
+        state.config = None
         update_text = ''
         update_text += "\n" + '-' * 50 + "\n"
         update_text += f'VALIDATOR : {state.dendrite.hotkey} | TIMESTAMP : {state.timestamp}' + "\n"
@@ -92,6 +93,12 @@ class FinanceSimulationAgent(SimulationAgent):
             if len(account.orders) > 0:
                 update_text += '-' * 50 + "\n"
                 update_text += 'ORDERS' + "\n"
+                update_text += '-' * 50 + "\n"
+                for order in sorted(account.orders, key=lambda x: x.timestamp):
+                    update_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"
+            if account.fees:
+                update_text += '-' * 50 + "\n"
+                update_text += f'FEES : TRADED {account.fees.volume_traded} | MAKER {account.fees.maker_fee_rate * 100}% | TAKER {account.fees.taker_fee_rate * 100}%' + "\n"
                 update_text += '-' * 50 + "\n"
                 for order in sorted(account.orders, key=lambda x: x.timestamp):
                     update_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"

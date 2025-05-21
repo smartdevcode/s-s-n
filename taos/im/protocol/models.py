@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+from xml.etree.ElementTree import Element
 from pydantic import BaseModel
 from enum import IntEnum
 from taos.im.protocol.simulator import *
@@ -7,6 +8,47 @@ from taos.im.protocol.simulator import *
 """
 Classes representing models of objects occurring within intelligent market simulations are defined here.
 """
+
+class FeeTier(BaseModel):
+    volume_required : float
+    maker_fee : float
+    taker_fee : float
+
+class FeePolicy(BaseModel):
+    fee_type : str
+    params : dict
+    tiers : list[FeeTier]
+    
+    @classmethod
+    def from_xml(cls, xml : Element):
+        """
+        Constructs an instance of the class from the XML simulation configuration element.
+        """
+        if xml:
+            fee_policy = FeePolicy(fee_type=xml.attrib['type'], params={k : v for k, v in xml.attrib.items() if k != 'type'}, tiers=[FeeTier(volume_required=0, maker_fee=0.0, taker_fee=0.0 )])
+            match fee_policy.fee_type:
+                case 'static':
+                    fee_policy.tiers = [FeeTier(volume_required=0, maker_fee=xml.attrib['makerFee'], taker_fee=xml.attrib['takerFee'] )]
+                case 'tiered':                    
+                    fee_policy.tiers = [FeeTier(volume_required=tier.attrib['volumeRequired'], maker_fee=tier.attrib['makerFee'], taker_fee=tier.attrib['takerFee']) for tier in xml.findall("Tier")]
+        else:
+            fee_policy = FeePolicy(fee_type=xml.attrib['type'], params={k : v for k, v in xml.attrib if k != 'type'})
+            fee_policy.tiers = [FeeTier(volume_required=0, maker_fee=0.0, taker_fee=0.0 )]
+        return fee_policy
+    
+    def to_prom_info(self) -> dict:
+        """
+        Creates a dictionary containing the details of the fee policy specification in format suitable for publishing via Prometheus Info metric
+        """
+        prometheus_info = {}
+        prometheus_info['simulation_fee_policy_type'] = self.fee_type
+        for name, value in self.params.items():
+            prometheus_info[f'simulation_fee_policy_{name}'] = str(value)
+        for i, tier in enumerate(self.tiers):
+            prometheus_info[f'simulation_fee_policy_tier_{i}_volume_required'] = f"{tier.volume_required:.2f}"
+            prometheus_info[f'simulation_fee_policy_tier_{i}_maker_rate'] = f"{tier.maker_fee * 100:.4f}"
+            prometheus_info[f'simulation_fee_policy_tier_{i}_taker_rate'] = f"{tier.taker_fee * 100:.4f}"
+        return prometheus_info
 
 class MarketSimulationConfig(BaseModel):
     """
@@ -26,6 +68,8 @@ class MarketSimulationConfig(BaseModel):
     quoteDecimals : int
     priceDecimals : int
     volumeDecimals : int
+    
+    fee_policy : FeePolicy | None = None
 
     max_leverage : float
     max_loan : float
@@ -37,6 +81,14 @@ class MarketSimulationConfig(BaseModel):
     miner_wealth : float
 
     init_price : float
+
+    fp_update_period : int | None = None
+    fp_seed_interval : int | None = None
+    fp_mu : float | None = None
+    fp_sigma : float | None = None
+    fp_lambda : float | None = None
+    fp_mu_jump : float | None = None
+    fp_sigma_jump : float | None = None
 
     init_agent_count : int
     init_agent_capital_type : str
@@ -94,11 +146,17 @@ class MarketSimulationConfig(BaseModel):
     sta_agent_r_aversion : float
 
     @classmethod
-    def from_xml(cls, xml):
+    def from_xml(cls, xml : Element):
+        """
+        Constructs an instance of the class from the XML simulation configuration.
+        """
         MBE_config = xml.find('Agents').find('MultiBookExchangeAgent')
         books_config = MBE_config.find('Books')
-        FP_config = books_config.find("Processes").find("FundamentalPrice")
+        processes_config = books_config.find("Processes")
+        FP_config = processes_config.find("FundamentalPrice")
         balances_config = MBE_config.find('Balances')
+        fees_config = MBE_config.find("FeePolicy")
+        
         init_config = xml.find('Agents').find('InitializationAgent')
         init_balances_config = init_config.find("Balances") if init_config.find("Balances") else balances_config
         STA_config = xml.find('Agents').find('StylizedTraderAgent')
@@ -118,6 +176,8 @@ class MarketSimulationConfig(BaseModel):
             quoteDecimals = int(MBE_config.attrib['quoteDecimals']),
             priceDecimals = int(MBE_config.attrib['priceDecimals']),
             volumeDecimals = int(MBE_config.attrib['volumeDecimals']),
+            
+            fee_policy=FeePolicy.from_xml(fees_config),
 
             max_leverage = float(MBE_config.attrib['maxLeverage']),
             max_loan = float(MBE_config.attrib['maxLoan']),
@@ -130,11 +190,13 @@ class MarketSimulationConfig(BaseModel):
 
             init_price = float(MBE_config.attrib['initialPrice']),
 
-            fp_update_period = int(books_config.find("Processes").attrib['updatePeriod']) + 1,
+            fp_update_period = int(processes_config.attrib['updatePeriod']) + 1,
             fp_seed_interval = int(FP_config.attrib['seedInterval']),
             fp_mu = float(FP_config.attrib['mu']),
             fp_sigma = float(FP_config.attrib['sigma']),
-            fp_dt = float(FP_config.attrib['dt']),
+            fp_lambda = float(FP_config.attrib['lambda']),
+            fp_mu_jump = float(FP_config.attrib['muJump']),
+            fp_sigma_jump = float(FP_config.attrib['sigmaJump']),
 
             init_agent_count = int(init_config.attrib['instanceCount']),
             init_agent_capital_type = "static" if init_balances_config.find("Base") != None else init_balances_config.attrib['type'],
@@ -392,6 +454,26 @@ class Balance(BaseModel):
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
         return Balance(currency=sim_balance.symbol,total=sim_balance.total,free=sim_balance.free,reserved=sim_balance.reserved)
+    
+class Fees(BaseModel):
+    """
+    Represents account fees for a specific agent and book.
+
+    Attributes:
+    - volume_traded: Total volume traded in the aggregation period for tiered fees assignment.
+    - maker_fee_rate: The current maker fee rate for the agent.
+    - maker_fee_rate: The current taker fee rate for the agent.
+    """
+    volume_traded : float
+    maker_fee_rate : float
+    taker_fee_rate : float
+
+    @classmethod
+    def from_simulator(self, sim_fees : SimulatorFees):
+        """
+        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
+        """
+        return Fees(volume_traded=sim_fees.volume,maker_fee_rate=sim_fees.makerFeeRate,taker_fee_rate=sim_fees.takerFeeRate)
 
 class Account(BaseModel):
     """
@@ -403,12 +485,14 @@ class Account(BaseModel):
     - base_balance: Balance object for the base currency.
     - quote_balance: Balance object for the quote currency.
     - orders: List of the current open orders associated to the agent.
+    - fees: The current fee structure for the account.
     """
     agent_id : int
     book_id : int
     base_balance : Balance
     quote_balance : Balance
     orders : list[Order] = []
+    fees : Fees | None
 
 class OrderDirection(IntEnum):
     """

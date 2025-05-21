@@ -64,7 +64,7 @@ def validate_responses(self : Validator, synapses : List[MarketSimulationStateUp
                 if hasattr(instruction, 'bookId') and instruction.bookId not in instructions_per_book:
                     instructions_per_book[instruction.bookId] = 0
                 instructions_per_book[instruction.bookId] += 1
-                if instructions_per_book[instruction.bookId] <= self.config.scoring.max_instructions_per_book:
+                if instructions_per_book[instruction.bookId] < self.config.scoring.max_instructions_per_book:
                     final_instructions.append(instruction)
             if len(final_instructions) < len(valid_instructions):
                 bt.logging.warning(f"Agent {uid} sent more than {self.config.scoring.max_instructions_per_book} instructions on some books - excess instructions were dropped.")

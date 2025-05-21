@@ -6,6 +6,7 @@
 
 #include "GBM.hpp"
 #include "FundamentalPrice.hpp"
+#include "JumpDiffusion.hpp"
 #include "Simulation.hpp"
 #include "taosim/exchange/ExchangeConfig.hpp"
 
@@ -18,18 +19,21 @@ ProcessFactory::ProcessFactory(
 
 //-------------------------------------------------------------------------
 
-std::unique_ptr<Process> ProcessFactory::createFromXML(pugi::xml_node node, uint64_t seedShift)
+std::unique_ptr<Process> ProcessFactory::createFromXML(pugi::xml_node node, uint64_t seedShift, uint64_t updatePeriod)
 {
     std::string_view name = node.name();
 
     if (name == "GBM") {
         return GBM::fromXML(node, seedShift);
-    } else if (name == "FundamentalPrice") {
-        return FundamentalPrice::fromXML(
+    } else if (name == "FundamentalPrice") {   
+            return FundamentalPrice::fromXML(
             m_simulation,
             node,
             seedShift,
-            taosim::util::decimal2double(m_exchangeConfig->initialPrice));
+            taosim::util::decimal2double(m_exchangeConfig->initialPrice),
+            updatePeriod);
+    } else if (name == "JumpDiffusion") {
+        return JumpDiffusion::fromXML(node, seedShift, updatePeriod);
     }
 
     throw std::invalid_argument(fmt::format(

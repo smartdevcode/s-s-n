@@ -87,8 +87,10 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                         agent_id=account.agentId,book_id=book_id,
                         base_balance=Balance(currency='base',total=balances.base.total,free=balances.base.free,reserved=balances.base.reserved),
                         quote_balance=Balance(currency='quote',total=balances.quote.total,free=balances.quote.free,reserved=balances.quote.reserved),
-                        orders=[Order.from_account(order) for order in account.orders[book_id]] if account.orders and account.orders[book_id] else []
+                        orders=[Order.from_account(order) for order in account.orders[book_id]] if account.orders and account.orders[book_id] else [],
+                        fees=Fees.from_simulator(account.fees[book_id]) if account.fees else None
                     )
+                        
         notices = {uid : [] for uid in [agentId for agentId in message.accounts if agentId >= 0]}
         for notice in message.notices:
             notice = FinanceEventNotification.from_simulator(notice)

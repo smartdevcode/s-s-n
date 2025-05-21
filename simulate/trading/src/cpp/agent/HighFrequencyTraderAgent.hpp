@@ -99,8 +99,8 @@ private:
     double m_orderMean;
 
     double m_pRes;
-    double m_sigmaSqrInit;
-    Timestamp m_sigmaScalingBase;
+    double m_sigmaSqr;
+    // Timestamp m_sigmaScalingBase;
     DelayBounds m_opl;
 
     uint32_t m_priceDecimals;

@@ -3,12 +3,9 @@ add_library(exchange STATIC
     Exchange.cpp
     ExchangeConfig.cpp
     ExchangeSignals.cpp
-    FeePolicy.cpp
-    FeePolicyFactory.cpp
+    FeePolicyWrapper.cpp
     OrderPlacementValidator.cpp
-    StaticFeePolicy.cpp
-    VIPFeePolicy.cpp
-    ZeroFeePolicy.hpp
+    FeePolicy.cpp
 )
 add_library(taosim::exchange ALIAS exchange)
 
@@ -38,6 +35,7 @@ target_include_directories(exchange
 target_link_libraries(exchange
     PUBLIC
         taosim::accounting
+        taosim::book
         bdl
         pybind11::embed
 )

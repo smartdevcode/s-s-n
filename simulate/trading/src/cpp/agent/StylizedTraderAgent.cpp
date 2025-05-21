@@ -142,7 +142,7 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     attr = node.attribute("GBM_mu");
     const double gbmMu = (attr.empty() || attr.as_double() < 0.0f) ? 0 : attr.as_double();
     attr = node.attribute("GBM_sigma");
-    const double gbmSigma = (attr.empty() || attr.as_double() < 0.0f) ? 0.3 : attr.as_double();
+    const double gbmSigma = (attr.empty() || attr.as_double() < 0.0f) ? 0.01 : attr.as_double();
     attr = node.attribute("GBM_seed");
     const uint64_t gbmSeed = attr.empty() ? 10000 : attr.as_ullong(); 
 

@@ -25,6 +25,7 @@ import traceback
 import json
 import xml.etree.ElementTree as ET
 import pandas as pd
+import msgpack
 
 # Bittensor
 import bittensor as bt
@@ -81,7 +82,7 @@ class Validator(BaseValidatorNeuron):
                     self.restart_simulator()
                 time.sleep(bt.settings.BLOCKTIME * 10)
             except Exception as ex:
-                bt.logging.error(f"Failed to sync : {traceback.print_exc()}")
+                bt.logging.error(f"Failed to sync : {traceback.format_exc()}")
 
     def seed(self) -> None:
         """
@@ -241,7 +242,7 @@ class Validator(BaseValidatorNeuron):
                 self.update_validator()
             return validator_py_files_changed, simulator_config_changed, simulator_py_files_changed, simulator_cpp_files_changed
         except Exception as ex:
-            traceback.print_exc()
+            bt.logging.error(f"Failed to update repo : {traceback.format_exc()}")
             self.pagerduty_alert(f"Failed to update repo : {ex}", details={"traceback" : traceback.format_exc()})
             return False, False
 
@@ -374,40 +375,65 @@ class Validator(BaseValidatorNeuron):
                 else: 
                     return True
         return True
-
-    def save_state(self) -> None:
+    
+    def _save_state(self) -> None:
         """Saves the state of the validator to a file."""
-        bt.logging.info("Saving simulation state...")
-        # Save the state of the validator to file.
-        torch.save(
-            {
-                "start_time": self.start_time,
-                "start_timestamp": self.start_timestamp,
-                "step_rates": self.step_rates,
-                "recent_trades": self.recent_trades,
-                "recent_miner_trades": self.recent_miner_trades,
-                "pending_notices": self.pending_notices,
-                "simulation.logDir": self.simulation.logDir,
-                "fundamental_price": self.fundamental_price
-            },
-            self.simulation_state_file,
-        )
-        bt.logging.success(f"Simulation state saved to {self.simulation_state_file}")
-        bt.logging.info("Saving validator state...")
-        torch.save(
-            {
-                "step": self.step,
-                "hotkeys": self.hotkeys,
-                "scores": self.scores,
-                "activity_factors": self.activity_factors,
-                "inventory_history": self.inventory_history,
-                "sharpe_values": self.sharpe_values,
-                "unnormalized_scores": self.unnormalized_scores,
-                "trade_volumes" : self.trade_volumes,
-            },
-            self.validator_state_file,
-        )
-        bt.logging.success(f"Validator state saved to {self.validator_state_file}")
+        self.saving = True
+        try:
+            bt.logging.info("Saving simulation state...")
+            start = time.time()
+            # Save the state of the simulation to file.
+            torch.save(
+                {
+                    "start_time": self.start_time,
+                    "start_timestamp": self.start_timestamp,
+                    "step_rates": self.step_rates,
+                    "recent_trades": self.recent_trades,
+                    "recent_miner_trades": self.recent_miner_trades,
+                    "pending_notices": self.pending_notices,
+                    "simulation.logDir": self.simulation.logDir,
+                    "fundamental_price": self.fundamental_price
+                },
+                self.simulation_state_file + ".tmp",
+            )
+            if os.path.exists(self.simulation_state_file):
+                os.remove(self.simulation_state_file)
+            os.rename(self.simulation_state_file + ".tmp", self.simulation_state_file)
+            bt.logging.success(f"Simulation state saved to {self.simulation_state_file} ({time.time()-start:.4f}s)")
+            bt.logging.info("Saving validator state...")
+            start = time.time()
+            # Save the state of the validator to file.
+            with open(self.validator_state_file + ".tmp", 'wb') as file:
+                packed_data = msgpack.packb(
+                    {
+                        "step": self.step,
+                        "simulation_timestamp": self.simulation_timestamp,
+                        "hotkeys": self.hotkeys,
+                        "scores": [score.item() for score in self.scores],
+                        "activity_factors": self.activity_factors,
+                        "inventory_history": self.inventory_history,
+                        "sharpe_values": self.sharpe_values,
+                        "unnormalized_scores": self.unnormalized_scores,
+                        "trade_volumes" : self.trade_volumes,
+                    }, use_bin_type=True
+                )
+                file.write(packed_data)
+            if os.path.exists(self.validator_state_file):
+                os.remove(self.validator_state_file)
+            os.rename(self.validator_state_file + ".tmp", self.validator_state_file)
+            bt.logging.success(f"Validator state saved to {self.validator_state_file} ({time.time()-start:.4f}s)")
+        except Exception as ex:
+            if os.path.exists(self.simulation_state_file + ".tmp"):
+                os.remove(self.simulation_state_file + ".tmp")
+            if os.path.exists(self.validator_state_file + ".tmp"):
+                os.remove(self.validator_state_file + ".tmp")
+            bt.logging.error(f"Failed to save state : {traceback.format_exc()}")
+        finally:            
+            self.saving = False
+
+    def save_state(self) -> None:        
+        if not self.saving:
+            Thread(target=self._save_state, args=(), daemon=True, name=f'save_{self.step}').start()            
 
     def load_state(self) -> None:
         """Loads the state of the validator from a file."""
@@ -437,12 +463,26 @@ class Validator(BaseValidatorNeuron):
                 self.fundamental_price = {bookId : None for bookId in range(self.simulation.book_count)}
                 # self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
                 
+            if os.path.exists(self.validator_state_file.replace('.mp', '.pt')):
+                bt.logging.info("Pytorch validator state file exists - converting to msgpack...")
+                pt_validator_state = torch.load(self.validator_state_file.replace('.mp', '.pt'), weights_only=False)
+                pt_validator_state["scores"] = [score.item() for score in pt_validator_state['scores']]
+                with open(self.validator_state_file, 'wb') as file:
+                    packed_data = msgpack.packb(
+                        pt_validator_state, use_bin_type=True
+                    )
+                    file.write(packed_data)
+                os.rename(self.validator_state_file.replace('.mp', '.pt'), self.validator_state_file.replace('.mp', '.pt') + ".bak")
+                bt.logging.info(f"Pytorch validator state file converted to msgpack at {self.validator_state_file}")
             if os.path.exists(self.validator_state_file):
                 bt.logging.info(f"Loading validator state variables from {self.validator_state_file}...")  
-                validator_state = torch.load(self.validator_state_file, weights_only=False)                      
+                with open(self.validator_state_file, 'rb') as file:
+                    byte_data = file.read()
+                validator_state = msgpack.unpackb(byte_data, use_list=False, strict_map_key=False)
                 self.step = validator_state["step"]
+                self.simulation_timestamp = validator_state["simulation_timestamp"] if "simulation_timestamp" in validator_state else 0
                 self.hotkeys = validator_state["hotkeys"]
-                self.scores = validator_state["scores"]
+                self.scores = torch.tensor(validator_state["scores"])
                 self.activity_factors = validator_state["activity_factors"] if "activity_factors" in validator_state else {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
                 self.inventory_history = validator_state["inventory_history"] if "inventory_history" in validator_state else {uid : {} for uid in range(self.subnet_info.max_uids)}
                 for uid in self.inventory_history:
@@ -462,6 +502,10 @@ class Validator(BaseValidatorNeuron):
                 self.unnormalized_scores = validator_state["unnormalized_scores"]
                 self.trade_volumes = validator_state["trade_volumes"] if "trade_volumes" in validator_state else {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
                 for uid in self.trade_volumes:
+                    for bookId in self.trade_volumes[uid]:
+                        if len(self.trade_volumes[uid][bookId]) > 0 and not isinstance(list(self.trade_volumes[uid][bookId].values())[0], dict):
+                            for timestamp in self.trade_volumes[uid][bookId]:
+                                self.trade_volumes[uid][bookId][timestamp] = {'total' : self.trade_volumes[uid][bookId][timestamp], 'maker' : 0.0, 'taker' : 0.0, 'self' : 0.0}
                     if len(self.trade_volumes[uid]) < self.simulation.book_count:
                         for bookId in range(len(self.trade_volumes[uid]),self.simulation.book_count):
                             self.trade_volumes[uid][bookId] = {}
@@ -496,7 +540,7 @@ class Validator(BaseValidatorNeuron):
         """
         self.xml_config = ET.parse(self.config.simulation.xml_config).getroot()
         self.simulation = MarketSimulationConfig.from_xml(self.xml_config)
-        self.validator_state_file = self.config.neuron.full_path + f"/validator.pt"
+        self.validator_state_file = self.config.neuron.full_path + f"/validator.mp"
         self.simulation_state_file = self.config.neuron.full_path + f"/{self.simulation.label()}.pt"
         self.load_state()
 
@@ -516,12 +560,14 @@ class Validator(BaseValidatorNeuron):
         self.last_state = None
         self.simulation_timestamp = 0
         self.reward_weights = {"sharpe" : 1.0}
-        self.load_simulation_config()
         self.start_time = None
         self.start_timestamp = None
         self.last_state_time = None
         self.step_rates = []
         self.reporting = False
+        self.saving = False
+        
+        self.load_simulation_config()
 
         # Add routes for methods receiving input from simulator
         self.router = APIRouter()
@@ -544,7 +590,13 @@ class Validator(BaseValidatorNeuron):
         bt.logging.info("-"*40)
         bt.logging.info("SIMULATION STARTED")
         self.load_simulation_config()
-        self.trade_volumes = {uid : {bookId : {prev_time - self.simulation_timestamp : volume for prev_time, volume in self.trade_volumes[uid][bookId].items()} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+        self.trade_volumes = {
+            uid : {
+                bookId : {
+                    prev_time - self.simulation_timestamp : volume for prev_time, volume in self.trade_volumes[uid][bookId].items() if prev_time - self.simulation_timestamp < self.simulation_timestamp
+                } for bookId in range(self.simulation.book_count)
+            } for uid in range(self.subnet_info.max_uids)
+        }
         self.start_time = time.time()
         self.simulation_timestamp = timestamp
         self.start_timestamp = self.simulation_timestamp
@@ -579,17 +631,15 @@ class Validator(BaseValidatorNeuron):
         Triggered on deregistration of a UID.
         Zeroes scores and flags the UID for resetting of account state in simulator.
         """
-        self.sharpe_values = {uid :
-            {
-                'books' : {
-                    bookId : 0.0 for bookId in range(self.simulation.book_count)
-                },
-                'total' : 0.0,
-                'average' : 0.0,
-                'normalized_average' : 0.0,
-                'normalized_total' : 0.0
-            } for uid in range(self.subnet_info.max_uids)
-        }
+        self.sharpe_values[uid] = {
+            'books' : {
+                bookId : 0.0 for bookId in range(self.simulation.book_count)
+            },
+            'total' : 0.0,
+            'average' : 0.0,
+            'normalized_average' : 0.0,
+            'normalized_total' : 0.0
+        } 
         self.unnormalized_scores[uid] = 0.0
         self.inventory_history[uid] = {}
         self.deregistered_uids.append(uid)
@@ -645,8 +695,8 @@ class Validator(BaseValidatorNeuron):
                             self.deregistered_uids.remove(reset.agentId)
                     else:
                         self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
-        while self.reporting:
-            bt.logging.debug(f"Waiting for reporting to complete...")
+        while self.reporting or self.saving:
+            bt.logging.info(f"Waiting for {'reporting' if self.reporting else ''}{', ' if self.reporting and self.saving else ''}{'state saving' if self.saving else ''} to complete...")
             time.sleep(1)
         response = SimulatorResponseBatch(await forward(self, state)).serialize()
 

@@ -321,6 +321,31 @@ Balances Balances::fromXML(pugi::xml_node node, const RoundParams& roundParams)
                 decimal_t{r / (1 + r) * wealth}, symbol, roundParams.quoteDecimals},
             .roundParams = roundParams});
     }
+    else if (std::string_view{node.attribute("type").as_string()} == "pareto-50") {
+        const auto scale = node.attribute("scale").as_double();
+        const auto shape = node.attribute("shape").as_double();
+        const auto wealth = node.attribute("wealth").as_double();
+        const auto price = node.attribute("price").as_double();
+        const auto symbol = node.attribute("symbol").as_string();
+        std::mt19937 rng{std::random_device{}()};
+        const auto u = std::uniform_real_distribution{0.0, 1.0}(rng);
+        const auto r = scale * std::pow(1.0 - u, -1.0 / shape);
+        if (std::bernoulli_distribution{0.5}(rng)) {
+            return Balances({
+                .base = Balance{
+                    decimal_t{r / (1 + r) * wealth / price}, symbol, roundParams.baseDecimals},
+                .quote = Balance{
+                    decimal_t{1 / (1 + r) * wealth}, symbol, roundParams.quoteDecimals},
+                .roundParams = roundParams});
+        } else {
+            return Balances({
+                .base = Balance{
+                    decimal_t{1 / (1 + r) * wealth / price}, symbol, roundParams.baseDecimals},
+                .quote = Balance{
+                    decimal_t{r / (1 + r) * wealth}, symbol, roundParams.quoteDecimals},
+                .roundParams = roundParams});
+        }
+    }
     return Balances({
         .base = Balance::fromXML(node.child("Base"), roundParams.baseDecimals),
         .quote = Balance::fromXML(node.child("Quote"), roundParams.quoteDecimals),

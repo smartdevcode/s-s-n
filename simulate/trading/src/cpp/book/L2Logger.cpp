@@ -29,7 +29,13 @@ L2Logger::L2Logger(
         "L2Logger", std::make_unique<spdlog::sinks::basic_file_sink_st>(filepath));
     m_logger->set_level(spdlog::level::trace);
     m_logger->set_pattern("%v");
+
     m_timeConverter = taosim::simulation::timescaleToConverter(m_simulation->config().time().scale);
+
+    m_logger->trace(
+        "Date,Time,Symbol,Market,BidVol,BidPrice,AskVol,AskPrice,"
+        "QuoteCondition,Time,EndTime,BidLevels,AskLevels");
+    m_logger->flush();
 }
 
 //-------------------------------------------------------------------------
@@ -59,45 +65,41 @@ std::string L2Logger::createEntryAS(const Book* book) const noexcept
         return {};
     }
 
-    const auto time = m_startTimePoint + m_timeConverter(m_simulation->currentTimestamp());
-
-    std::stringstream sstrm;
-
-    // Date,Time
-    sstrm << fmt::format("{:%Y-%m-%d,%H:%M:%S},", time);
-    // Symbol,Market
-    sstrm << fmt::format("S{:0{}}-SIMU,RAYX,", book->id(), 3);
-    // BidVol,BidPrice,AskVol,AskPrice
-    sstrm << fmt::format(
-        "{},{},",
-        book->buyQueue().back().volume(),
-        book->buyQueue().back().price());
-    sstrm << fmt::format(
-        "{},{},",
-        book->sellQueue().front().volume(),
-        book->sellQueue().front().price());
-    // QuoteCondition,Time,EndTime (legacy)
-    sstrm << ",,,";
-    // BidLevels,AskLevels
-    auto serializeLevels = [&]<std::same_as<OrderDirection> auto Side> -> std::string {
-        auto levelFormatter = [](const auto& level) {
-            return fmt::format("({}@{})", level.volume(), level.price());
-        };
-        if constexpr (Side == OrderDirection::BUY) {
-            auto levels = book->buyQueue() | views::reverse | views::take(m_depth) | views::reverse;
-            return fmt::format(
-                "{},", fmt::join(levels | views::transform(levelFormatter), " "));
-        }
-        else {
-            auto levels = book->sellQueue() | views::take(m_depth);
-            return fmt::format(
-                "{},", fmt::join(levels | views::transform(levelFormatter), " "));
-        }
+    auto levelFormatter = [](const auto& level) -> std::string {
+        return fmt::format("({}@{})", level.volume(), level.price());
     };
-    sstrm << serializeLevels.operator()<OrderDirection::BUY>();
-    sstrm << serializeLevels.operator()<OrderDirection::SELL>();
 
-    return sstrm.str();
+    return fmt::format(
+        // Date,Time,
+        "{:%Y-%m-%d,%H:%M:%S},"
+        // Symbol,Market,
+        "S{:0{}}-SIMU,RAYX,"
+        // BidVol,BidPrice,
+        "{},{},"
+        // AskVol,AskPrice,
+        "{},{},"
+        // QuoteCondition,Time,EndTime, (legacy)
+        ",,,"
+        // BidLevels,
+        "{},"
+        // AskLevels,
+        "{},",
+        m_startTimePoint + m_timeConverter(m_simulation->currentTimestamp()),
+        book->id(), 3,
+        book->buyQueue().back().volume(), book->buyQueue().back().price(),
+        book->sellQueue().front().volume(), book->sellQueue().front().price(),
+        fmt::join(
+            book->buyQueue()
+            | views::reverse
+            | views::take(m_depth)
+            | views::reverse
+            | views::transform(levelFormatter),
+            " "),
+        fmt::join(
+            book->sellQueue()
+            | views::take(m_depth)
+            | views::transform(levelFormatter),
+            " "));
 }
 
 //-------------------------------------------------------------------------

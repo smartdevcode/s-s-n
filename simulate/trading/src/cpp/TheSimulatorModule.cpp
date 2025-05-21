@@ -1,3 +1,7 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
+ * SPDX-License-Identifier: MIT
+ */
 #include "ExchangeAgentMessagePayloads.hpp"
 #include "MultiBookExchangeAgent.hpp"
 #include "Process.hpp"

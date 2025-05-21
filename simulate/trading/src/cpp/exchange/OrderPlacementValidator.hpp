@@ -8,7 +8,7 @@
 #include "Book.hpp"
 #include "ExchangeAgentMessagePayloads.hpp"
 #include "Order.hpp"
-#include "FeePolicy.hpp"
+#include "taosim/exchange/FeePolicyWrapper.hpp"
 
 #include <expected>
 
@@ -51,7 +51,7 @@ public:
         const accounting::Account& account,
         Book::Ptr book,
         PlaceOrderMarketPayload::Ptr payload,
-        FeePolicy& feePolicy,
+        FeePolicyWrapper& feePolicy,
         decimal_t maxLeverage,
         decimal_t maxLoan,
         AgentId agentId) const;
@@ -60,7 +60,7 @@ public:
         const accounting::Account& account,
         Book::Ptr book,
         PlaceOrderLimitPayload::Ptr payload,
-        FeePolicy& feePolicy,
+        FeePolicyWrapper& feePolicy,
         decimal_t maxLeverage,
         decimal_t maxLoan,
         AgentId agentId) const;

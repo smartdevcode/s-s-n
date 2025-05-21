@@ -9,6 +9,7 @@
 #include "Order.hpp"
 #include "Trade.hpp"
 #include "decimal.hpp"
+#include <boost/math/distributions/rayleigh.hpp>
 
 #include <memory>
 #include <queue>
@@ -83,8 +84,7 @@ public:
     virtual void configure(const pugi::xml_node& node) override;
     virtual void receiveMessage(Message::Ptr msg) override;
 
-private:    
-
+private:
     struct DelayBounds
     {
         Timestamp min, max;
@@ -98,9 +98,7 @@ private:
     void tryWakeup(BookId bookId, ALGOTraderState& state);
     void execute(BookId bookId, ALGOTraderState& state);
     
-    Timestamp orderPlacementLatency() const;
-    Timestamp rayleighLatencyNs(double scale) const;
-    double sampleRayleigh(std::mt19937& gen, double scale) const;
+    Timestamp orderPlacementLatency();
 
     std::mt19937* m_rng;
     std::string m_exchange;
@@ -113,7 +111,9 @@ private:
     Timestamp m_period;
 
     double m_opLatencyScaleRay;
-    DelayBounds m_opLatency;
+    DelayBounds m_opl;
+    boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
+    std::uniform_real_distribution<double> m_placementDraw;
 
 
 };
