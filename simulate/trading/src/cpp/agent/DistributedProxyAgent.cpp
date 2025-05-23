@@ -127,6 +127,7 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     auto tcp_stream =
         use_nothrow_awaitable.as_default_on(beast::tcp_stream{co_await this_coro::executor});
 
+    int attempts = 0;
     // Resolve.
     auto endpointsVariant = co_await (resolver.async_resolve(m_host, m_port) || timeout(1s));
     while (endpointsVariant.index() == 1) {
@@ -137,7 +138,9 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     auto [e1, endpoints] = std::get<0>(endpointsVariant);
     while (e1) {
         const auto loc = std::source_location::current();
-        fmt::println("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e1.what());
+        simulation()->logDebug("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e1.what());
+        attempts++;
+        fmt::println("Unable to resolve connection to validator at {}:{}{} - Retrying (Attempt {})", m_host, m_port, endpoint, attempts);
         std::this_thread::sleep_for(10s);
         endpointsVariant = co_await (resolver.async_resolve(m_host, m_port) || timeout(1s));
         auto [e11, endpoints1] = std::get<0>(endpointsVariant);
@@ -146,6 +149,7 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     }
 
     // Connect.
+    attempts = 0;
     auto connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(3s));
     while (connectVariant.index() == 1) {
         fmt::println("tcp_stream::async_connect timed out on {}:{}", m_host, m_port);
@@ -155,7 +159,9 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     auto [e2, _2] = std::get<0>(connectVariant);
     while (e2) {
         const auto loc = std::source_location::current();
-        fmt::println("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e2.what());
+        simulation()->logDebug("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e2.what());
+        attempts++;
+        fmt::println("Unable to connect to validator at {}:{}{} - Retrying (Attempt {})", m_host, m_port, endpoint, attempts);
         std::this_thread::sleep_for(10s);
         connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(3s));
         auto [e21, _21] = std::get<0>(connectVariant);
@@ -167,6 +173,7 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     const auto req = makeHttpRequest(endpoint, taosim::json::json2str(reqBody));
 
     // Send the request.
+    attempts = 0;
     auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(2s));
     while (writeVariant.index() == 1) {
         fmt::println("http::async_write timed out on {}:{}", m_host, m_port);
@@ -176,7 +183,9 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     auto [e3, _3] = std::get<0>(writeVariant);
     while (e3) {
         const auto loc = std::source_location::current();
-        fmt::println("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e3.what());
+        simulation()->logDebug("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e3.what());
+        attempts++;
+        fmt::println("Unable to send request to validator at {}:{}{} - Retrying (Attempt {})", m_host, m_port, endpoint, attempts);
         std::this_thread::sleep_for(10s);
         writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(2s));
         auto [e31, _31] = std::get<0>(writeVariant);
@@ -185,6 +194,7 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     }
 
     // Receive the response.
+    attempts = 0;
     beast::flat_buffer buf;
     http::response<http::string_body> res;
     auto readVariant = co_await (http::async_read(tcp_stream, buf, res) || timeout(30s));
@@ -196,7 +206,9 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
     auto [e4, _4] = std::get<0>(readVariant);
     while (e4) {
         const auto loc = std::source_location::current();
-        fmt::println("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e4.what());
+        simulation()->logDebug("{}#L{}: {}:{}: {}", loc.file_name(), loc.line(), m_host, m_port, e4.what());
+        attempts++;
+        fmt::println("Unable to read response from validator at {}:{}{} - Retrying (Attempt {})", m_host, m_port, endpoint, attempts);
         std::this_thread::sleep_for(10s);
         readVariant = co_await (http::async_read(tcp_stream, buf, res) || timeout(30s));
         auto [e41, _41] = std::get<0>(readVariant);

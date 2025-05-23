@@ -415,6 +415,7 @@ class Validator(BaseValidatorNeuron):
                         "sharpe_values": self.sharpe_values,
                         "unnormalized_scores": self.unnormalized_scores,
                         "trade_volumes" : self.trade_volumes,
+                        "deregistered_uids" : self.deregistered_uids
                     }, use_bin_type=True
                 )
                 file.write(packed_data)
@@ -482,6 +483,7 @@ class Validator(BaseValidatorNeuron):
                 self.step = validator_state["step"]
                 self.simulation_timestamp = validator_state["simulation_timestamp"] if "simulation_timestamp" in validator_state else 0
                 self.hotkeys = validator_state["hotkeys"]
+                self.deregistered_uids = validator_state["deregistered_uids"] if 'deregistered_uids' in validator_state else []
                 self.scores = torch.tensor(validator_state["scores"])
                 self.activity_factors = validator_state["activity_factors"] if "activity_factors" in validator_state else {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
                 self.inventory_history = validator_state["inventory_history"] if "inventory_history" in validator_state else {uid : {} for uid in range(self.subnet_info.max_uids)}

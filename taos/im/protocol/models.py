@@ -492,7 +492,7 @@ class Account(BaseModel):
     base_balance : Balance
     quote_balance : Balance
     orders : list[Order] = []
-    fees : Fees | None
+    fees : Fees | None = None
 
 class OrderDirection(IntEnum):
     """

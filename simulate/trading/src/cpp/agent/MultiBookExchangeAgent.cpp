@@ -741,9 +741,14 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<ResetAgentsPayload>(payload->payload);
 
-    const auto valid = subPayload->agentIds
-        | views::filter([&](AgentId agentId) { return accounts().contains(agentId); })
-        | ranges::to<std::vector>;
+    std::vector<AgentId> valid = {};
+    for (AgentId agentId : subPayload->agentIds) {        
+        if (accounts().contains(agentId)) {
+            valid.push_back(agentId);
+        } else {
+            simulation()->logDebug("{} | RESET AGENTS : AGENT #{} NOT FOUND IN ACCOUNTS.", simulation()->currentTimestamp(), agentId);
+        }
+    }
 
     if (valid.empty()) {
         return;
