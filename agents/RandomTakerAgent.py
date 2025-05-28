@@ -1,6 +1,6 @@
 from taos.im.agents import FinanceSimulationAgent
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
-from taos.im.protocol.models import OrderDirection
+from taos.im.protocol.models import OrderDirection, STP
 
 import random
 
@@ -32,7 +32,7 @@ class RandomTakerAgent(FinanceSimulationAgent):
                 # Randomly select a new trade direction for the agent on this book
                 self.direction[book_id] = random.choice([OrderDirection.BUY,OrderDirection.SELL])
             # Attach a market order instruction in the current trade direction for a random quantity within bounds defined by the parameters
-            response.market_order(book_id=book_id, direction=self.direction[book_id], quantity=round(random.uniform(self.min_quantity,self.max_quantity),self.simulation_config.volumeDecimals))
+            response.market_order(book_id=book_id, direction=self.direction[book_id], quantity=round(random.uniform(self.min_quantity,self.max_quantity),self.simulation_config.volumeDecimals), stp=STP.DECREASE_CANCEL)
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response

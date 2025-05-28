@@ -147,6 +147,14 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
         throw std::invalid_argument{fmt::format(
             "{}: attribute 'period' should be > 0, was {}", ctx, m_period)};
     }
+    m_marketFeedLatencyDistribution = std::normal_distribution<double>{
+        double(m_period),
+        [&] {
+            static constexpr const char* name = "MFLstd";
+            auto attr = node.attribute(name);
+            return attr.empty() ? 1'000'000'000.0 : attr.as_double(); 
+        }()
+    };
 
     pugi::xml_attribute attr;
     if (attr = node.attribute("minOPLatency"); attr.as_ullong() == 0) {
@@ -161,9 +169,10 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
     m_opl.max = attr.as_ullong();
     if (m_opl.min >= m_opl.max) {
         throw std::invalid_argument(fmt::format(
-            "{}: minD ({}) should be strictly less maxD ({})", ctx, m_opl.min, m_opl.max));
+            "{}: minOP ({}) should be strictly less maxOP ({})", ctx, m_opl.min, m_opl.max));
     }
-    const double scale = node.attribute("opLatencyScaleRay").as_double();
+    attr = node.attribute("opLatencyScaleRay"); 
+    const double scale = (attr.empty() || attr.as_double() == 0.0) ? 0.235 : attr.as_double();
     m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
     const double percentile = 1-std::exp(-1/(2*scale*scale));
     m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
@@ -197,9 +206,12 @@ void ALGOTraderAgent::handleSimulationStart(Message::Ptr msg)
         name(),
         m_exchange,
         "SUBSCRIBE_EVENT_TRADE");
-    simulation()->dispatchMessage(
+        simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        m_period,
+        static_cast<Timestamp>(std::min(
+            std::abs(m_marketFeedLatencyDistribution(*m_rng)),
+            m_marketFeedLatencyDistribution.mean()
+            + 3.0 * m_marketFeedLatencyDistribution.stddev())),
         name(),
         name(),
         "WAKEUP_ALGOTRADER");
@@ -226,9 +238,13 @@ void ALGOTraderAgent::handleWakeup(Message::Ptr msg)
         }
     }
 
+
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        m_period,
+        static_cast<Timestamp>(std::min(
+            std::abs(m_marketFeedLatencyDistribution(*m_rng)),
+            m_marketFeedLatencyDistribution.mean()
+            + 3.0 * m_marketFeedLatencyDistribution.stddev())),
         name(),
         name(),
         "WAKEUP_ALGOTRADER");

@@ -15,6 +15,7 @@ class Book;
 struct BookSignals
 {
     bs2::signal<void(Order::Ptr, OrderContext)> orderCreated;
+    bs2::signal<void(Order::Ptr, OrderContext)> orderLog;
     bs2::signal<void(LimitOrder::Ptr, OrderContext)> limitOrderProcessed;
     bs2::signal<void(MarketOrder::Ptr, OrderContext)> marketOrderProcessed;
     bs2::signal<void(Trade::Ptr, BookId)> trade;

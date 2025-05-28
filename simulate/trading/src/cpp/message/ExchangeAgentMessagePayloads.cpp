@@ -47,6 +47,10 @@ void PlaceOrderMarketPayload::jsonSerialize(
         json.AddMember("volume", rapidjson::Value{taosim::util::decimal2double(volume)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -63,6 +67,10 @@ void PlaceOrderMarketPayload::checkpointSerialize(
         json.AddMember("volume", rapidjson::Value{taosim::util::packDecimal(volume)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -77,7 +85,12 @@ PlaceOrderMarketPayload::Ptr PlaceOrderMarketPayload::fromJson(const rapidjson::
         json["bookId"].GetUint(),
         !json["clientOrderId"].IsNull()
             ? std::make_optional(json["clientOrderId"].GetUint())
-            : std::nullopt);
+            : std::nullopt,
+        json.HasMember("stpFlag")
+            ? magic_enum::enum_cast<STPFlag>(json["stpFlag"].GetUint())
+                .value_or(STPFlag::CO)
+            : STPFlag::CO
+        );
 }
 
 //-------------------------------------------------------------------------
@@ -175,6 +188,10 @@ void PlaceOrderLimitPayload::jsonSerialize(
             "flag",
             rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
             allocator);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -197,6 +214,10 @@ void PlaceOrderLimitPayload::checkpointSerialize(
             "flag",
             rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
             allocator);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -217,9 +238,14 @@ PlaceOrderLimitPayload::Ptr PlaceOrderLimitPayload::fromJson(const rapidjson::Va
             ? std::make_optional(json["clientOrderId"].GetUint())
             : std::nullopt,
         json.HasMember("flag")
-            ? magic_enum::enum_cast<LimitOrderFlag>(json["flag"].GetString())
+            ? magic_enum::enum_cast<LimitOrderFlag>(json["flag"].GetUint())
                 .value_or(LimitOrderFlag::NONE)
-            : LimitOrderFlag::NONE);
+            : LimitOrderFlag::NONE,
+        json.HasMember("stpFlag")
+            ? magic_enum::enum_cast<STPFlag>(json["stpFlag"].GetUint())
+                .value_or(STPFlag::CO)
+            : STPFlag::CO
+        );
 }
 
 //-------------------------------------------------------------------------

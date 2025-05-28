@@ -14,6 +14,7 @@ add_library(util STATIC
     TradeFactory.cpp
     common.hpp
     util.cpp
+    Flags.hpp
 )
 add_library(taosim::util ALIAS util)
 

@@ -38,16 +38,16 @@ OrderPlacementValidator::ExpectedResult
     // AND
     //   - the order volume respects the minimum increment
 
-    payload->volume = util::round(payload->volume, m_params.volumeIncrementDecimals);
-    payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);
-    const decimal_t payloadTotalVolume = util::round(
-        payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);
-
     if (payload->leverage < 0_dec || payload->leverage > maxLeverage)
         return std::unexpected{OrderErrorCode::INVALID_LEVERAGE};
 
     if (payload->volume <= 0_dec)
         return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+    
+    payload->volume = util::round(payload->volume, m_params.volumeIncrementDecimals);
+    payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);
+    const decimal_t payloadTotalVolume = util::round(
+        payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);
     
     const auto& balances = account.at(book->id());
     const auto& baseBalance = balances.base;
@@ -64,6 +64,11 @@ OrderPlacementValidator::ExpectedResult
         for (auto it = book->sellQueue().cbegin(); it != book->sellQueue().cend(); ++it) {
             const auto& level = *it;
             for (const auto tick : level) {
+                if(book->orderClientContext(tick->id()).agentId == agentId){    // STP
+                    if (payload->stpFlag == STPFlag::CO || payload->stpFlag == STPFlag::CN || payload->stpFlag == STPFlag::CB)
+                        continue;
+                }
+                
                 if (volume + tick->totalVolume() >= payloadTotalVolume) {
                     const decimal_t partialVolume = payloadTotalVolume - volume;
                     volume += partialVolume;
@@ -115,7 +120,7 @@ OrderPlacementValidator::ExpectedResult
                 return std::unexpected{OrderErrorCode::INSUFFICIENT_BASE};
             }
         } else {
-            payload->volume = util::round(payload->volume / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
+            // payload->volume = util::round(payload->volume / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
             const decimal_t price = book->bestBid();
             if (!balances.canBorrow(payload->volume, price, payload->direction) ||
             payload->volume * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
@@ -150,19 +155,23 @@ OrderPlacementValidator::ExpectedResult
     // AND
     //   - the price and volume of the order are in accord with their respective minimum increments
 
-    payload->price = util::round(payload->price, m_params.priceIncrementDecimals);
-    payload->volume = util::round(payload->volume, m_params.volumeIncrementDecimals);
-    payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);
-    const auto payloadTotalVolume = util::round(
-        payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);
-    
     if (payload->leverage < 0_dec || payload->leverage > maxLeverage) {
         return std::unexpected{OrderErrorCode::INVALID_LEVERAGE};
     }
 
     if (payload->volume <= 0_dec) {
         return std::unexpected{OrderErrorCode::INVALID_VOLUME};
-    }   
+    }
+
+    if (payload->price <= 0_dec) {
+        return std::unexpected{OrderErrorCode::INVALID_PRICE};
+    }
+    
+    payload->price = util::round(payload->price, m_params.priceIncrementDecimals);
+    payload->volume = util::round(payload->volume, m_params.volumeIncrementDecimals);
+    payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);
+    const auto payloadTotalVolume = util::round(
+        payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);   
 
     auto violationChecker = limitOrderFlag2ViolationChecker.at(std::to_underlying(payload->flag));
     const bool violatesContract = violationChecker(book, payload);
@@ -183,6 +192,12 @@ OrderPlacementValidator::ExpectedResult
             const auto& level = *it;
             if (payload->price < level.price()) break;
             for (const auto tick : level) {
+                decimal_t tickVolume = tick->totalVolume();
+                if(book->orderClientContext(tick->id()).agentId == agentId){    // STP
+                    if (payload->stpFlag == STPFlag::CO || payload->stpFlag == STPFlag::CN || payload->stpFlag == STPFlag::CB)
+                        continue;
+                }
+                    
                 if (takerVolume + tick->totalVolume() >= payloadTotalVolume) {
                     const decimal_t partialVolume = payloadTotalVolume - takerVolume;
                     takerVolume += partialVolume;

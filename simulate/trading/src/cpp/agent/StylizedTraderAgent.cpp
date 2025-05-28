@@ -92,8 +92,8 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'tauF' should have a value greater than 0.0", ctx));
     }
-    m_tauF = attr.as_double();
-    m_tauFOrig = m_tauF;
+    m_tauF = std::vector<double>(m_bookCount, attr.as_double()); 
+    m_tauFOrig = attr.as_double();
 
     if (attr = node.attribute("sigmaEps"); attr.empty() || attr.as_double() <= 0.0f) {
         throw std::invalid_argument(fmt::format(
@@ -166,6 +166,22 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
             }
             return logReturns;
         }());
+        m_priceHistExternal.push_back([&] {
+            decltype(m_priceHist)::value_type hist{m_historySize};
+            for (uint32_t i = 0; i < m_historySize; ++i) {
+                hist.push_back(m_price0 * (1.0 + Xt[i]));
+            }
+            return hist;
+        }());
+        m_logReturnsExternal.push_back([&] {
+            decltype(m_logReturns)::value_type logReturns{m_historySize};
+            const auto& priceHist = m_priceHist.at(bookId);
+            logReturns.push_back(Xt[0]);
+            for (uint32_t i = 1; i < priceHist.capacity(); ++i) {
+                logReturns.push_back(std::log(priceHist[i] / priceHist[i - 1]));
+            }
+            return logReturns;
+        }());
     }
 
     m_priceIncrement = 1 / std::pow(10, simulation()->exchange()->config().parameters().priceIncrementDecimals);
@@ -177,8 +193,8 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     m_sigmaCRegime = node.attribute("sigmaCRegime").as_float();
     m_sigmaNRegime = node.attribute("sigmaNRegime").as_float();
     m_regimeChangeFlag = node.attribute("regimeChangeFlag").as_bool();
-    m_regimeChangeProb = std::clamp(node.attribute("regimeProb").as_float(), 0.0f, 1.0f);
-    m_regimeState = RegimeState::NORMAL;
+    m_regimeChangeProb = std::vector<float>(m_bookCount, std::clamp(node.attribute("regimeProb").as_float(), 0.0f, 1.0f));
+    m_regimeState = std::vector<RegimeState>(m_bookCount,RegimeState::NORMAL);
     m_weightOrig = m_weight;
     if (attr = node.attribute("tauFRegime"); attr.empty() || attr.as_double() == 0.0) {
         throw std::invalid_argument(fmt::format(
@@ -236,11 +252,8 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     };
 
     m_tradePrice.resize(m_bookCount);
-    if (attr = node.attribute("opLatencyScaleRay"); attr.empty() || attr.as_double() == 0.0) {
-        throw std::invalid_argument{fmt::format(
-                    "{}: Attribute '{}' should be > 0", ctx, "opLatencyScaleRay")};
-    }
-    const double scale = attr.as_double();
+    attr = node.attribute("opLatencyScaleRay"); 
+    const double scale = (attr.empty() || attr.as_double() == 0.0) ? 0.235 : attr.as_double();
         
     m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
     const double percentile = 1-std::exp(-1/(2*scale*scale));
@@ -269,7 +282,6 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
 
 void StylizedTraderAgent::receiveMessage(Message::Ptr msg)
 {
-    updateRegime();
 
     if (msg->type == "EVENT_SIMULATION_START") {
         handleSimulationStart();
@@ -357,23 +369,36 @@ void StylizedTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
     auto& topLevel = m_topLevel.at(bookId);
     topLevel.bid = taosim::util::decimal2double(payload->bestBidPrice);
     topLevel.ask = taosim::util::decimal2double(payload->bestAskPrice);
+    
 
+    if  (topLevel.bid == 0.0) topLevel.bid = m_tradePrice.at(bookId).price;
+    if  (topLevel.ask == 0.0) topLevel.ask = m_tradePrice.at(bookId).price;
     const double midPrice = 0.5 * (topLevel.bid + topLevel.ask);
     const double spotPrice =
-        m_tradePrice.at(payload->bookId).timestamp - simulation()->currentTimestamp() < 1'000'000'000
-        ? m_tradePrice.at(payload->bookId).price
+        m_tradePrice.at(bookId).timestamp - simulation()->currentTimestamp() < 1'000'000'000
+        ? m_tradePrice.at(bookId).price
         : midPrice;
-    // update the price history with the midquote or last close price in 5 seconds
-    const double closePrice = 
-        m_tradePrice.at(payload->bookId).timestamp - simulation()->currentTimestamp() < 5'000'000'000
-        ? m_tradePrice.at(payload->bookId).price
+    const double lastPrice = 
+        m_tradePrice.at(bookId).timestamp - simulation()->currentTimestamp() < 5'000'000'000
+        ? m_tradePrice.at(bookId).price
         : midPrice;
-    m_logReturns.at(payload->bookId).push_back(
-                    std::log(closePrice / m_priceHist.at(payload->bookId).back()));
-    m_priceHist.at(payload->bookId).push_back(closePrice);
-    if (m_orderFlag.at(bookId) || topLevel.bid == 0.0 || topLevel.ask == 0.0) return;
+    m_logReturns.at(bookId).push_back(
+                    std::log(lastPrice / m_priceHist.at(bookId).back()));
+    m_priceHist.at(bookId).push_back(lastPrice);
 
+    const double askVol = taosim::util::decimal2double(payload->askTotalVolume);
+    const double bidVol = taosim::util::decimal2double(payload->bidTotalVolume);
+    const float volumeImbalance = (bidVol- askVol)/(bidVol + askVol);
     auto rng = std::mt19937{simulation()->currentTimestamp()};
+    if (m_regimeState.at(bookId) == RegimeState::NORMAL && std::bernoulli_distribution{std::abs(volumeImbalance)}(rng)) {
+        m_regimeChangeProb.at(bookId) = std::abs(volumeImbalance);
+        updateRegime(bookId);
+    } else if (m_regimeState.at(bookId) == RegimeState::REGIME_A) {
+        updateRegime(bookId);
+    }
+
+    if (m_orderFlag.at(bookId)) return;
+
     
     auto linspace = [](double start, double stop, int num) -> std::vector<double> {
         if (!(num > 1)) {
@@ -491,14 +516,18 @@ void StylizedTraderAgent::handleTrade(Message::Ptr msg)
 
 StylizedTraderAgent::ForecastResult StylizedTraderAgent::forecast(BookId bookId)
 {
+    const double pf = getProcessValue(bookId, "fundamental");
+    // const auto& logReturnsExternal = m_logReturnsExternal.at(bookId);
+
     const auto& logReturns = m_logReturns.at(bookId);
 
-    const double compF = 1.0 / m_tauF * std::log(getProcessValue(bookId, "fundamental") / m_price);
+    const double compF = 1.0 / m_tauF.at(bookId) * std::log(pf/ m_price);
     const double compC = 1.0 / m_tau * ranges::accumulate(logReturns, 0.0);
     const double compN = std::normal_distribution{0.0, m_sigmaEps}(*m_rng);
-
+    const double tauFNormalizer = m_regimeState.at(bookId) == RegimeState::NORMAL ? 1 : m_tauF.at(bookId) / m_weightNormalizer *0.01;
+    // const double compExt = 1.0 /m_tau * ranges::accumulate(logReturnsExternal,0.0);
     const double logReturnForecast = m_weightNormalizer
-        * (m_weight.F * compF + m_weight.C * compC + m_weight.N * compN);
+        * (m_weight.F * compF + m_weight.C * compC + m_weight.N * compN) * tauFNormalizer;// + compExt;
    
     return {
         .price = m_price * std::exp(logReturnForecast),
@@ -737,18 +766,21 @@ double StylizedTraderAgent::getProcessValue(BookId bookId, const std::string& na
 
 //-------------------------------------------------------------------------
 
-void StylizedTraderAgent::updateRegime()
+void StylizedTraderAgent::updateRegime(BookId bookId)
 {
     if (!m_regimeChangeFlag) return;
-
-    if ((m_regimeState == RegimeState::NORMAL && std::bernoulli_distribution{m_regimeChangeProb}(*m_rng)) || 
-    (m_regimeState == RegimeState::REGIME_A && std::bernoulli_distribution{1 - m_regimeChangeProb}(*m_rng))) {
-        m_tauF = m_tauFRegime;
-        m_regimeState = RegimeState::REGIME_A;
-    } else {
-        m_tauF = m_tauFOrig;
-        m_regimeState = RegimeState::NORMAL;
+    
+    auto rng = std::mt19937{simulation()->currentTimestamp()};
+    if (m_regimeState.at(bookId) == RegimeState::NORMAL
+            && std::bernoulli_distribution{m_regimeChangeProb.at(bookId)}(rng)){
+        m_tauF.at(bookId) = m_tauFRegime;
+        m_regimeState.at(bookId) = RegimeState::REGIME_A;
+    } 
+    else if (m_regimeState.at(bookId) == RegimeState::REGIME_A 
+                && std::bernoulli_distribution{1- std::sqrt(m_regimeChangeProb.at(bookId))}(rng)) {
+        m_tauF.at(bookId) = m_tauFOrig;
+        m_regimeState.at(bookId) = RegimeState::NORMAL;
     }
 }
 
-//-------------------------------------------------------------------------
+//------------------------------------------------------------------------- 

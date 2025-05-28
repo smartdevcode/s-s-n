@@ -27,6 +27,7 @@ protected:
     virtual void processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice) override;
     virtual void processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice) override;
     
+    virtual TickContainer* preventSelfTrade(TickContainer* queue, LimitOrder::Ptr iop, Order::Ptr order, AgentId agentId);
 };
 
 //-------------------------------------------------------------------------

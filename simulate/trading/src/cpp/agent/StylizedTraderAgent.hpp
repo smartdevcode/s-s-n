@@ -91,7 +91,7 @@ private:
         double sampledPrice,
         double freeBase);
     double getProcessValue(BookId bookId, const std::string& name);
-    void updateRegime();
+    void updateRegime(BookId bookId);
     Timestamp orderPlacementLatency();
 
     std::mt19937* m_rng;
@@ -104,7 +104,7 @@ private:
     Timestamp m_tau;
     Timestamp m_tau0;
     Timestamp m_tauHist;
-    double m_tauF;
+    std::vector<double> m_tauF;
     double m_sigmaEps;
     double m_riskAversion;
     double m_riskAversion0;
@@ -117,6 +117,9 @@ private:
     std::vector<bool> m_orderFlag;
     std::vector<LimitedDeque<double>> m_priceHist;
     std::vector<LimitedDeque<double>> m_logReturns;
+    std::vector<LimitedDeque<double>> m_priceHistExternal;
+    std::vector<LimitedDeque<double>> m_logReturnsExternal;
+    
     bool m_debug;
 
     float m_sigmaFRegime;
@@ -124,8 +127,8 @@ private:
     float m_sigmaNRegime;
     double m_tauFRegime;
     bool m_regimeChangeFlag;
-    float m_regimeChangeProb;
-    RegimeState m_regimeState;
+    std::vector<float> m_regimeChangeProb;
+    std::vector<RegimeState> m_regimeState;
     Weight m_weightOrig;
     double m_tauFOrig;
 

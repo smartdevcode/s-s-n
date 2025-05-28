@@ -66,14 +66,17 @@ MarketOrder::Ptr Book::placeMarketOrder(
     Timestamp timestamp,
     taosim::decimal_t volume,
     taosim::decimal_t leverage,
-    OrderClientContext clientCtx)
+    OrderClientContext clientCtx,
+    std::optional<STPFlag> stpFlag)
 {
     const auto marketOrder = m_orderFactory.makeMarketOrder(
-        direction, timestamp, volume, leverage);
+        direction, timestamp, volume, leverage, stpFlag.value());
     m_order2clientCtx[marketOrder->id()] = clientCtx;
     m_signals.orderCreated(
         marketOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
     placeOrder(marketOrder);
+    m_signals.orderLog(
+        marketOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
     return marketOrder;
 }
 
@@ -85,14 +88,17 @@ LimitOrder::Ptr Book::placeLimitOrder(
     taosim::decimal_t volume,
     taosim::decimal_t price,
     taosim::decimal_t leverage,
-    OrderClientContext clientCtx)
+    OrderClientContext clientCtx,
+    std::optional<STPFlag> stpFlag)
 {
     const auto limitOrder = m_orderFactory.makeLimitOrder(
-        direction, timestamp, volume, price, leverage);
+        direction, timestamp, volume, price, leverage, stpFlag.value());
     m_order2clientCtx[limitOrder->id()] = clientCtx;
     m_signals.orderCreated(
         limitOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
     placeOrder(limitOrder);
+    m_signals.orderLog(
+        limitOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
     return limitOrder;
 }
 

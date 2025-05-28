@@ -239,6 +239,8 @@ class TradeEvent(FinanceEvent):
     side : int
     price : float
     quantity : float
+    makerFee : float
+    takerFee : float
     @classmethod
     def from_simulator(self, message : SimulatorAgentMessage):
         """
@@ -251,6 +253,7 @@ class TradeEvent(FinanceEvent):
             takerAgentId=message.payload['payload']['context']['aggressingAgentId'], takerOrderId=message.payload['payload']['trade']['aggressingOrderId'],
             makerAgentId=message.payload['payload']['context']['restingAgentId'], makerOrderId=message.payload['payload']['trade']['restingOrderId'],
             side=message.payload['payload']['trade']['direction'],price=message.payload['payload']['trade']['price'],quantity=message.payload['payload']['trade']['volume'],
+            makerFee=message.payload['payload']['context']['fees']['maker'], takerFee=message.payload['payload']['context']['fees']['taker']
         )
     
     def __str__(self):

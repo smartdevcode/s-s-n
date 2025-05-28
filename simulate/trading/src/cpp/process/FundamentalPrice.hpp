@@ -27,9 +27,9 @@ public:
         double sigma,
         double dt,
         double X0,
-        double lambda, 
-        double sigmaJump, 
-        double muJump) noexcept;
+        double lambda,
+        double muJump,
+        double sigmaJump) noexcept;
     
     virtual void update(Timestamp timestamp) override;
     virtual double value() const override;

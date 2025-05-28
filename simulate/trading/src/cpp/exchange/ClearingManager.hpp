@@ -7,7 +7,6 @@
 #include "AccountRegistry.hpp"
 #include "OrderPlacementValidator.hpp"
 #include "taosim/exchange/FeePolicyWrapper.hpp"
-#include "taosim/book/FeeLogger.hpp"
 
 #include <map>
 #include <memory>
@@ -48,13 +47,6 @@ struct CancelOrderDesc
     decimal_t volumeToCancel;
 };
 
-struct FeeLogs
-{
-    Fees fees;
-    FeeLogEvent makerFeeLog;
-    FeeLogEvent takerFeeLog;
-};
-
 //-------------------------------------------------------------------------
 
 class ClearingManager
@@ -82,7 +74,7 @@ public:
 
     [[nodiscard]] OrderErrorCode handleOrder(const OrderDesc& orderDesc);
     void handleCancelOrder(const CancelOrderDesc& cancelDesc);
-    FeeLogs handleTrade(const TradeDesc& tradeDesc);
+    Fees handleTrade(const TradeDesc& tradeDesc);
     void updateFeeTiers(Timestamp time) noexcept;
 
 private:

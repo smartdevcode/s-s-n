@@ -10,6 +10,8 @@
 
 #include <spdlog/spdlog.h>
 
+using namespace taosim::exchange;
+
 //-------------------------------------------------------------------------
 
 namespace taosim::accounting

@@ -15,8 +15,8 @@
 class JumpDiffusion : public Process
 {
 public:
-    JumpDiffusion(double X0, double mu, double sigma, double dt,  double lambda, double sigmaJump, double muJump) noexcept;
-    JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double sigmaJump, double muJump, uint64_t seed) noexcept;
+    JumpDiffusion(double X0, double mu, double sigma, double dt,  double lambda,  double muJump ,double sigmaJump) noexcept;
+    JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double muJump, double sigmaJump, uint64_t seed) noexcept;
 
     virtual double value() const override { return m_value; }
 

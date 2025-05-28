@@ -10,9 +10,13 @@
 #include "Order.hpp"
 #include "Trade.hpp"
 #include "common.hpp"
+#include "Flags.hpp"
 
 #include <optional>
 #include <vector>
+
+using LimitOrderFlag = taosim::LimitOrderFlag;
+using STPFlag = taosim::STPFlag;
 
 //-------------------------------------------------------------------------
 
@@ -45,13 +49,15 @@ struct PlaceOrderMarketPayload : public MessagePayload
     taosim::decimal_t leverage;
     BookId bookId;
     std::optional<ClientOrderID> clientOrderId{};
+    STPFlag stpFlag{STPFlag::CO};
 
     PlaceOrderMarketPayload(
         OrderDirection direction,
         taosim::decimal_t volume,
         BookId bookId,
-        std::optional<ClientOrderID> clientOrderId = {}) noexcept
-        : direction{direction}, volume{volume}, leverage{0_dec}, bookId{bookId}, clientOrderId{clientOrderId}
+        std::optional<ClientOrderID> clientOrderId = {},
+        STPFlag stpFlag = STPFlag::CO) noexcept
+        : direction{direction}, volume{volume}, leverage{0_dec}, bookId{bookId}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
     {}
 
     PlaceOrderMarketPayload(
@@ -59,8 +65,9 @@ struct PlaceOrderMarketPayload : public MessagePayload
         taosim::decimal_t volume,
         taosim::decimal_t leverage,
         BookId bookId,
-        std::optional<ClientOrderID> clientOrderId = {}) noexcept
-        : direction{direction}, volume{volume}, leverage{leverage}, bookId{bookId}, clientOrderId{clientOrderId}
+        std::optional<ClientOrderID> clientOrderId = {},
+        STPFlag stpFlag = STPFlag::CO) noexcept
+        : direction{direction}, volume{volume}, leverage{leverage}, bookId{bookId}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
     {}
 
     virtual void jsonSerialize(
@@ -118,13 +125,6 @@ struct PlaceOrderMarketErrorResponsePayload : public MessagePayload
 
 //-------------------------------------------------------------------------
 
-enum class LimitOrderFlag : uint32_t
-{
-    NONE,
-    POST_ONLY,
-    IOC
-};
-
 struct PlaceOrderLimitPayload : public MessagePayload
 {
     using Ptr = std::shared_ptr<PlaceOrderLimitPayload>;
@@ -136,6 +136,7 @@ struct PlaceOrderLimitPayload : public MessagePayload
     BookId bookId;
     std::optional<ClientOrderID> clientOrderId{};
     LimitOrderFlag flag{LimitOrderFlag::NONE};
+    STPFlag stpFlag{STPFlag::CO};
 
     PlaceOrderLimitPayload(
         OrderDirection direction,
@@ -143,14 +144,16 @@ struct PlaceOrderLimitPayload : public MessagePayload
         taosim::decimal_t price,
         BookId bookId,
         std::optional<ClientOrderID> clientOrderId = {},
-        LimitOrderFlag flag = LimitOrderFlag::NONE) noexcept
+        LimitOrderFlag flag = LimitOrderFlag::NONE,
+        STPFlag stpFlag = STPFlag::CO) noexcept
         : direction{direction},
           volume{volume},
           price{price},
           leverage{0_dec},
           bookId{bookId},
           clientOrderId{clientOrderId},
-          flag{flag}
+          flag{flag},
+          stpFlag{stpFlag}
     {}
 
     PlaceOrderLimitPayload(
@@ -160,14 +163,16 @@ struct PlaceOrderLimitPayload : public MessagePayload
         taosim::decimal_t leverage,
         BookId bookId,
         std::optional<ClientOrderID> clientOrderId = {},
-        LimitOrderFlag flag = LimitOrderFlag::NONE) noexcept
+        LimitOrderFlag flag = LimitOrderFlag::NONE,
+        STPFlag stpFlag = STPFlag::CO) noexcept
         : direction{direction},
           volume{volume},
           price{price},
           leverage{leverage},
           bookId{bookId},
           clientOrderId{clientOrderId},
-          flag{flag}
+          flag{flag},
+          stpFlag{stpFlag}
     {}
 
     virtual void jsonSerialize(

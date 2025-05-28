@@ -272,7 +272,7 @@ class BaseMinerNeuron(BaseNeuron):
                     bt.logging.info(
                         f"Serving miner axon at {self.axon.external_ip}:{self.axon.external_port} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
                     )
-                    attempts += 0
+                    attempts += 1
                     served = self.subtensor.serve_axon(netuid=self.config.netuid, axon=self.axon)
                     if not served:
                         bt.logging.error(f"Failed to serve axon! Retrying (Attempt {attempts})")

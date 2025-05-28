@@ -357,6 +357,8 @@ class TradeInfo(BaseModel):
     maker_agent_id : int
     quantity : float
     price : float
+    maker_fee : float
+    taker_fee : float
 
     @classmethod
     def from_simulator(self, sim_trade : SimulatorTrade):
@@ -371,7 +373,8 @@ class TradeInfo(BaseModel):
         Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
         """
         return TradeInfo(id=event['tradeId'],timestamp=event['timestamp'],quantity=event['volume'],side=event['direction'],price=event['price'],
-                         taker_agent_id=event['aggressingAgentId'], taker_id=event['aggressingOrderId'], maker_agent_id=event['restingAgentId'], maker_id=event['restingOrderId'])
+                         taker_agent_id=event['aggressingAgentId'], taker_id=event['aggressingOrderId'], maker_agent_id=event['restingAgentId'], maker_id=event['restingOrderId'],
+                         maker_fee=event['fees']['maker'], taker_fee=event['fees']['taker'])
 
 class Cancellation(BaseModel):
     """
@@ -492,7 +495,7 @@ class Account(BaseModel):
     base_balance : Balance
     quote_balance : Balance
     orders : list[Order] = []
-    fees : Fees | None = None
+    fees : Fees | None
 
 class OrderDirection(IntEnum):
     """
@@ -500,3 +503,13 @@ class OrderDirection(IntEnum):
     """
     BUY=0
     SELL=1
+
+class STP(IntEnum):
+    """
+    Enum to represent order direction.
+    """
+    NO_STP=0
+    CANCEL_OLDEST=1
+    CANCEL_NEWEST=2
+    CANCEL_BOTH=3
+    DECREASE_CANCEL=4

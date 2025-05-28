@@ -13,6 +13,8 @@
 #include <chrono>
 #include <memory>
 
+using namespace taosim::exchange;
+
 //-------------------------------------------------------------------------
 
 class Simulation;

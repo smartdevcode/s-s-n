@@ -112,6 +112,7 @@ private:
 
     double m_opLatencyScaleRay;
     DelayBounds m_opl;
+    std::normal_distribution<double> m_marketFeedLatencyDistribution;
     boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
     std::uniform_real_distribution<double> m_placementDraw;
 

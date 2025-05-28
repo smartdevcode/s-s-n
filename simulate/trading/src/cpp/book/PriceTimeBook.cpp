@@ -23,6 +23,7 @@ void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_
 {
     const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
     const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
+    const auto agentId = m_order2clientCtx[order->id()].agentId;
 
     auto bestBuyDeque = &m_buyQueue.back();
 
@@ -31,8 +32,15 @@ void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_
 
     while (order->volume() > 0_dec && bestBuyDeque->price() >= minPrice) {
         LimitOrder::Ptr iop = bestBuyDeque->front();
-        iop->setPrice(taosim::util::round(iop->price(), priceDecimals));
+        const auto iopAgentId = m_order2clientCtx[iop->id()].agentId;
+        if (agentId == iopAgentId && order->stpFlag() != STPFlag::NONE){
+            bestBuyDeque = preventSelfTrade(bestBuyDeque, iop, order, agentId);
+            if (bestBuyDeque == nullptr)
+                break;
+            continue;
+        }
 
+        iop->setPrice(taosim::util::round(iop->price(), priceDecimals));
         iop->setLeverage(taosim::util::round(iop->leverage(), volumeDecimals));
         const taosim::decimal_t usedVolume = std::min(iop->totalVolume(), order->totalVolume());
         
@@ -86,6 +94,7 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
 {
     const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
     const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
+    const auto agentId = m_order2clientCtx[order->id()].agentId;
 
     auto bestSellDeque = &m_sellQueue.front();
 
@@ -94,6 +103,14 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
     
     while ( order->volume() > 0_dec && bestSellDeque->price() <= maxPrice) {
         LimitOrder::Ptr iop = bestSellDeque->front();
+        const auto iopAgentId = m_order2clientCtx[iop->id()].agentId;
+        if (agentId == iopAgentId && order->stpFlag() != STPFlag::NONE){
+            bestSellDeque = preventSelfTrade(bestSellDeque, iop, order, agentId);
+            if (bestSellDeque == nullptr)
+                break;
+            continue;
+        }
+
         iop->setPrice(taosim::util::round(iop->price(), priceDecimals));
         iop->setLeverage(taosim::util::round(iop->leverage(), volumeDecimals));
         const taosim::decimal_t usedVolume = std::min(iop->totalVolume(), order->totalVolume());
@@ -140,6 +157,89 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
             bestSellDeque = &m_sellQueue.front();
         }
     }
+}
+
+
+//-------------------------------------------------------------------------
+
+TickContainer* PriceTimeBook::preventSelfTrade(TickContainer* queue, LimitOrder::Ptr iop, Order::Ptr order, AgentId agentId)
+{
+    auto stpFlag = order->stpFlag();
+    auto now = m_simulation->currentTimestamp();
+
+    auto cancelAndLog = [&](OrderID orderId, std::optional<taosim::decimal_t> volume = {}) {
+        if (cancelOrderOpt(orderId, volume)) {
+            Cancellation cancellation{orderId, volume};
+            m_simulation->exchange()->signals(m_id)->cancelLog(CancellationWithLogContext(
+                cancellation,
+                std::make_shared<CancellationLogContext>(
+                    agentId,
+                    m_id,
+                    now)));
+            m_simulation->logDebug("{} | AGENT #{} BOOK {} : SELF TRADE PREVENTION CANCELED {}ORDER {}", 
+                now, agentId, m_id, 
+                volume.has_value() ? fmt::format("{} volume of ", volume.value()) : "",
+                orderId);
+            return true;
+        } else {
+            m_simulation->logDebug("{} | AGENT #{} BOOK {} : SELF TRADE PREVENTION OF ORDER {} FAILED", now, agentId, m_id, orderId);
+            return false;
+        }
+    };
+
+    if (stpFlag == STPFlag::CN || stpFlag == STPFlag::CB) {
+        order->removeVolume(order->volume());
+        m_simulation->logDebug("{} | AGENT #{} BOOK {} : SELF TRADE PREVENTION CANCELED ORDER {}", now, agentId, m_id, order->id());
+        if (stpFlag == STPFlag::CN)
+            return nullptr;
+    }
+
+    if (stpFlag == STPFlag::CO || stpFlag == STPFlag::CB) {
+        auto volumeToCancel = iop->totalVolume();
+        if (cancelAndLog(iop->id())) {
+            if (queue->empty()) {
+                bool isBuy = iop->direction() == OrderDirection::BUY;
+                if ((isBuy && m_buyQueue.empty()) || (!isBuy && m_sellQueue.empty()))
+                    return nullptr;
+                queue = isBuy ? &m_buyQueue.back() : &m_sellQueue.front();
+            }
+        }
+        if (stpFlag == STPFlag::CB)
+            return nullptr;
+        return queue;
+    }
+
+    if(stpFlag == STPFlag::DC){
+        if (iop->totalVolume() == order->totalVolume()){
+            order->removeVolume(order->volume());
+            m_simulation->logDebug("{} | AGENT #{} BOOK {} : SELF TRADE PREVENTION CANCELED ORDER {}", now, agentId, m_id, order->id());
+            cancelAndLog(iop->id());
+            return nullptr;
+        } else if (iop->totalVolume() < order->totalVolume()){
+            auto volumeToCancel = taosim::util::round(iop->totalVolume() / taosim::util::dec1p(order->leverage()),
+                m_simulation->exchange()->config().parameters().volumeIncrementDecimals);
+            if (cancelAndLog(iop->id())){
+                if (queue->empty()) {
+                    bool isBuy = iop->direction() == OrderDirection::BUY;
+                    if ((isBuy && m_buyQueue.empty()) || (!isBuy && m_sellQueue.empty()))
+                        return nullptr;
+                    queue = isBuy ? &m_buyQueue.back() : &m_sellQueue.front();
+                }
+                order->removeVolume(volumeToCancel);
+                return queue;
+            }
+        } else {
+            auto volumeToCancel = taosim::util::round(order->totalVolume() / taosim::util::dec1p(iop->leverage()),
+                m_simulation->exchange()->config().parameters().volumeIncrementDecimals);
+            order->removeVolume(order->volume());
+            m_simulation->logDebug("{} | AGENT #{} BOOK {} : SELF TRADE PREVENTION CANCELED ORDER {}", now, agentId, m_id, order->id());
+            cancelAndLog(iop->id(), volumeToCancel);
+            return nullptr;
+        }
+    }
+
+    return queue;
+
 }
 
 //-------------------------------------------------------------------------

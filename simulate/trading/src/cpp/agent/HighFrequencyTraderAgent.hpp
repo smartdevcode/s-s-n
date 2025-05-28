@@ -100,7 +100,6 @@ private:
 
     double m_pRes;
     double m_sigmaSqr;
-    // Timestamp m_sigmaScalingBase;
     DelayBounds m_opl;
 
     uint32_t m_priceDecimals;

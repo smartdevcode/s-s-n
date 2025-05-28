@@ -80,7 +80,21 @@ void FundamentalPrice::update(Timestamp timestamp)
         m_value = m_X0 * std::exp((m_mu - 0.5 * m_sigma * m_sigma) * m_t + m_sigma * m_W + m_dJ);
         m_valueSignal(m_value);
     } else {
-        fmt::println("FundamentalPrice::update : NO SEED FILE PRESENT AT {}", m_seedfile);
+        // fmt::println("FundamentalPrice::update : NO SEED FILE PRESENT AT {}", m_seedfile);
+        uint64_t seed = 0;
+        if (timestamp - m_last_seed_time >= m_seedInterval) {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<> distr(10800000,11200000);
+            seed = distr(gen);
+            m_rng = RNG{seed}; 
+            m_last_seed = seed;
+            m_last_seed_time = timestamp;
+        }
+        m_t += m_dt;
+        m_W += m_gaussian(m_rng);
+        m_dJ += m_poisson(m_rng)* m_jump(m_rng);
+        m_value = m_X0 * std::exp((m_mu - 0.5 * m_sigma * m_sigma) * m_t + m_sigma * m_W + m_dJ);
         m_valueSignal(m_value);
     }
 }
@@ -152,8 +166,8 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
         dt,
         X0,       
         getNonNegativeFloatAttribute(node, "lambda"),
-        getNonNegativeFloatAttribute(node, "muJump"),
-        getNonNegativeFloatAttribute(node, "sigmaJump"));
+        getNonNegativeFloatAttribute(node, "sigmaJump"),
+        getNonNegativeFloatAttribute(node, "muJump"));
 }
 
 //-------------------------------------------------------------------------

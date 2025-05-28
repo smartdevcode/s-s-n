@@ -6,7 +6,6 @@
 #include "Simulation.hpp"
 #include "util.hpp"
 #include "taosim/book/FeeLogger.hpp"
-
 #include <fmt/chrono.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
@@ -24,31 +23,45 @@ FeeLogger::FeeLogger(const fs::path &filepath,
         "FeeLogger", std::make_unique<spdlog::sinks::basic_file_sink_st>(filepath));
     m_logger->set_level(spdlog::level::trace);
     m_logger->set_pattern("%v");
-    std::string columns = "Date,Time,AgentId,Role,Fee,FeeRate,Price,Volume";
-    m_logger->trace(columns);
+    std::string headers = "Date,Time,AgentId,Role,Fee,FeeRate,Price,Volume";
+    m_logger->trace(headers);
     m_logger->flush();
     m_timeConverter = taosim::simulation::timescaleToConverter(m_simulation->config().time().scale);
-    m_feed = signal.connect([this](taosim::FeeLogEvent event) { log(event); });
+    m_feed = signal.connect([this](const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEvent event) {
+         log(feePolicyWrapper, event); 
+        });
 }
 
 //-------------------------------------------------------------------------
 
-void FeeLogger::log(taosim::FeeLogEvent event)
+void FeeLogger::log(const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEvent event)
 {
     const auto time = m_startTimePoint + m_timeConverter(m_simulation->currentTimestamp());
 
-    std::string entry = fmt::format(
+    std::string aggressingEntry = fmt::format(
         "{:%Y-%m-%d,%H:%M:%S},{},{},{},{},{},{}",
         time,
-        event.agentId,
-        event.isMaker ? "Maker" : "Taker",
-        event.fee,
-        event.feeRate,
+        event.aggressingAgentId,
+        "Taker",
+        event.fees.taker,
+        feePolicyWrapper->getRates(event.bookId, event.aggressingAgentId).taker,
         event.price,
         event.volume
     );
 
-    m_logger->trace(entry);
+    std::string restingEntry = fmt::format(
+        "{:%Y-%m-%d,%H:%M:%S},{},{},{},{},{},{}",
+        time,
+        event.restingAgentId,
+        "Maker",
+        event.fees.maker,
+        feePolicyWrapper->getRates(event.bookId, event.restingAgentId).maker,
+        event.price,
+        event.volume
+    );
+
+    m_logger->trace(aggressingEntry);
+    m_logger->trace(restingEntry);
     m_logger->flush();
 }
 

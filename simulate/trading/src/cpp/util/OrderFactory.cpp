@@ -10,10 +10,11 @@ MarketOrder::Ptr OrderFactory::makeMarketOrder(
     OrderDirection direction,
     Timestamp timestamp,
     taosim::decimal_t volume,
-    taosim::decimal_t leverage) const noexcept
+    taosim::decimal_t leverage,
+    taosim::STPFlag stpFlag) const noexcept
 {
     return MarketOrder::Ptr{
-        new MarketOrder(m_idCounter++, timestamp, volume, direction, leverage)};
+        new MarketOrder(m_idCounter++, timestamp, volume, direction, leverage, stpFlag)};
 }
 
 //-------------------------------------------------------------------------
@@ -23,10 +24,11 @@ LimitOrder::Ptr OrderFactory::makeLimitOrder(
     Timestamp timestamp,
     taosim::decimal_t volume,
     taosim::decimal_t price,
-    taosim::decimal_t leverage) const noexcept
+    taosim::decimal_t leverage,
+    taosim::STPFlag stpFlag) const noexcept
 {
     return LimitOrder::Ptr{
-        new LimitOrder(m_idCounter++, timestamp, volume, direction, price, leverage)};
+        new LimitOrder(m_idCounter++, timestamp, volume, direction, price, leverage, stpFlag)};
 }
 
 //-------------------------------------------------------------------------

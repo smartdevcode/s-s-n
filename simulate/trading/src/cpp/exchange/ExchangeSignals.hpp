@@ -9,16 +9,29 @@
 
 //-------------------------------------------------------------------------
 
+namespace taosim::exchange
+{
+
+//-------------------------------------------------------------------------
+
+class FeePolicyWrapper;
+
+//-------------------------------------------------------------------------
+
 struct ExchangeSignals
 {
     bs2::signal<void(OrderWithLogContext)> orderLog;
     bs2::signal<void(TradeWithLogContext)> tradeLog;
     bs2::signal<void(CancellationWithLogContext)> cancelLog;
     bs2::signal<void(taosim::L3LogEvent)> L3;
-    bs2::signal<void(taosim::FeeLogEvent)> feeLog;
+    bs2::signal<void(const FeePolicyWrapper*, taosim::FeeLogEvent)> feeLog;
     uint32_t eventCounter{};
 
     ExchangeSignals() noexcept;
 };
+
+//-------------------------------------------------------------------------
+
+}  // namespace taosim::exchange
 
 //-------------------------------------------------------------------------

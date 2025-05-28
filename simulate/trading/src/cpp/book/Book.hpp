@@ -68,14 +68,17 @@ public:
         Timestamp timestamp,
         taosim::decimal_t volume,
         taosim::decimal_t leverage,
-        OrderClientContext ctx);
+        OrderClientContext ctx,
+        std::optional<STPFlag> stpFlag = STPFlag::CO);
+
     LimitOrder::Ptr placeLimitOrder(
         OrderDirection direction,
         Timestamp timestamp,
         taosim::decimal_t volume,
         taosim::decimal_t price,
         taosim::decimal_t leverage,
-        OrderClientContext ctx);
+        OrderClientContext ctx,
+        std::optional<STPFlag> stpFlag = STPFlag::CO);
     bool cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volumeToCancel = {});
 
     virtual taosim::decimal_t calculatCorrespondingVolume(taosim::decimal_t quotePrice) = 0;

@@ -8,6 +8,7 @@
 #include "TimeConfig.hpp"
 #include "ExchangeSignals.hpp"
 #include "FeeLogEvent.hpp"
+#include "taosim/exchange/FeePolicyWrapper.hpp"
 
 #include "util.hpp"
 
@@ -15,6 +16,8 @@
 
 #include <chrono>
 #include <memory>
+
+// using namespace taosim::exchange;
 
 //-------------------------------------------------------------------------
 
@@ -34,7 +37,7 @@ public:
     [[nodiscard]] const fs::path& filepath() const noexcept { return m_filepath; }
 
 private:
-    void log(taosim::FeeLogEvent event);
+    void log(const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEvent event);
 
     std::unique_ptr<spdlog::logger> m_logger;
     fs::path m_filepath;

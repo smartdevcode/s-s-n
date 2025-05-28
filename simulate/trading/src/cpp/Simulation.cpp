@@ -213,7 +213,17 @@ void Simulation::configure(const pugi::xml_node& node)
     }();
 
     if (node.attribute("traceTime").as_bool()) {
-        m_signals.step.connect([this] { fmt::println("TIME : {}", m_time.current); });
+        m_signals.step.connect([this] { 
+            uint64_t total, seconds, hours, minutes,nanos;
+            total = m_time.current/1'000'000'000;
+            minutes = total / 60;
+            seconds = total % 60;
+            hours = minutes / 60;
+            minutes = minutes % 60;
+            nanos = m_time.current % 1'000'000'000;
+            fmt::println("TIME : {:02d}:{:02d}:{:02d}.{:09d}", hours, minutes, seconds, nanos); 
+        });
+        // m_signals.step.connect([this] { fmt::println("TIME : {}", m_time.current); });
     }
 
     if (node.attribute("enableCheckpointing").as_bool()) {

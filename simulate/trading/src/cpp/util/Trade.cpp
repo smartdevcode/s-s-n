@@ -158,6 +158,17 @@ void TradeEvent::checkpointSerialize(rapidjson::Document& json, const std::strin
         json.AddMember("event", rapidjson::Value{"trade", allocator}, allocator);
         json.AddMember("aggressingAgentId", rapidjson::Value{ctx.aggressingAgentId}, allocator);
         json.AddMember("restingAgentId", rapidjson::Value{ctx.restingAgentId}, allocator);
+        taosim::json::serializeHelper(
+            json,
+            "fees",
+            [this](rapidjson::Document& json) {
+                json.SetObject();
+                auto& allocator = json.GetAllocator();
+                json.AddMember(
+                    "maker", rapidjson::Value{taosim::util::decimal2double(ctx.fees.maker)}, allocator);
+                json.AddMember(
+                    "taker", rapidjson::Value{taosim::util::decimal2double(ctx.fees.taker)}, allocator);
+            });
     };
     taosim::json::serializeHelper(json, key, serialize);
 }

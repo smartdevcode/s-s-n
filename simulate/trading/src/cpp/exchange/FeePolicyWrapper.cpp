@@ -36,7 +36,7 @@ Fees FeePolicyWrapper::calculateFees(const TradeDesc& tradeDesc)
 
 //-------------------------------------------------------------------------
 
-Fees FeePolicyWrapper::getRates(BookId bookId, AgentId agentId) noexcept
+Fees FeePolicyWrapper::getRates(BookId bookId, AgentId agentId) const noexcept
 {
     std::shared_lock lock{*m_mtx};
     const auto agentBaseName = m_accountRegistry->getAgentBaseName(agentId);

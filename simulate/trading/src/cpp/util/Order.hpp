@@ -7,11 +7,13 @@
 #include "CheckpointSerializable.hpp"
 #include "JsonSerializable.hpp"
 #include "common.hpp"
+#include "Flags.hpp"
 
 //-------------------------------------------------------------------------
 
 using OrderID = uint32_t;
 using ClientOrderID = std::decay_t<OrderID>;
+using STPFlag = taosim::STPFlag;
 
 enum class OrderDirection : uint32_t
 {
@@ -48,7 +50,8 @@ enum class OrderErrorCode : uint32_t
     EXCEEDING_LOAN,
     CONTRACT_VIOLATION,
     INVALID_LEVERAGE,
-    INVALID_VOLUME
+    INVALID_VOLUME,
+    INVALID_PRICE
 };
 
 [[nodiscard]] constexpr std::string_view OrderErrorCode2StrView(OrderErrorCode ec) noexcept
@@ -80,6 +83,7 @@ public:
     [[nodiscard]] taosim::decimal_t volume() const noexcept { return m_volume; }
     [[nodiscard]] taosim::decimal_t totalVolume() const noexcept { return m_volume * (1_dec + m_leverage); }
     [[nodiscard]] taosim::decimal_t leverage() const noexcept { return m_leverage; }
+    [[nodiscard]] STPFlag stpFlag() const noexcept { return m_stpFlag; }
 
     void removeVolume(taosim::decimal_t decrease);
     void removeLeveragedVolume(taosim::decimal_t decrease);
@@ -92,13 +96,17 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
 protected:
-    BasicOrder(OrderID id, Timestamp timestamp, taosim::decimal_t orderVolume, taosim::decimal_t leverage = 0_dec) noexcept;
+    BasicOrder(OrderID id, Timestamp timestamp, 
+        taosim::decimal_t orderVolume, 
+        taosim::decimal_t leverage = 0_dec,
+        STPFlag stpFlag = STPFlag::CO) noexcept;
 
 private:
     OrderID m_id;
     Timestamp m_timestamp;
     taosim::decimal_t m_volume;
     taosim::decimal_t m_leverage;
+    STPFlag m_stpFlag;
 };
 
 //-------------------------------------------------------------------------
@@ -121,7 +129,8 @@ protected:
         Timestamp timestamp,
         taosim::decimal_t volume,
         OrderDirection direction,
-        taosim::decimal_t leverage = 0_dec) noexcept;
+        taosim::decimal_t leverage = 0_dec,
+        STPFlag stpFlag = STPFlag::CO) noexcept;
 
 private:
     OrderDirection m_direction;
@@ -139,7 +148,8 @@ public:
         Timestamp timestamp,
         taosim::decimal_t volume,
         OrderDirection direction,
-        taosim::decimal_t leverage = 0_dec) noexcept;
+        taosim::decimal_t leverage = 0_dec,
+        STPFlag stpFlag = STPFlag::CO) noexcept;
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
@@ -162,7 +172,8 @@ public:
         taosim::decimal_t volume,
         OrderDirection direction,
         taosim::decimal_t price,
-        taosim::decimal_t leverage = 0_dec) noexcept;
+        taosim::decimal_t leverage = 0_dec,
+        STPFlag stpFlag = STPFlag::CO) noexcept;
 
     [[nodiscard]] taosim::decimal_t price() const noexcept { return m_price; };
     void setPrice(taosim::decimal_t newPrice);

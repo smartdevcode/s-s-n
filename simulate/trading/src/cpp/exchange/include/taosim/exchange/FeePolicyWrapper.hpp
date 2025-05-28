@@ -29,7 +29,7 @@ public:
     }
 
     [[nodiscard]] Fees calculateFees(const TradeDesc& trade);
-    [[nodiscard]] Fees getRates(BookId bookId, AgentId agentId) noexcept;
+    [[nodiscard]] Fees getRates(BookId bookId, AgentId agentId) const noexcept;
     [[nodiscard]] decimal_t agentVolume(BookId bookId, AgentId agentId) const noexcept;
 
     [[nodiscard]] bool contains(const std::string& agentBaseName) const noexcept;

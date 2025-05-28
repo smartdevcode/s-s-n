@@ -209,7 +209,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
 
 //-------------------------------------------------------------------------
 
-FeeLogs ClearingManager::handleTrade(const TradeDesc& tradeDesc)
+Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
 {
     const auto [bookId, restingAgentId, aggressingAgentId, trade] = tradeDesc;
 
@@ -254,23 +254,6 @@ FeeLogs ClearingManager::handleTrade(const TradeDesc& tradeDesc)
     // TODO: Rounding should be done inside fees calculation
     fees.taker = util::round(fees.taker, m_exchange->config().parameters().quoteIncrementDecimals);
     fees.maker = util::round(fees.maker, m_exchange->config().parameters().quoteIncrementDecimals);
-
-    FeeLogEvent makerFeeLog {
-        .agentId = restingAgentId,
-        .fee = fees.maker,
-        .feeRate = m_feePolicy->getRates(bookId, restingAgentId).maker,
-        .isMaker = true,
-        .price = util::round(trade->price(), m_exchange->config().parameters().priceIncrementDecimals),
-        .volume = util::round(trade->volume(), m_exchange->config().parameters().baseIncrementDecimals)
-    };
-    FeeLogEvent takerFeeLog {
-        .agentId = aggressingAgentId,
-        .fee = fees.taker,
-        .feeRate = m_feePolicy->getRates(bookId, aggressingAgentId).taker,
-        .isMaker = false,
-        .price = util::round(trade->price(), m_exchange->config().parameters().priceIncrementDecimals),
-        .volume = util::round(trade->volume(), m_exchange->config().parameters().baseIncrementDecimals)
-    };
 
     accounting::Balances& restingBalance = accounts()[restingAgentId][bookId];
     accounting::Balances& aggressingBalance = accounts()[aggressingAgentId][bookId];
@@ -459,11 +442,7 @@ FeeLogs ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             fees.maker, fees.taker);
     }
 
-    return {
-        .fees = fees,
-        .makerFeeLog = makerFeeLog,
-        .takerFeeLog = takerFeeLog
-    };
+    return fees;
 }
 
 //-------------------------------------------------------------------------

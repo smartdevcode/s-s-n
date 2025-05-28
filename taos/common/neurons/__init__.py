@@ -224,7 +224,7 @@ class BaseNeuron(ABC):
         )
 
     def pagerduty_alert(self, incident_text : str, method : str = "unknown", dedup_key : str | None = None, details : dict | None = None, event_class : str = "ERROR", severity : str = "error"):
-        bt.logging.error(incident_text)
+        bt.logging.error("PD: " + incident_text + (f"\nDetails : {details}" if details else ''))
         if self.config.alerting.pagerduty.integration_key:
             triggerPagerDutyIncident(
                 integration_keys=[self.config.alerting.pagerduty.integration_key], 

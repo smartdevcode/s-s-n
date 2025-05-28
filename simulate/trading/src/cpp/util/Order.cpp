@@ -75,6 +75,10 @@ void BasicOrder::jsonSerialize(rapidjson::Document& json, const std::string& key
             "volume", rapidjson::Value{taosim::util::decimal2double(m_volume)}, allocator);
         json.AddMember(
             "leverage", rapidjson::Value{taosim::util::decimal2double(m_leverage)}, allocator);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -89,6 +93,11 @@ void BasicOrder::checkpointSerialize(rapidjson::Document& json, const std::strin
         json.AddMember("orderId", rapidjson::Value{m_id}, allocator);
         json.AddMember("timestamp", rapidjson::Value{m_timestamp}, allocator);
         json.AddMember("volume", rapidjson::Value{taosim::util::packDecimal(m_volume)}, allocator);
+        json.AddMember("leverage", rapidjson::Value{taosim::util::packDecimal(m_leverage)}, allocator);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -99,11 +108,13 @@ BasicOrder::BasicOrder(
     OrderID id,
     Timestamp timestamp,
     taosim::decimal_t volume,
-    taosim::decimal_t leverage) noexcept
+    taosim::decimal_t leverage,
+    STPFlag stpFlag) noexcept
     : m_id{id},
       m_timestamp{timestamp},
       m_volume{volume},
-      m_leverage{leverage}
+      m_leverage{leverage},
+      m_stpFlag{stpFlag}
 {}
 
 //-------------------------------------------------------------------------
@@ -113,8 +124,9 @@ Order::Order(
     Timestamp timestamp,
     taosim::decimal_t volume,
     OrderDirection direction,
-    taosim::decimal_t leverage) noexcept
-    : BasicOrder(orderId, timestamp, volume, leverage),
+    taosim::decimal_t leverage,
+    STPFlag stpFlag) noexcept
+    : BasicOrder(orderId, timestamp, volume, leverage, stpFlag),
       m_direction{direction}
 {}
 
@@ -151,8 +163,9 @@ MarketOrder::MarketOrder(
     Timestamp timestamp,
     taosim::decimal_t volume,
     OrderDirection direction,
-    taosim::decimal_t leverage) noexcept
-    : Order(orderId, timestamp, volume, direction, leverage)
+    taosim::decimal_t leverage,
+    STPFlag stpFlag) noexcept
+    : Order(orderId, timestamp, volume, direction, leverage, stpFlag)
 {}
 
 //-------------------------------------------------------------------------
@@ -188,7 +201,8 @@ MarketOrder::Ptr MarketOrder::fromJson(const rapidjson::Value& json)
         json["timestamp"].GetUint64(),
         taosim::json::getDecimal(json["volume"]),
         OrderDirection{json["direction"].GetUint()},
-        taosim::json::getDecimal(json["leverage"]))};
+        taosim::json::getDecimal(json["leverage"]),
+        STPFlag{json["stpFlag"].GetUint()})};
 }
 
 //-------------------------------------------------------------------------
@@ -199,8 +213,9 @@ LimitOrder::LimitOrder(
     taosim::decimal_t volume,
     OrderDirection direction,
     taosim::decimal_t price,
-    taosim::decimal_t leverage) noexcept
-    : Order(orderId, timestamp, volume, direction, leverage),
+    taosim::decimal_t leverage,
+    STPFlag stpFlag) noexcept
+    : Order(orderId, timestamp, volume, direction, leverage, stpFlag),
       m_price{price}
 {}
 
@@ -252,7 +267,8 @@ LimitOrder::Ptr LimitOrder::fromJson(
         taosim::util::round(taosim::json::getDecimal(json["volume"]), volumeDecimals),
         OrderDirection{json["direction"].GetUint()},
         taosim::json::getDecimal(json["price"]),
-        taosim::json::getDecimal(json["leverage"]))};
+        taosim::json::getDecimal(json["leverage"]),
+        STPFlag{json["stpFlag"].GetUint()})};
 }
 
 //-------------------------------------------------------------------------

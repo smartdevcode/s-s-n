@@ -98,6 +98,7 @@ private:
     void notifyTradeSubscribersByOrderID(TradeWithLogContext::Ptr tradeWithCtx, OrderID orderId);
 
     void orderCallback(Order::Ptr order, OrderContext ctx);
+    void orderLogCallback(Order::Ptr order, OrderContext ctx);
     void tradeCallback(Trade::Ptr trade, BookId bookId);
     void unregisterLimitOrderCallback(LimitOrder::Ptr limitOrder, BookId bookId);
     void marketOrderProcessedCallback(MarketOrder::Ptr marketOrder, OrderContext ctx);

@@ -141,11 +141,8 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     m_tradePrice.resize(m_bookCount);
 
     
-    if (attr = node.attribute("opLatencyScaleRay"); attr.empty() || attr.as_double() == 0.0) {
-            throw std::invalid_argument{fmt::format(
-                 "{}: Attribute '{}' should be > 0", ctx, "opLatencyScaleRay")};
-    }
-    const double scale = attr.as_double();
+    attr = node.attribute("opLatencyScaleRay"); 
+    const double scale = (attr.empty() || attr.as_double() == 0.0) ? 0.235 : attr.as_double();
     m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
     const double percentile = 1-std::exp(-1/(2*scale*scale));
     m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};

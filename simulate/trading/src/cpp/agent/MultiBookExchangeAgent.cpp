@@ -7,6 +7,7 @@
 #include "BookFactory.hpp"
 #include "Simulation.hpp"
 #include "taosim/exchange/FeePolicy.hpp"
+#include "taosim/book/FeeLogger.hpp"
 #include "util.hpp"
 
 #include <boost/uuid/random_generator.hpp>
@@ -332,6 +333,8 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                 detailedDepth);
             book->signals().orderCreated.connect(
                 [this](Order::Ptr order, OrderContext ctx) { orderCallback(order, ctx); });
+            book->signals().orderLog.connect(
+                [this](Order::Ptr order, OrderContext ctx) { orderLogCallback(order, ctx); });
             book->signals().trade.connect(
                 [this](Trade::Ptr trade, BookId bookId) { tradeCallback(trade, bookId); });
             book->signals().unregister.connect(
@@ -742,7 +745,7 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     const auto subPayload = std::dynamic_pointer_cast<ResetAgentsPayload>(payload->payload);
 
     std::vector<AgentId> valid = {};
-    for (AgentId agentId : subPayload->agentIds) {        
+    for (AgentId agentId : subPayload->agentIds) {
         if (accounts().contains(agentId)) {
             valid.push_back(agentId);
         } else {
@@ -789,7 +792,7 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
 
     const std::unordered_set<AgentId> resetAgentIds{valid.begin(), valid.end()};
 
-    m_clearingManager->feePolicy()->resetHistory(resetAgentIds);    
+    m_clearingManager->feePolicy()->resetHistory(resetAgentIds);
 
     const bool allQueuesEmpty =
         ranges::all_of(m_parallelQueues, [](const auto& queue) { return queue.empty(); });
@@ -803,7 +806,7 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
                 const auto distributedPayload =
                     std::dynamic_pointer_cast<DistributedAgentResponsePayload>(
                         prioMsgWithId.pmsg.msg->payload);
-                return !distributedPayload || resetAgentIds.contains(distributedPayload->agentId);
+                return !(distributedPayload && resetAgentIds.contains(distributedPayload->agentId));
             })
             | ranges::to<std::vector>}};
     simulation()->logDebug("{} | MESSAGE QUEUE CLEARED", simulation()->currentTimestamp());
@@ -858,7 +861,9 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
         msg->arrival,
         subPayload->volume,
         subPayload->leverage,
-        OrderClientContext{payload->agentId, subPayload->clientOrderId});
+        OrderClientContext{payload->agentId, subPayload->clientOrderId},
+        subPayload->stpFlag
+    );
 
     const auto retSubPayload =
         MessagePayload::create<PlaceOrderMarketResponsePayload>(order->id(), subPayload);
@@ -914,7 +919,9 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
         subPayload->volume,
         subPayload->price,
         subPayload->leverage,
-        OrderClientContext{payload->agentId, subPayload->clientOrderId});
+        OrderClientContext{payload->agentId, subPayload->clientOrderId},
+        subPayload->stpFlag
+    );
 
     const auto retSubPayload =
         MessagePayload::create<PlaceOrderLimitResponsePayload>(order->id(), subPayload);
@@ -1110,7 +1117,9 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
         msg->arrival,
         payload->volume,
         payload->leverage,
-        OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId});
+        OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
+        payload->stpFlag
+    );
 
     respondToMessage(
         msg,
@@ -1162,7 +1171,9 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
         payload->volume,
         payload->price,
         payload->leverage,
-        OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId});
+        OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
+        payload->stpFlag
+    );
 
     respondToMessage(
         msg,
@@ -1527,6 +1538,13 @@ void MultiBookExchangeAgent::notifyTradeSubscribersByOrderID(
 void MultiBookExchangeAgent::orderCallback(Order::Ptr order, OrderContext ctx)
 {
     accounts()[ctx.agentId].activeOrders()[ctx.bookId].insert(order);
+}
+
+//-------------------------------------------------------------------------
+
+void MultiBookExchangeAgent::orderLogCallback(Order::Ptr order, OrderContext ctx)
+{
+    if (order->totalVolume() == 0_dec) return;
     m_L3Record[ctx.bookId].push(std::make_shared<OrderEvent>(order, ctx));
     m_signals[ctx.bookId]->orderLog(OrderWithLogContext(
         order, std::make_shared<OrderLogContext>(ctx.agentId, ctx.bookId)));
@@ -1544,7 +1562,7 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
     const auto [aggressingAgentId, aggressingClientOrderId] =
         m_books[bookId]->orderClientContext(aggressingOrderId);
 
-    const auto& feeLogs = m_clearingManager->handleTrade(taosim::exchange::TradeDesc{
+    const auto& fees = m_clearingManager->handleTrade(taosim::exchange::TradeDesc{
         .bookId = bookId,
         .restingAgentId = restingAgentId,
         .aggressingAgentId = aggressingAgentId,
@@ -1553,11 +1571,11 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
 
     m_L3Record[bookId].push(
         std::make_shared<TradeEvent>(
-            trade, TradeContext(bookId, aggressingAgentId, restingAgentId, feeLogs.fees)));
+            trade, TradeContext(bookId, aggressingAgentId, restingAgentId, fees)));
 
     auto tradeWithCtx = std::make_shared<TradeWithLogContext>(
         trade,
-        std::make_shared<TradeLogContext>(aggressingAgentId, restingAgentId, bookId, feeLogs.fees));
+        std::make_shared<TradeLogContext>(aggressingAgentId, restingAgentId, bookId, fees));
 
     const Timestamp now = simulation()->currentTimestamp();
     const std::array<std::pair<AgentId, std::optional<ClientOrderID>>, 2> idPairs{
@@ -1580,8 +1598,17 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
     }
 
     m_signals[bookId]->tradeLog(*tradeWithCtx);
-    m_signals[bookId]->feeLog(feeLogs.makerFeeLog);
-    m_signals[bookId]->feeLog(feeLogs.takerFeeLog);
+    m_signals[bookId]->feeLog(
+        m_clearingManager->feePolicy(), 
+        taosim::FeeLogEvent{
+            .bookId = bookId,
+            .restingAgentId = restingAgentId,
+            .aggressingAgentId = aggressingAgentId,
+            .fees = fees,
+            .price = trade->price(),
+            .volume = trade->volume()
+        }   
+    );
 
     notifyTradeSubscribers(tradeWithCtx);
 }

@@ -4,9 +4,6 @@
  */
 #pragma once
 
-#include "common.hpp"
-#include "Fees.hpp"
-
 //-------------------------------------------------------------------------
 
 namespace taosim
@@ -14,15 +11,24 @@ namespace taosim
 
 //-------------------------------------------------------------------------
 
-struct FeeLogEvent
+enum class STPFlag : uint32_t
 {
-    BookId bookId;
-    AgentId restingAgentId;
-    AgentId aggressingAgentId;
-    exchange::Fees fees;
-    decimal_t price;
-    decimal_t volume;
+    NONE,
+    CO, // Cancel the resting
+    CN, // Cancel the aggressing
+    CB, // Cancel both
+    DC  // Decrement and Cancel
 };
+
+//-------------------------------------------------------------------------
+
+enum class LimitOrderFlag : uint32_t
+{
+    NONE,
+    POST_ONLY,
+    IOC
+};
+
 
 //-------------------------------------------------------------------------
 

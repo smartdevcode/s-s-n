@@ -4,6 +4,12 @@
  */
 #include "ExchangeSignals.hpp"
 
+
+//-------------------------------------------------------------------------
+
+namespace taosim::exchange
+{
+
 //-------------------------------------------------------------------------
 
 ExchangeSignals::ExchangeSignals() noexcept
@@ -18,5 +24,9 @@ ExchangeSignals::ExchangeSignals() noexcept
         L3({ .item = item, .id = eventCounter++ });
     });
 }
+
+//-------------------------------------------------------------------------
+
+}  // namespace taosim::exchange
 
 //-------------------------------------------------------------------------

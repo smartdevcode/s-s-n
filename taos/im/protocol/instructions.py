@@ -4,7 +4,7 @@ from pydantic import BaseModel, PositiveFloat, NonNegativeInt
 from typing import Literal
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentInstruction
-from taos.im.protocol.models import OrderDirection
+from taos.im.protocol.models import OrderDirection, STP
 
 """
 Classes representing instructions that may be submitted by miner agents in a intelligent market simulation are defined here.
@@ -47,7 +47,8 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
     bookId: NonNegativeInt
     direction : Literal[OrderDirection.BUY, OrderDirection.SELL]
     quantity : PositiveFloat
-    clientOrderId : str | None
+    clientOrderId : str | None    
+    stp : Literal[STP.NO_STP, STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
     
     def __str__(self):
         return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {self.quantity} ON BOOK {self.bookId}"
@@ -63,6 +64,7 @@ class PlaceMarketOrderInstruction(PlaceOrderInstruction):
             "volume": self.quantity,
             "bookId":self.bookId,
             "clientOrderId":self.clientOrderId,
+            "stpFlag":self.stp
         }
     
     def __str__(self):
@@ -84,6 +86,7 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
             "price": self.price,
             "bookId": self.bookId,
             "clientOrderId":self.clientOrderId,
+            "stpFlag":self.stp
         }
     
     def __str__(self):

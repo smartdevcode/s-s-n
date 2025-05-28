@@ -1,5 +1,5 @@
 from taos.im.agents import FinanceSimulationAgent
-from taos.im.protocol.models import OrderDirection
+from taos.im.protocol.models import OrderDirection, STP
 from taos.im.protocol.instructions import *
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 
@@ -55,13 +55,13 @@ class RandomMakerAgent(FinanceSimulationAgent):
                 # If the agent can afford to place the buy order
                 if self.accounts[book_id].quote_balance.free >= quantity * bidprice:
                     # Attach a buy limit order placement instruction to the response
-                    response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bidprice)
+                    response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bidprice, stp=STP.CANCEL_BOTH)
                 else:
                     print(f"Cannot place BUY order for {quantity}@{bidprice} : Insufficient quote balance!")
                 # If the agent can afford to place the sell order
                 if self.accounts[book_id].base_balance.free >= quantity:
                     # Attach a sell limit order placement instruction to the response
-                    response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askprice)
+                    response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askprice, stp=STP.CANCEL_NEWEST)
                 else:
                     print(f"Cannot place SELL order for {quantity}@{askprice} : Insufficient base balance!")
         # Return the response with instructions appended
