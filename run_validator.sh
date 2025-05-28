@@ -3,10 +3,11 @@ ENDPOINT=wss://entrypoint-finney.opentensor.ai:443
 WALLET_PATH=~/.bittensor/wallets/
 WALLET_NAME=taos
 HOTKEY_NAME=validator
-NETUID=1
+NETUID=79
 CHECKPOINT=0
 LOG_LEVEL=info
-while getopts e:p:w:h:u:l: flag
+PD_KEY="\"\""
+while getopts e:p:w:h:u:l:d: flag
 do
     case "${flag}" in
         e) ENDPOINT=${OPTARG};;
@@ -15,6 +16,7 @@ do
         h) HOTKEY_NAME=${OPTARG};;
         u) NETUID=${OPTARG};;
         l) LOG_LEVEL=${OPTARG};;
+        d) PD_KEY=${OPTARG};;
         # c) CHECKPOINT=${OPTARG};;
     esac
 done
@@ -24,26 +26,31 @@ echo "WALLET_NAME: $WALLET_NAME"
 echo "HOTKEY_NAME: $HOTKEY_NAME"
 echo "NETUID: $NETUID"
 echo "CHECKPOINT: $CHECKPOINT"
+echo "PAGERDUTY KEY: $PD_KEY"
 
 pm2 delete simulator validator
 tmux kill-session -t taos
 
+echo "Updating Validator"
 git pull
 pip install -e .
-echo "Starting Validator"
-cd taos/im/neurons
-pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL"
 
-echo "Starting Simulator"
+echo "Updating Simulator"
 export LD_LIBRARY_PATH="/usr/local/gcc-14.1.0/lib/../lib64:$LD_LIBRARY_PATH"
-cd ../../../simulate/trading
+cd simulate/trading
 git pull
 if ! g++ -dumpversion | grep -q "14"; then
 	cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "$(nproc)"
 else
 	cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D .. && cmake --build . -j "$(nproc)"
 fi
-cd ../run
+
+echo "Starting Validator"
+cd ../../../taos/im/neurons
+pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY"
+
+echo "Starting Simulator"
+cd ../../../simulate/trading/run
 # if [ $CHECKPOINT = 0 ]; then
 	pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -f config/simulation_0.xml"
 # else
