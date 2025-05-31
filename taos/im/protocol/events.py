@@ -84,7 +84,7 @@ class OrderPlacementEvent(FinanceEvent):
     """
     bookId : int | None = None
     orderId : int | None
-    clientOrderId : str | None
+    clientOrderId : int | None
     side : int
     quantity : float
     success : bool
@@ -231,7 +231,7 @@ class TradeEvent(FinanceEvent):
     """
     bookId : int | None = None
     tradeId : int
-    clientOrderId : str | None
+    clientOrderId : int | None
     takerAgentId : int
     takerOrderId : int
     makerAgentId : int

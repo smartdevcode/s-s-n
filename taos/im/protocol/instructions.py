@@ -47,7 +47,7 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
     bookId: NonNegativeInt
     direction : Literal[OrderDirection.BUY, OrderDirection.SELL]
     quantity : PositiveFloat
-    clientOrderId : str | None    
+    clientOrderId : int | None    
     stp : Literal[STP.NO_STP, STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
     
     def __str__(self):
