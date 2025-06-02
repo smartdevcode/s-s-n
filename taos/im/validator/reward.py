@@ -166,25 +166,30 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
     # to a configured multiple of the value of the initial capital allocated.
     # Miners are thus required to turn over their initial portfolio value at least `capital_turnover_rate` times per `trade_volume_assessment_period`, 
     # otherwise they receive only a fraction of the rewards earned as a result of risk-adjusted performance.
-    for book_id, trades in self.trade_volumes[uid].items():
-        if trades != {}:
-            if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
-                self.trade_volumes[uid][book_id] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
+    for book_id, role_trades in self.trade_volumes[uid].items():
+        for role, trades in role_trades.items():
+            if trades != {}:
+                if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
+                    self.trade_volumes[uid][book_id][role] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
     for notice in synapse.notices[uid]:
         if notice.type == 'EVENT_TRADE':
-            if not notice.timestamp in self.trade_volumes[uid][notice.bookId]:
-                self.trade_volumes[uid][notice.bookId][notice.timestamp] = {'total' : 0.0, 'maker' : 0.0, 'taker' : 0.0, 'self' : 0.0}
-            self.trade_volumes[uid][notice.bookId][notice.timestamp]['total'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['total'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+            sampled_timestamp = math.ceil(notice.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
+            if not sampled_timestamp in self.trade_volumes[uid][notice.bookId]['total']:
+                self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = 0.0
+                self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = 0.0
+                self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = 0.0
+                self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = 0.0
+            self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
             if notice.makerAgentId == notice.takerAgentId:                
-                self.trade_volumes[uid][notice.bookId][notice.timestamp]['self'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['self'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+                self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
             elif notice.makerAgentId == uid:
-                self.trade_volumes[uid][notice.bookId][notice.timestamp]['maker'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['maker'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+                self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
             elif notice.takerAgentId == uid:
-                self.trade_volumes[uid][notice.bookId][notice.timestamp]['taker'] = round(self.trade_volumes[uid][notice.bookId][notice.timestamp]['taker'] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+                self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
     target_volume = round(self.config.scoring.activity.capital_turnover_rate * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
     self.activity_factors[uid] = round(
         min(1.0,
-            min([round(sum([book_volume['total'] for book_volume in self.trade_volumes[uid][book_id].values()]), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
+            min([round(sum([book_volume for book_volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
         )
         ,6)
     return self.activity_factors[uid] * inventory_score

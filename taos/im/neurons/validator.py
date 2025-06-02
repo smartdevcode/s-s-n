@@ -26,6 +26,8 @@ import json
 import xml.etree.ElementTree as ET
 import pandas as pd
 import msgpack
+import msgspec
+import math
 
 # Bittensor
 import bittensor as bt
@@ -504,17 +506,29 @@ class Validator(BaseValidatorNeuron):
                 if len(self.sharpe_values[uid]['books']) > self.simulation.book_count:
                     self.sharpe_values[uid]['books'] = {k : v for k, v in self.sharpe_values[uid]['books'].items() if k < self.simulation.book_count}
             self.unnormalized_scores = validator_state["unnormalized_scores"]
-            self.trade_volumes = validator_state["trade_volumes"] if "trade_volumes" in validator_state else {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+            self.trade_volumes = validator_state["trade_volumes"] if "trade_volumes" in validator_state else {uid : {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+            reorg = False
             for uid in self.trade_volumes:
                 for bookId in self.trade_volumes[uid]:
-                    if len(self.trade_volumes[uid][bookId]) > 0 and not isinstance(list(self.trade_volumes[uid][bookId].values())[0], dict):
-                        for timestamp in self.trade_volumes[uid][bookId]:
-                            self.trade_volumes[uid][bookId][timestamp] = {'total' : self.trade_volumes[uid][bookId][timestamp], 'maker' : 0.0, 'taker' : 0.0, 'self' : 0.0}
+                    if not 'total' in self.trade_volumes[uid][bookId]:
+                        if not reorg:
+                            bt.logging.info(f"Optimizing miner volume history structures...")
+                            reorg = True
+                        volumes = {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}}                        
+                        for time, role_volume in self.trade_volumes[uid][bookId].items():
+                            sampled_time = math.ceil(time / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
+                            for role, volume in role_volume.items():
+                                if not sampled_time in volumes[role]:
+                                    volumes[role][sampled_time] = 0.0
+                                volumes[role][sampled_time] += volume
+                        self.trade_volumes[uid][bookId] = {role : {time : round(volumes[role][time], self.simulation.volumeDecimals) for time in volumes[role]} for role in volumes}
                 if len(self.trade_volumes[uid]) < self.simulation.book_count:
                     for bookId in range(len(self.trade_volumes[uid]),self.simulation.book_count):
-                        self.trade_volumes[uid][bookId] = {}
+                        self.trade_volumes[uid][bookId] = {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}}
                 if len(self.trade_volumes[uid]) > self.simulation.book_count:
                     self.trade_volumes[uid] = {k : v for k, v in self.trade_volumes[uid].items() if k < self.simulation.book_count}
+            if reorg:
+                self._save_state()
             bt.logging.success(f"Loaded validator state.")
         else:           
             # If no state exists or the neuron.reset flag is set, re-initialize the validator state
@@ -536,7 +550,7 @@ class Validator(BaseValidatorNeuron):
                 } for uid in range(self.subnet_info.max_uids)
             }
             self.unnormalized_scores = {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
-            self.trade_volumes = {uid : {bookId : {} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+            self.trade_volumes = {uid : {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
 
     def load_simulation_config(self) -> None:
         """
@@ -567,6 +581,7 @@ class Validator(BaseValidatorNeuron):
         self.start_timestamp = None
         self.last_state_time = None
         self.step_rates = []
+        self.rewarding = False
         self.reporting = False
         self.saving = False
         self.initial_balances_published = False
@@ -597,7 +612,9 @@ class Validator(BaseValidatorNeuron):
         self.trade_volumes = {
             uid : {
                 bookId : {
-                    prev_time - self.simulation_timestamp : volume for prev_time, volume in self.trade_volumes[uid][bookId].items() if prev_time - self.simulation_timestamp < self.simulation_timestamp
+                    role : {
+                        prev_time - self.simulation_timestamp : volume for prev_time, volume in self.trade_volumes[uid][bookId][role].items() if prev_time - self.simulation_timestamp < self.simulation_timestamp
+                    } for role in self.trade_volumes[uid][bookId]
                 } for bookId in range(self.simulation.book_count)
             } for uid in range(self.subnet_info.max_uids)
         }
@@ -648,49 +665,81 @@ class Validator(BaseValidatorNeuron):
         self.unnormalized_scores[uid] = 0.0
         self.inventory_history[uid] = {}
         self.deregistered_uids.append(uid)
-        self.trade_volumes[uid] = {bookId : {} for bookId in range(self.simulation.book_count)}
+        self.trade_volumes[uid] = {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)}
         bt.logging.debug(f"UID {uid} Deregistered - Scheduled for reset.")
 
     def report(self) -> None:
         """
         Publish performance and state metrics.
         """
-        if not self.reporting:
+        if not self.config.reporting.disabled and not self.reporting:
             Thread(target=report, args=(self,), daemon=True, name=f'report_{self.step}').start()
-        # report(self)
+    
+    def _reward(self, state : MarketSimulationStateUpdate):
+        # Calculate the rewards for the miner based on the latest simulation state.
+        bt.logging.info(f"Updating Agent Scores at Step {self.step}...")
+        self.rewarding = True
+        start = time.time()
+        rewards = get_rewards(self, state)
+        bt.logging.debug(f"Agent Rewards Recalculated:\n{rewards}")
+        # Update the miner scores.
+        self.update_scores(rewards, self.metagraph.uids)
+        bt.logging.info(f"Agent Scores Updated ({time.time()-start:.4f}s)")
+        bt.logging.debug(f"{self.scores}")
+        self.rewarding = False
+        
+    def reward(self, state) -> None:
+        """
+        Update agent rewards and recalculate scores.
+        """
+        if not self.rewarding:
+            Thread(target=self._reward, args=(state,), daemon=True, name=f'reward_{self.step}').start()
 
     async def orderbook(self, request : Request) -> dict:
         """
         The route method which receives and processes simulation state updates received from the simulator.
         """
-        data = await request.json()
-        message = SimulatorBookMessage.model_validate(data) # Validate the state update message and populate class object
+        bt.logging.debug("Received state update from simulator")
+        global_start = time.time()
+        start = time.time()
+        body = await request.body()
+        bt.logging.debug(f"Request body retrieved ({time.time()-start:.4f}s).")
+        start = time.time()
+        message = msgspec.json.decode(body)
+        bt.logging.debug(f"Request body decoded ({time.time()-start:.4f}s).")
+        start = time.time()        
+        state = MarketSimulationStateUpdate.from_json(message) # Populate synapse class from request data
+        bt.logging.debug(f"Synapse populated ({time.time()-start:.4f}s).")
+        
+        # Update variables
         if not self.start_time:
             self.start_time = time.time()
-            self.start_timestamp = message.timestamp
-        if self.simulation.logDir != message.payload.logDir:
-            bt.logging.info(f"Simulation log directory changed : {self.simulation.logDir} -> {message.payload.logDir}")
-            self.simulation.logDir = message.payload.logDir
-        self.simulation_timestamp = message.timestamp
-        self.step_rates.append((message.timestamp - (self.last_state.timestamp if self.last_state else self.start_timestamp)) / (time.time() - (self.last_state_time if self.last_state_time else self.start_time)))
-        state = MarketSimulationStateUpdate.from_simulator(self.simulation_timestamp, message.payload) # Transform simulator message class to network synapse
+            self.start_timestamp = state.timestamp
+        if self.simulation.logDir != message['payload']['logDir']:
+            bt.logging.info(f"Simulation log directory changed : {self.simulation.logDir} -> {message['payload']['logDir']}")
+            self.simulation.logDir = message['payload']['logDir']
+        self.simulation_timestamp = state.timestamp
+        self.step_rates.append((state.timestamp - (self.last_state.timestamp if self.last_state else self.start_timestamp)) / (time.time() - (self.last_state_time if self.last_state_time else self.start_time)))
         self.last_state = state
         if self.simulation:
             state.config = self.simulation.model_copy()
             state.config.logDir = None
         self.step += 1
+        
         # Log received state data
-        bt.logging.info(f"STATE UPDATE RECEIVED | VALIDATOR STEP : {self.step} | TIMESTAMP : {data['timestamp']}")
-        debug_text = ''
-        for bookId, book in state.books.items():
-            debug_text += '-' * 50 + "\n"
-            debug_text += f"BOOK {bookId}" + "\n"
-            if book.bids and book.asks:
-                debug_text += ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in reversed(book.bids[:5])]) + '||' + ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in book.asks[:5]]) + "\n"
-            else:
-                debug_text += "EMPTY" + "\n"
-        bt.logging.debug("\n" + debug_text.strip("\n"))
-        # Forward state synapse to miners, populate response data to simulator object and serialize for returning to simulator.
+        bt.logging.info(f"STATE UPDATE RECEIVED | VALIDATOR STEP : {self.step} | TIMESTAMP : {state.timestamp}")
+        if self.config.logging.debug or self.config.logging.trace:
+            debug_text = ''
+            for bookId, book in state.books.items():
+                debug_text += '-' * 50 + "\n"
+                debug_text += f"BOOK {bookId}" + "\n"
+                if book.bids and book.asks:
+                    debug_text += ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in reversed(book.bids[:5])]) + '||' + ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in book.asks[:5]]) + "\n"
+                else:
+                    debug_text += "EMPTY" + "\n"
+            bt.logging.debug("\n" + debug_text.strip("\n"))
+        
+        # Process deregistration notices
         for notice in state.notices[self.uid]:
             if notice.type == "RESPONSE_DISTRIBUTED_RESET_AGENT" or notice.type == "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT":
                 for reset in notice.resets:
@@ -700,11 +749,18 @@ class Validator(BaseValidatorNeuron):
                             self.deregistered_uids.remove(reset.agentId)
                     else:
                         self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
-        while self.reporting or self.saving:
-            bt.logging.info(f"Waiting for {'reporting' if self.reporting else ''}{', ' if self.reporting and self.saving else ''}{'state saving' if self.saving else ''} to complete...")
+        
+        # Await reporting and state saving to complete before proceeding with next step
+        while self.reporting or self.saving or self.rewarding:
+            bt.logging.info(f"Waiting for {'reporting' if self.reporting else ''}{', ' if self.reporting and self.saving else ''}{'state saving' if self.saving else ''}{', ' if (self.reporting or self.saving) and self.rewarding else ''}{'rewarding' if self.rewarding else ''} to complete...")
             time.sleep(1)
+        
+        # Calculate latest rewards and update miner scores
+        self.reward(state)
+        # Forward state synapse to miners, populate response data to simulator object and serialize for returning to simulator.     
         response = SimulatorResponseBatch(await forward(self, state)).serialize()
-
+        
+        # Log response data, start state serialization and reporting threads, and return miner instructions to the simulator
         if len(response['responses']) > 0:
             bt.logging.trace(f"RESPONSE : {response}")
         bt.logging.info(f"RATE : {self.step_rates[-1] / 1e9:.2f} STEPS/s | AVG : {sum(self.step_rates) / len(self.step_rates) / 1e9:.2f}  STEPS/s")
@@ -715,6 +771,7 @@ class Validator(BaseValidatorNeuron):
         for notice in state.notices[0]:
             if notice.type == 'EVENT_SIMULATION_STOP':
                 self.onEnd()
+        bt.logging.info(f"State update processed ({time.time()-global_start}s)")
         return response
 
     async def account(self, request : Request) -> None:
@@ -743,7 +800,8 @@ class Validator(BaseValidatorNeuron):
 # The main method which runs the validator
 if __name__ == "__main__":
     from taos.im.validator.forward import forward, notify
-    from taos.im.validator.report import report, publish_info, init_metrics
+    from taos.im.validator.report import report, publish_info, init_metrics    
+    from taos.im.validator.reward import get_rewards
     from taos.im.config import add_im_validator_args
     if float(platform.freedesktop_os_release()['VERSION_ID']) < 22.04:
         raise Exception(f"taos validator requires Ubuntu >= 22.04!")

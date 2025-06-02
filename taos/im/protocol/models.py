@@ -333,6 +333,17 @@ class LevelInfo(BaseModel):
             orders = [Order(id=order.orderId, timestamp=order.timestamp,quantity=order.volume,side=order.direction,order_type="limit",price=sim_level.price) for order in sim_level.orders]
         return LevelInfo(price = sim_level.price, quantity=sim_level.volume, orders=orders)
 
+    @classmethod
+    def from_json(self, json : dict):
+        """
+        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
+        """
+        if not 'orders' in json:
+            orders = None
+        else:
+            orders = [Order(id=order['orderId'], timestamp=order['timestamp'],quantity=order['volume'],side=order['direction'],order_type="limit",price=json['price']) for order in json['orders']]
+        return LevelInfo(price = json['price'], quantity=json['volume'], orders=orders)
+
 class TradeInfo(BaseModel):
     """
     Represents a trade.
@@ -357,8 +368,8 @@ class TradeInfo(BaseModel):
     maker_agent_id : int
     quantity : float
     price : float
-    maker_fee : float
-    taker_fee : float
+    maker_fee : float | None = None
+    taker_fee : float | None = None
 
     @classmethod
     def from_simulator(self, sim_trade : SimulatorTrade):
@@ -436,6 +447,26 @@ class Book(BaseModel):
                             None) for event in sim_book.record]
         return Book(id=id,bids=bids,asks=asks,events=events)
 
+    @classmethod
+    def from_json(self, json : dict):
+        """
+        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
+        """
+        id = json['bookId']
+        bids = []
+        asks = []
+        if json['bid']:
+            bids = [LevelInfo.from_json(bid) for bid in json['bid']][:21]
+        if json['ask']:
+            asks = [LevelInfo.from_json(ask) for ask in json['ask']][:21]
+        events = []
+        if json['record']:
+            events = [Order.from_event(event) if event['event'] == 'place' else
+                    (TradeInfo.from_event(event)) if event['event'] == 'trade' else
+                        (Cancellation.from_event(event) if event['event'] == 'cancel' else
+                            None) for event in json['record']]
+        return Book(id=id,bids=bids,asks=asks,events=events)
+
 class Balance(BaseModel):
     """
     Represents an account balance for a specific currency.
@@ -457,6 +488,13 @@ class Balance(BaseModel):
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
         return Balance(currency=sim_balance.symbol,total=sim_balance.total,free=sim_balance.free,reserved=sim_balance.reserved)
+
+    @classmethod
+    def from_json(self, currency : str, json : dict):
+        """
+        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
+        """
+        return Balance(currency=currency,total=json['total'],free=json['free'],reserved=json['reserved'])
     
 class Fees(BaseModel):
     """
@@ -477,6 +515,13 @@ class Fees(BaseModel):
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
         return Fees(volume_traded=sim_fees.volume,maker_fee_rate=sim_fees.makerFeeRate,taker_fee_rate=sim_fees.takerFeeRate)
+
+    @classmethod
+    def from_json(self, json : dict):
+        """
+        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
+        """
+        return Fees(volume_traded=json['volume'],maker_fee_rate=json['makerFeeRate'],taker_fee_rate=json['takerFeeRate'])
 
 class Account(BaseModel):
     """

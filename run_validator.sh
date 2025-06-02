@@ -7,7 +7,8 @@ NETUID=79
 CHECKPOINT=0
 LOG_LEVEL=info
 PD_KEY="\"\""
-while getopts e:p:w:h:u:l:d: flag
+PROM_PORT=9001
+while getopts e:p:w:h:u:l:d:o: flag
 do
     case "${flag}" in
         e) ENDPOINT=${OPTARG};;
@@ -17,6 +18,7 @@ do
         u) NETUID=${OPTARG};;
         l) LOG_LEVEL=${OPTARG};;
         d) PD_KEY=${OPTARG};;
+        o) PROM_PORT=${OPTARG};;
         # c) CHECKPOINT=${OPTARG};;
     esac
 done
@@ -27,6 +29,7 @@ echo "HOTKEY_NAME: $HOTKEY_NAME"
 echo "NETUID: $NETUID"
 echo "CHECKPOINT: $CHECKPOINT"
 echo "PAGERDUTY KEY: $PD_KEY"
+echo "PROMETHEUS PORT: $PROM_PORT"
 
 pm2 delete simulator validator
 tmux kill-session -t taos
@@ -38,6 +41,7 @@ pip install -e .
 echo "Updating Simulator"
 export LD_LIBRARY_PATH="/usr/local/gcc-14.1.0/lib/../lib64:$LD_LIBRARY_PATH"
 cd simulate/trading
+mkdir build || true
 git pull
 if ! g++ -dumpversion | grep -q "14"; then
 	cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "$(nproc)"
@@ -47,7 +51,7 @@ fi
 
 echo "Starting Validator"
 cd ../../../taos/im/neurons
-pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY"
+pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY --prometheus.port $PROM_PORT"
 
 echo "Starting Simulator"
 cd ../../../simulate/trading/run

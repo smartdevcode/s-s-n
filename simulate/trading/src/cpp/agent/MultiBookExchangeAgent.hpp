@@ -25,6 +25,8 @@
 #include "SubscriptionRegistry.hpp"
 #include "taosim/exchange/ExchangeConfig.hpp"
 
+#include <boost/asio.hpp>
+
 #include <set>
 #include <span>
 #include <map>
@@ -40,6 +42,7 @@ class MultiBookExchangeAgent
 public:
 
     MultiBookExchangeAgent(Simulation* simulation) noexcept;
+    ~MultiBookExchangeAgent() noexcept { m_threadPool->join(); }
 
     [[nodiscard]] auto&& accounts(this auto&& self) noexcept { return self.m_accounts; }
 
@@ -122,6 +125,7 @@ private:
     uint64_t m_marginCallCounter{};
     taosim::exchange::ExchangeConfig m_config2;
     taosim::accounting::AccountRegistry m_accounts;
+    std::unique_ptr<boost::asio::thread_pool> m_threadPool;
 
     SubscriptionRegistry<LocalAgentId> m_localMarketOrderSubscribers;
     SubscriptionRegistry<LocalAgentId> m_localLimitOrderSubscribers;

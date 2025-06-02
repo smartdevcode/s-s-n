@@ -174,7 +174,7 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
 
     // Send the request.
     attempts = 0;
-    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(2s));
+    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(5s));
     while (writeVariant.index() == 1) {
         fmt::println("http::async_write timed out on {}:{}", m_host, m_port);
         std::this_thread::sleep_for(10s);

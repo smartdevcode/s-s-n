@@ -87,6 +87,13 @@ def add_im_validator_args(cls, parser):
     )
     
     parser.add_argument(
+        "--scoring.activity.trade_volume_sampling_interval",
+        type=int,
+        help="The simulation time interval at which miner agent trading volume history is sampled.",
+        default=600_000_000_000,
+    )
+    
+    parser.add_argument(
         "--scoring.activity.trade_volume_assessment_period",
         type=int,
         help="The period in simulation timesteps over which agent trading volumes are aggregated when evaluating activity.",
@@ -112,4 +119,11 @@ def add_im_validator_args(cls, parser):
         type=int,
         help="Maximum simulation timestamp delay to be applied to miner responses.",
         default=10_000_000,
+    )
+    
+    parser.add_argument(
+        "--reporting.disabled",
+        action="store_true",
+        help="If set, the validator will not publish metrics.",
+        default=False,
     )

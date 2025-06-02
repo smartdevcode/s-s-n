@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <latch>
 #include <memory>
 #include <source_location>
 #include <sstream>
@@ -265,10 +266,13 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
         m_eps = taosim::util::double2decimal(node.attribute("eps").as_double());
 
         const auto booksNode = node.child("Books");
-        const uint16_t bookCount = booksNode.attribute("instanceCount").as_uint();
+        const uint32_t bookCount = booksNode.attribute("instanceCount").as_uint();
         const std::string bookAlgorithm = booksNode.attribute("algorithm").as_string();
         const size_t maxDepth = booksNode.attribute("maxDepth").as_ullong(1024);
         const size_t detailedDepth = booksNode.attribute("detailedDepth").as_ullong(maxDepth);
+
+        m_threadPool = std::make_unique<boost::asio::thread_pool>(
+            PARALLEL_QUEUES ? std::min(bookCount, std::thread::hardware_concurrency()) : 0u);
 
         m_bookProcessManager = BookProcessManager::fromXML(
             booksNode, const_cast<Simulation*>(simulation()), &m_config2);
@@ -1715,14 +1719,14 @@ void MultiBookExchangeAgent::timeProgressCallback(Timespan timespan)
     if (m_parallel) {
         // simulation()->logDebug(
         //     "{}: TIME {} {}", simulation()->currentTimestamp(), timespan.begin, timespan.end);
-        std::vector<std::future<void>> futures;
+        std::latch queuesRemaining(m_parallelQueues.size());
         for (MessageQueue& queue : m_parallelQueues) {
-            futures.push_back(std::async(
-                std::launch::async,
-                [this](MessageQueue* queue) {
-                    while (!queue->empty()) {
-                        Message::Ptr msg = queue->top();
-                        queue->pop();
+            boost::asio::post(
+                *m_threadPool,
+                [this, q = &queue, &queuesRemaining] {
+                    while (!q->empty()) {
+                        Message::Ptr msg = q->top();
+                        q->pop();
                         // simulation()->logDebug(
                         //     "{}: PROCS {} {}",
                         //     simulation()->currentTimestamp(),
@@ -1734,12 +1738,11 @@ void MultiBookExchangeAgent::timeProgressCallback(Timespan timespan)
                             handleLocalMessage(msg);
                         }
                     }
-                },
-                &queue));
+                    queuesRemaining.count_down();
+                }
+            );
         }
-        for (auto& future : futures) {
-            future.get();
-        }
+        queuesRemaining.wait();
     }
 }
 

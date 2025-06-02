@@ -25,7 +25,7 @@ def init_metrics(self : Validator) -> None:
     prometheus (
         config = self.config,
         port = self.config.prometheus.port,
-        level = None if not self.subtensor.chain_endpoint == "wss://test.finney.opentensor.ai:443" else "OFF"
+        level = None
     )
     self.prometheus_counters = Counter('counters', 'Counter summaries for the running validator.', ['wallet', 'netuid', 'timestamp', 'counter_name'])
     self.prometheus_simulation_gauges = Gauge('simulation_gauges', 'Gauge summaries for global simulation metrics.', ['wallet', 'netuid', 'simulation_gauge_name'])
@@ -97,7 +97,7 @@ def report(self : Validator) -> None:
     try:
         self.reporting = True
         report_step = self.step
-        bt.logging.debug(f"Publishing Metrics for Step {self.step}...")
+        bt.logging.info(f"Publishing Metrics at Step {self.step}...")
         report_start = time.time()
         bt.logging.debug(f"Publishing simulation metrics...")
         start = time.time()
@@ -114,14 +114,14 @@ def report(self : Validator) -> None:
         self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="last_update").set( self.current_block - self.metagraph.last_update[self.uid] )
         self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="active").set( self.metagraph.active[self.uid] )
         self.prometheus_books.clear()
-        bt.logging.debug(f"Simulation metrics published ({time.time()-start}s).")
+        bt.logging.debug(f"Simulation metrics published ({time.time()-start:.4f}s).")
         if self.simulation.logDir:
             bt.logging.debug(f"Retrieving fundamental prices...")
             start = time.time()
             df_fp = pd.read_csv(os.path.join(self.simulation.logDir,'fundamental.csv'))
             df_fp.set_index('Timestamp', inplace=True)
             self.fundamental_price = {bookId : df_fp[str(bookId)] for bookId in range(self.simulation.book_count)}
-            bt.logging.debug(f"Retrieved fundamental prices ({time.time()-start}s).")
+            bt.logging.debug(f"Retrieved fundamental prices ({time.time()-start:.4f}s).")
         a=0
         bt.logging.debug(f"Publishing book metrics...")
         book_start = time.time()
@@ -144,7 +144,7 @@ def report(self : Validator) -> None:
                     ask_cumsum += level.quantity
                     self.prometheus_book_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, level=i, book_gauge_name="ask_vol_sum").set( ask_cumsum )
                     if i == 20: break
-            bt.logging.debug(f"Book {bookId} levels metrics published ({time.time()-start}s).")
+            bt.logging.debug(f"Book {bookId} levels metrics published ({time.time()-start:.4f}s).")
             if book.bids and book.asks:
                 start = time.time()
                 self.prometheus_book_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, level=0, book_gauge_name="mid").set( (book.bids[0].price + book.asks[0].price) / 2 )
@@ -163,7 +163,7 @@ def report(self : Validator) -> None:
                     ask_5=get_price('ask',4), ask_vol_5=get_vol('ask',4),ask_4=get_price('ask',3), ask_vol_4=get_vol('ask',3),ask_3=get_price('ask',2), ask_vol_3=get_vol('ask',2),ask_2=get_price('ask',1), ask_vol_2=get_vol('ask',1),ask_1=get_price('ask',0), ask_vol_1=get_vol('ask',0),
                     book_gauge_name='books'
                 ).set( 1.0 )
-                bt.logging.debug(f"Book {bookId} aggregate metrics published ({time.time()-start}s).")
+                bt.logging.debug(f"Book {bookId} aggregate metrics published ({time.time()-start:.4f}s).")
             if book.events:
                 trades = [event for event in book.events if isinstance(event, TradeInfo)]
                 if len(trades) > 0:
@@ -178,7 +178,7 @@ def report(self : Validator) -> None:
                     self.recent_trades[bookId].extend(trades)
                     self.recent_trades[bookId] = self.recent_trades[bookId][-25:]
                     has_new_trades = True
-                bt.logging.debug(f"Book {bookId} events metrics published ({time.time()-start}s).")
+                bt.logging.debug(f"Book {bookId} events metrics published ({time.time()-start:.4f}s).")
             
         bt.logging.debug(f"Book metrics published ({time.time()-book_start}s).")
         if has_new_trades:
@@ -195,18 +195,21 @@ def report(self : Validator) -> None:
                                                 price=trade.price, volume=trade.quantity, side=trade.side, 
                                                 maker_fee=trade.maker_fee, taker_fee=trade.taker_fee, 
                                                 trade_gauge_name="trades").set( 1.0 )
-            bt.logging.debug(f"Trade metrics published ({time.time()-start}s).")
+            bt.logging.debug(f"Trade metrics published ({time.time()-start:.4f}s).")
 
         if self.last_state.accounts:
             bt.logging.debug(f"Publishing accounts metrics...")
-            start = time.time()
+            start = time.time()            
+            while self.rewarding:
+                bt.logging.info(f"Waiting for reward calculation to complete before obtaining daily volumes...")
+                time.sleep(0.5)
             daily_volumes = {agentId : 
                 {bookId : {
-                    role : round(sum([volume[role] for volume in self.trade_volumes[agentId][bookId].values()]), self.simulation.volumeDecimals) for role in ['total', 'maker', 'taker', 'self']
+                    role : round(sum([volume for volume in self.trade_volumes[agentId][bookId][role].values()]), self.simulation.volumeDecimals) for role in ['total', 'maker', 'taker', 'self']
                 } for bookId in range(self.simulation.book_count)} 
                 for agentId in self.last_state.accounts.keys() 
             }
-            bt.logging.debug(f"Daily volumes calculated ({time.time()-start}s).")
+            bt.logging.debug(f"Daily volumes calculated ({time.time()-start:.4f}s).")
             initial_balance_publish_status = {f"{uid}_{bookId}" : False for bookId in range(self.simulation.book_count) for uid in range(self.subnet_info.max_uids)}
             start = time.time()
             for agentId, accounts in self.last_state.accounts.items():
@@ -246,7 +249,7 @@ def report(self : Validator) -> None:
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="sharpe").set( sharpes['books'][bookId] )
             if all(initial_balance_publish_status):
                 self.initial_balances_published = True
-            bt.logging.debug(f"Agent book metrics published ({time.time()-start}s).")
+            bt.logging.debug(f"Agent book metrics published ({time.time()-start:.4f}s).")
             
             bt.logging.debug(f"Publishing miner trade metrics...")
             start = time.time()
@@ -263,7 +266,7 @@ def report(self : Validator) -> None:
                                     timestamp=miner_trade.timestamp, timestamp_str=duration_from_timestamp(miner_trade.timestamp), book_id=miner_trade.bookId, uid=agentId,
                                     role=role, fee=miner_trade.makerFee if role == 'maker' else miner_trade.takerFee,
                                     price=miner_trade.price, volume=miner_trade.quantity, side=miner_trade.side, miner_trade_gauge_name="miner_trades").set( 1.0 )
-            bt.logging.debug(f"Miner Trade metrics published ({time.time()-start}s).")
+            bt.logging.debug(f"Miner Trade metrics published ({time.time()-start:.4f}s).")
             
             self.prometheus_miners.clear()
             # # neurons_lite call fails after first call, we cannot calculate network-wide miner placement until this is resolved
@@ -341,7 +344,7 @@ def report(self : Validator) -> None:
                     miner_gauge_name='miners'
                 ).set( 1.0 )
                 time_metric += time.time() - start_metric
-            bt.logging.debug(f"Accounts metrics published ({time.time()-start}s | Gauges ({time_gauges}s) | Metrics ({time_metric}s)")
+            bt.logging.debug(f"Accounts metrics published ({time.time()-start:.4f}s | Gauges ({time_gauges}s) | Metrics ({time_metric}s)")
         bt.logging.info(f"Metrics Published for Step {report_step}  ({time.time()-report_start}s).")
     except Exception as ex:
         self.pagerduty_alert(f"Unable to publish metrics : {ex}", details={"traceback" : traceback.format_exc()})

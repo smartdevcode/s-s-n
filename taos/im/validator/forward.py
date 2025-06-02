@@ -18,13 +18,14 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+import time
 import bittensor as bt
 from typing import List
 
 from taos.im.neurons.validator import Validator
 from taos.im.protocol import FinanceAgentResponse, FinanceEventNotification, MarketSimulationStateUpdate
 from taos.im.protocol.instructions import *
-from taos.im.validator.reward import get_rewards, set_delays
+from taos.im.validator.reward import set_delays
 
 def validate_responses(self : Validator, synapses : List[MarketSimulationStateUpdate]) -> None:
     """
@@ -114,33 +115,33 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
         response = FinanceAgentResponse(agent_id=self.uid)
         response.reset_agents(agent_ids=self.deregistered_uids)
         responses.append(response)
-    # Calculate the rewards for the miner based on the latest simulation state.
-    rewards = get_rewards(self, synapse)
-    bt.logging.debug(f"Agent Rewards Recalculated:\n{rewards}")
+
     # Forward the simulation state update to all miners in the network
     bt.logging.info(f"Querying Miners...")
+    start = time.time()
     synapse_responses = await self.dendrite(
         axons=self.metagraph.axons,
         synapse=synapse.compress(),
         timeout=self.config.neuron.timeout,
         deserialize=False
     )
+    bt.logging.debug(f"Dendrite call completed ({time.time()-start:.4f}s).")
     self.dendrite.synapse_history = self.dendrite.synapse_history[-10:]
-    bt.logging.info(f"Validating Responses...")
+    
     # Validate the miner responses
+    bt.logging.info(f"Validating Responses...")
     validate_responses(self, synapse_responses)
+    
     # Update miner statistics
     bt.logging.debug(f"Updating Stats...")
+    start = time.time()
     update_stats(self, synapse_responses)
+    
     # Set the simulation time delays on the instructions proportional to the response time,
     # and add the modified responses to the return array.
     bt.logging.debug(f"Setting Delays...")
     responses.extend(set_delays(self, synapse_responses))
     bt.logging.debug(f"Responses: {responses}")   
-    # Update the miner scores.
-    self.update_scores(rewards, self.metagraph.uids)
-    bt.logging.info(f"Agent Scores Updated.")
-    bt.logging.debug(f"{self.scores}")
     return responses
 
 async def notify(self : Validator, notices : List[FinanceEventNotification]) -> None:
