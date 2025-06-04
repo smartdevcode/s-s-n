@@ -174,11 +174,11 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
 
     // Send the request.
     attempts = 0;
-    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(5s));
+    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(10s));
     while (writeVariant.index() == 1) {
         fmt::println("http::async_write timed out on {}:{}", m_host, m_port);
         std::this_thread::sleep_for(10s);
-        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(2s));
+        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(10s));
     }
     auto [e3, _3] = std::get<0>(writeVariant);
     while (e3) {
@@ -187,7 +187,7 @@ net::awaitable<void> DistributedProxyAgent::asyncSendOverNetwork(
         attempts++;
         fmt::println("Unable to send request to validator at {}:{}{} - Retrying (Attempt {})", m_host, m_port, endpoint, attempts);
         std::this_thread::sleep_for(10s);
-        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(2s));
+        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(10s));
         auto [e31, _31] = std::get<0>(writeVariant);
         e3 = e31;
         _3 = _31;

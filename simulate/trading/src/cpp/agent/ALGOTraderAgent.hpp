@@ -25,6 +25,7 @@ namespace taosim::agent
 enum class ALGOTraderStatus : uint32_t
 {
     ASLEEP,
+    READY,
     EXECUTING
 };
 
@@ -69,7 +70,10 @@ private:
 struct ALGOTraderState
 {
     ALGOTraderStatus status;
-    ALGOTraderVolumeStats volumeStats;
+    ALGOTraderVolumeStats volumeStatsBuy;
+    ALGOTraderVolumeStats volumeStatsSell;
+    decimal_t sellBucket;
+    decimal_t buyBucket;
     decimal_t volumeToBeExecuted;
     OrderDirection direction;
 };
@@ -104,7 +108,8 @@ private:
     std::string m_exchange;
     uint32_t m_bookCount;
     float m_wakeupProb;
-    float m_buyProb;
+    decimal_t m_VBS;
+    std::vector<decimal_t> m_bucketVolume;
     decimal_t m_volumeProp;
     std::unique_ptr<stats::Distribution> m_volumeDistribution;
     std::vector<ALGOTraderState> m_state;
@@ -115,6 +120,7 @@ private:
     std::normal_distribution<double> m_marketFeedLatencyDistribution;
     boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
     std::uniform_real_distribution<double> m_placementDraw;
+    decimal_t m_lastPrice;
 
 
 };

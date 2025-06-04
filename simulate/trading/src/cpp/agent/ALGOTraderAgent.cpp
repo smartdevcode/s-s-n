@@ -99,6 +99,7 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
 
     m_rng = &simulation()->rng();
     
+    pugi::xml_attribute attr;
     if (m_exchange = node.attribute("exchange").as_string(); m_exchange.empty()) {
         throw std::invalid_argument{fmt::format(
             "{}: attribute 'exchange' should be non-empty", ctx)};
@@ -117,7 +118,13 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
     };
 
     m_wakeupProb = getProbAttr(node, "wakeupProb");
-    m_buyProb = getProbAttr(node, "buyProb");
+    if (auto bucketVolumeMax = node.attribute("VBS").as_float(); bucketVolumeMax <= 0.0f) {
+        throw std::invalid_argument{fmt::format(
+            "{}: attribute 'VBS' should be > 0.0, was {}",
+            ctx, m_VBS)};
+    } else {
+        m_VBS = decimal_t{bucketVolumeMax};
+    }
 
     if (auto volumeProp = node.attribute("volumeProp").as_float(); volumeProp <= 0.0f) {
         throw std::invalid_argument{fmt::format(
@@ -135,7 +142,10 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
         for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
             state.push_back(ALGOTraderState{
                 .status = ALGOTraderStatus::ASLEEP,
-                .volumeStats = ALGOTraderVolumeStats::fromXML(node),
+                .volumeStatsBuy = ALGOTraderVolumeStats::fromXML(node),
+                .volumeStatsSell = ALGOTraderVolumeStats::fromXML(node),
+                .sellBucket = 0_dec,
+                .buyBucket = 0_dec,
                 .volumeToBeExecuted = 0_dec,
                 .direction = OrderDirection::BUY
             });
@@ -148,7 +158,11 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
             "{}: attribute 'period' should be > 0, was {}", ctx, m_period)};
     }
     m_marketFeedLatencyDistribution = std::normal_distribution<double>{
-        double(m_period),
+        [&] {
+            static constexpr const char* name = "MFLmean";
+            auto attr = node.attribute(name);
+            return attr.empty() ? 1'000'000'000.0 : attr.as_double(); 
+        }(),
         [&] {
             static constexpr const char* name = "MFLstd";
             auto attr = node.attribute(name);
@@ -156,7 +170,6 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
         }()
     };
 
-    pugi::xml_attribute attr;
     if (attr = node.attribute("minOPLatency"); attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'minOPLatency' should have a value greater than 0", ctx));
@@ -176,6 +189,7 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
     m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
     const double percentile = 1-std::exp(-1/(2*scale*scale));
     m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
+    m_lastPrice =  simulation()->exchange()->config2().initialPrice;
 }
 
 //-------------------------------------------------------------------------
@@ -206,15 +220,6 @@ void ALGOTraderAgent::handleSimulationStart(Message::Ptr msg)
         name(),
         m_exchange,
         "SUBSCRIBE_EVENT_TRADE");
-        simulation()->dispatchMessage(
-        simulation()->currentTimestamp(),
-        static_cast<Timestamp>(std::min(
-            std::abs(m_marketFeedLatencyDistribution(*m_rng)),
-            m_marketFeedLatencyDistribution.mean()
-            + 3.0 * m_marketFeedLatencyDistribution.stddev())),
-        name(),
-        name(),
-        "WAKEUP_ALGOTRADER");
 }
 
 //-------------------------------------------------------------------------
@@ -222,8 +227,58 @@ void ALGOTraderAgent::handleSimulationStart(Message::Ptr msg)
 void ALGOTraderAgent::handleTrade(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<EventTradePayload>(msg->payload);
-    m_state.at(payload->bookId).volumeStats.push(payload->trade);
+    const BookId bookId = payload->bookId;
+    ALGOTraderState& state = m_state.at(bookId);
+    m_lastPrice = payload->trade.price();
+  
+    if (payload->trade.direction() == OrderDirection::BUY) {
+        state.buyBucket += payload->trade.volume();
+    } else {
+        state.sellBucket += payload->trade.volume();
+    }
+    const decimal_t totalBucketVol = state.sellBucket + state.buyBucket;
+    if (totalBucketVol > m_VBS) {
+        const auto& balances =  simulation()->account(name()).at(bookId);
+        const auto& baseBalance = balances.base;
+    
+        const double buyVolume = util::decimal2double(state.buyBucket);
+        const double sellVolume = util::decimal2double(state.sellBucket);
+        const decimal_t imbalance = util::double2decimal(std::abs(buyVolume - sellVolume));
+        state.direction = buyVolume > sellVolume ? OrderDirection::BUY : OrderDirection::SELL;
+        const decimal_t volumeToBeExecuted = m_volumeProp* imbalance;
+
+        if (state.direction == OrderDirection::BUY) {
+            state.volumeToBeExecuted = std::min(volumeToBeExecuted,
+               balances.quote.getFree()*m_lastPrice);
+        }
+        else {
+            state.volumeToBeExecuted = std::min(volumeToBeExecuted,
+                                        baseBalance.getFree());
+        }
+       
+        if (payload->trade.direction() == OrderDirection::BUY) {
+            m_state.at(payload->bookId).buyBucket  = totalBucketVol - m_VBS;
+            m_state.at(payload->bookId).sellBucket = 0_dec;
+        } else {
+            m_state.at(payload->bookId).sellBucket = totalBucketVol - m_VBS;
+            m_state.at(payload->bookId).buyBucket  = 0_dec;
+        }
+        m_state.at(payload->bookId).status = ALGOTraderStatus::READY;   
+       
+        simulation()->dispatchMessage(
+            simulation()->currentTimestamp(),
+            static_cast<Timestamp>(std::min(
+                std::abs(m_marketFeedLatencyDistribution(*m_rng)),
+                m_marketFeedLatencyDistribution.mean()
+                + 3.0 * m_marketFeedLatencyDistribution.stddev())),
+            name(),
+            name(),
+            "WAKEUP_ALGOTRADER");
+    }
 }
+
+//-------------------------------------------------------------------------
+
 
 //-------------------------------------------------------------------------
 
@@ -231,23 +286,12 @@ void ALGOTraderAgent::handleWakeup(Message::Ptr msg)
 {
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
         auto& state = m_state.at(bookId);
-        if (state.status == ALGOTraderStatus::ASLEEP) {
+        if (state.status == ALGOTraderStatus::READY) {
             tryWakeup(bookId, state);
         } else if (state.status == ALGOTraderStatus::EXECUTING) {
             execute(bookId, state);
         }
     }
-
-
-    simulation()->dispatchMessage(
-        simulation()->currentTimestamp(),
-        static_cast<Timestamp>(std::min(
-            std::abs(m_marketFeedLatencyDistribution(*m_rng)),
-            m_marketFeedLatencyDistribution.mean()
-            + 3.0 * m_marketFeedLatencyDistribution.stddev())),
-        name(),
-        name(),
-        "WAKEUP_ALGOTRADER");
 }
 
 //-------------------------------------------------------------------------
@@ -263,9 +307,19 @@ void ALGOTraderAgent::handleMarketOrderResponse(Message::Ptr msg)
     
     simulation()->logDebug("{} EXECUTED {}", name(), executedVolume);
 
-    if (state.volumeToBeExecuted == 0_dec) {
+    if (state.volumeToBeExecuted <= 1_dec) {
         simulation()->logDebug("{} FALLING ASLEEP", name());
-        state.status = ALGOTraderStatus::ASLEEP;
+        state.status = ALGOTraderStatus::ASLEEP; 
+    } else {
+        simulation()->dispatchMessage(
+        simulation()->currentTimestamp(),
+        static_cast<Timestamp>(std::min(
+            std::abs(m_marketFeedLatencyDistribution(*m_rng)),
+            m_marketFeedLatencyDistribution.mean()
+            + 3.0 * m_marketFeedLatencyDistribution.stddev())),
+        name(),
+        name(),
+        "WAKEUP_ALGOTRADER");
     }
 }
 
@@ -274,30 +328,12 @@ void ALGOTraderAgent::handleMarketOrderResponse(Message::Ptr msg)
 void ALGOTraderAgent::tryWakeup(BookId bookId, ALGOTraderState& state)
 {
     // TODO: Advancing an RNG is not thread-safe, should have separate RNGs for each book.
-    if (!std::bernoulli_distribution{m_wakeupProb}(*m_rng)) return;
-
-    const auto& balances =  simulation()->account(name()).at(bookId);
-    const auto& baseBalance = balances.base;
-
-    state.direction = std::bernoulli_distribution{m_buyProb}(*m_rng)
-        ? OrderDirection::BUY : OrderDirection::SELL;
-
-    if (state.direction == OrderDirection::BUY) {
-        state.volumeToBeExecuted = util::double2decimal(
-            m_volumeDistribution->sample(*m_rng), balances.m_baseDecimals);
+    if (!std::bernoulli_distribution{m_wakeupProb}(*m_rng)) {
+        state.status = ALGOTraderStatus::ASLEEP;
+        return;
     }
-    else {
-        state.volumeToBeExecuted = std::min(
-            util::double2decimal(
-                m_volumeDistribution->sample(*m_rng),
-                balances.m_baseDecimals),
-            baseBalance.getFree());
-        if (state.volumeToBeExecuted == 0_dec) {
-            return;
-        }
-    }
-
     state.status = ALGOTraderStatus::EXECUTING;
+    execute(bookId, state);
 }
 
 //-------------------------------------------------------------------------
@@ -305,17 +341,20 @@ void ALGOTraderAgent::tryWakeup(BookId bookId, ALGOTraderState& state)
 void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 {
     const auto& balances = simulation()->account(name()).at(bookId) ;
+    const auto& baseBalance = balances.base;
+    const decimal_t volume = std::min(util::double2decimal(
+                                        m_volumeDistribution->sample(*m_rng),
+                                        balances.m_baseDecimals),
+                                        state.volumeToBeExecuted);
+    const decimal_t volumeToExecute = state.direction == OrderDirection::BUY ? 
+    std::min(volume, balances.quote.getFree()*m_lastPrice)
+        : std::min(volume, baseBalance.getFree());
 
-    const decimal_t volumeToExecute = std::min(
-        util::round(
-            m_volumeProp * state.volumeStats.rollingSum(),
-            balances.m_baseDecimals),
-        state.volumeToBeExecuted);
 
     simulation()->logDebug(
         "{} ATTEMPTING TO EXECUTE {} OF {}", name(), state.direction, volumeToExecute);
 
-    simulation()->dispatchMessage(
+    simulation()->dispatchMessage( 
         simulation()->currentTimestamp(),
         orderPlacementLatency(),
         name(),

@@ -41,8 +41,6 @@ pip install -e .
 echo "Updating Simulator"
 export LD_LIBRARY_PATH="/usr/local/gcc-14.1.0/lib/../lib64:$LD_LIBRARY_PATH"
 cd simulate/trading
-mkdir build || true
-git pull
 if ! g++ -dumpversion | grep -q "14"; then
 	cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "$(nproc)"
 else
@@ -64,11 +62,17 @@ pm2 save
 pm2 startup
 
 echo "Setting Up Tmux Session"
-# Start a new tmux session and open htop in the first pane
-tmux new-session -d -s taos -n 'validator' 'htop'    
-# Start a new tmux session and open the validator logs in the first pane
-tmux split-window -v -t taos:validator 'pm2 logs validator'    
+# Start a new tmux session and open htop for validator process monitoring in the first pane
+tmux new-session -d -s taos -n 'validator' 'htop -F validator.py'    
+# Split the window horizontally and open htop for simulator resource usage monitoring
+tmux split-window -h -t taos:validator 'htop -F taosim'
+# Focus the first pane
+tmux select-pane -t 0
+# Split vertically and open the validator logs in the third pane
+tmux split-window -v -t taos:validator 'pm2 logs validator'
+# Focus the second pane
+tmux select-pane -t 2
 # Split the window and open the simulator logs in the new pane
-tmux split-window -h -t taos:validator 'pm2 logs simulator'
+tmux split-window -v -t taos:validator 'pm2 logs simulator'
 # Attach to the new tmux session
 tmux attach-session -t taos

@@ -677,16 +677,18 @@ class Validator(BaseValidatorNeuron):
     
     def _reward(self, state : MarketSimulationStateUpdate):
         # Calculate the rewards for the miner based on the latest simulation state.
-        bt.logging.info(f"Updating Agent Scores at Step {self.step}...")
-        self.rewarding = True
-        start = time.time()
-        rewards = get_rewards(self, state)
-        bt.logging.debug(f"Agent Rewards Recalculated:\n{rewards}")
-        # Update the miner scores.
-        self.update_scores(rewards, self.metagraph.uids)
-        bt.logging.info(f"Agent Scores Updated ({time.time()-start:.4f}s)")
-        bt.logging.debug(f"{self.scores}")
-        self.rewarding = False
+        try:
+            bt.logging.info(f"Updating Agent Scores at Step {self.step}...")
+            self.rewarding = True
+            start = time.time()
+            rewards = get_rewards(self, state)
+            bt.logging.debug(f"Agent Rewards Recalculated:\n{rewards}")
+            # Update the miner scores.
+            self.update_scores(rewards, self.metagraph.uids)
+            bt.logging.info(f"Agent Scores Updated ({time.time()-start:.4f}s)")
+            bt.logging.debug(f"{self.scores}")
+        finally:
+            self.rewarding = False
         
     def reward(self, state) -> None:
         """
@@ -763,7 +765,7 @@ class Validator(BaseValidatorNeuron):
         # Log response data, start state serialization and reporting threads, and return miner instructions to the simulator
         if len(response['responses']) > 0:
             bt.logging.trace(f"RESPONSE : {response}")
-        bt.logging.info(f"RATE : {self.step_rates[-1] / 1e9:.2f} STEPS/s | AVG : {sum(self.step_rates) / len(self.step_rates) / 1e9:.2f}  STEPS/s")
+        bt.logging.info(f"RATE : {(self.step_rates[-1] if self.step_rates != [] else 0) / 1e9:.2f} STEPS/s | AVG : {(sum(self.step_rates) / len(self.step_rates) / 1e9 if self.step_rates != [] else 0):.2f}  STEPS/s")
         self.step_rates = self.step_rates[-10000:]
         self.last_state_time = time.time()
         self.save_state()

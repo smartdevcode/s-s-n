@@ -153,46 +153,50 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
         float: The new score value for the miner.
     """
     # Calculate the current value of the agent's inventory and append to the history array
-    if uid in synapse.accounts:
-        self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.simulation.miner_wealth for book_id, book in synapse.books.items()}
-    else:
-        self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
-    # Prune the inventory history
-    self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])
-    inventory_score = score_inventory_values(self, uid, self.inventory_history[uid])
-    # In order to ensure that miner agents must actively respond to validator requests to be scored, as well as to encourage the use of more active strategies by miners,
-    # we multiply the risk-adjusted performance measure by an "activity factor".
-    # This is calculated as a ratio of the agent's trading volume in the last `trade_volume_assessment_period` (defined in simulation timesteps) 
-    # to a configured multiple of the value of the initial capital allocated.
-    # Miners are thus required to turn over their initial portfolio value at least `capital_turnover_rate` times per `trade_volume_assessment_period`, 
-    # otherwise they receive only a fraction of the rewards earned as a result of risk-adjusted performance.
-    for book_id, role_trades in self.trade_volumes[uid].items():
-        for role, trades in role_trades.items():
-            if trades != {}:
-                if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
-                    self.trade_volumes[uid][book_id][role] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
-    for notice in synapse.notices[uid]:
-        if notice.type == 'EVENT_TRADE':
-            sampled_timestamp = math.ceil(notice.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
-            if not sampled_timestamp in self.trade_volumes[uid][notice.bookId]['total']:
-                self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = 0.0
-                self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = 0.0
-                self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = 0.0
-                self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = 0.0
-            self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-            if notice.makerAgentId == notice.takerAgentId:                
-                self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-            elif notice.makerAgentId == uid:
-                self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-            elif notice.takerAgentId == uid:
-                self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-    target_volume = round(self.config.scoring.activity.capital_turnover_rate * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
-    self.activity_factors[uid] = round(
-        min(1.0,
-            min([round(sum([book_volume for book_volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
-        )
-        ,6)
-    return self.activity_factors[uid] * inventory_score
+    try:
+        if uid in synapse.accounts:
+            self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.simulation.miner_wealth for book_id, book in synapse.books.items()}
+        else:
+            self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
+        # Prune the inventory history
+        self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])
+        inventory_score = score_inventory_values(self, uid, self.inventory_history[uid])
+        # In order to ensure that miner agents must actively respond to validator requests to be scored, as well as to encourage the use of more active strategies by miners,
+        # we multiply the risk-adjusted performance measure by an "activity factor".
+        # This is calculated as a ratio of the agent's trading volume in the last `trade_volume_assessment_period` (defined in simulation timesteps) 
+        # to a configured multiple of the value of the initial capital allocated.
+        # Miners are thus required to turn over their initial portfolio value at least `capital_turnover_rate` times per `trade_volume_assessment_period`, 
+        # otherwise they receive only a fraction of the rewards earned as a result of risk-adjusted performance.
+        for book_id, role_trades in self.trade_volumes[uid].items():
+            for role, trades in role_trades.items():
+                if trades != {}:
+                    if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
+                        self.trade_volumes[uid][book_id][role] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
+        for notice in synapse.notices[uid]:
+            if notice.type == 'EVENT_TRADE':
+                sampled_timestamp = math.ceil(notice.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
+                if not sampled_timestamp in self.trade_volumes[uid][notice.bookId]['total']:
+                    self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = 0.0
+                    self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = 0.0
+                    self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = 0.0
+                    self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = 0.0
+                self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+                if notice.makerAgentId == notice.takerAgentId:                
+                    self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+                elif notice.makerAgentId == uid:
+                    self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+                elif notice.takerAgentId == uid:
+                    self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+        target_volume = round(self.config.scoring.activity.capital_turnover_rate * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
+        self.activity_factors[uid] = round(
+            min(1.0,
+                min([round(sum([book_volume for book_volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
+            )
+            ,6)
+        return self.activity_factors[uid] * inventory_score
+    except Exception as ex:
+        bt.logging.error(f"Failed to calculate reward for UID {uid} at step {self.step} : {traceback.format_exc()}")
+        return self.scores[uid]
 
 def get_rewards(
     self : Validator, synapse : MarketSimulationStateUpdate

@@ -4,6 +4,7 @@ import os
 import traceback
 import time
 import torch
+import psutil
 import bittensor as bt
 import pandas as pd
 
@@ -113,6 +114,15 @@ def report(self : Validator) -> None:
         self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="emission").set( self.metagraph.emission[self.uid] )
         self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="last_update").set( self.current_block - self.metagraph.last_update[self.uid] )
         self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="active").set( self.metagraph.active[self.uid] )
+            
+        cpu_usage = psutil.cpu_percent()
+        memory_info = psutil.virtual_memory()
+        memory_usage = memory_info.percent
+        disk_info = psutil.disk_usage('/')
+        disk_usage = disk_info.percent
+        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="cpu_usage_percent").set( cpu_usage )
+        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="ram_usage_percent").set( memory_usage )
+        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="disk_usage_percent").set( disk_usage )
         self.prometheus_books.clear()
         bt.logging.debug(f"Simulation metrics published ({time.time()-start:.4f}s).")
         if self.simulation.logDir:
@@ -344,7 +354,7 @@ def report(self : Validator) -> None:
                     miner_gauge_name='miners'
                 ).set( 1.0 )
                 time_metric += time.time() - start_metric
-            bt.logging.debug(f"Accounts metrics published ({time.time()-start:.4f}s | Gauges ({time_gauges}s) | Metrics ({time_metric}s)")
+            bt.logging.debug(f"Accounts metrics published ({time.time()-start:.4f}s | Gauges ({time_gauges}s) | Metrics ({time_metric}s)")        
         bt.logging.info(f"Metrics Published for Step {report_step}  ({time.time()-report_start}s).")
     except Exception as ex:
         self.pagerduty_alert(f"Unable to publish metrics : {ex}", details={"traceback" : traceback.format_exc()})
