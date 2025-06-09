@@ -6,7 +6,7 @@ from annotated_types import Len
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentResponse
 from taos.im.protocol.instructions import PlaceMarketOrderInstruction, PlaceLimitOrderInstruction, CancelOrdersInstruction, CancelOrderInstruction, ResetAgentsInstruction
-from taos.im.protocol.models import OrderDirection, STP
+from taos.im.protocol.models import OrderDirection, STP, TimeInForce
 
 FinanceInstruction = Annotated[
     Union[PlaceMarketOrderInstruction, PlaceLimitOrderInstruction, CancelOrdersInstruction, ResetAgentsInstruction],
@@ -29,11 +29,11 @@ class FinanceAgentResponse(AgentResponse):
         """
         self.add_instruction(PlaceMarketOrderInstruction(agentId=self.agent_id, delay=delay, bookId=book_id, direction=direction, quantity=quantity, clientOrderId=clientOrderId, stp=stp))
         
-    def limit_order(self, book_id : int, direction : OrderDirection, quantity : float, price : float, delay : int = 0, clientOrderId : int | None = None, stp : STP = STP.CANCEL_OLDEST) -> None:
+    def limit_order(self, book_id : int, direction : OrderDirection, quantity : float, price : float, delay : int = 0, clientOrderId : int | None = None, stp : STP = STP.CANCEL_OLDEST, postOnly : bool = False, timeInForce : TimeInForce = TimeInForce.GTC) -> None:
         """
         Convenience function to attach a limit order placement instruction to the response.
         """
-        self.add_instruction(PlaceLimitOrderInstruction(agentId=self.agent_id, delay=delay, bookId=book_id, direction=direction, quantity=quantity, price=price, clientOrderId=clientOrderId, stp=stp))
+        self.add_instruction(PlaceLimitOrderInstruction(agentId=self.agent_id, delay=delay, bookId=book_id, direction=direction, quantity=quantity, price=price, clientOrderId=clientOrderId, stp=stp, postOnly=postOnly, timeInForce=timeInForce))
         
     def cancel_order(self, book_id : int, order_id : int, quantity : float | None = None, delay : int = 0) -> None:
         """

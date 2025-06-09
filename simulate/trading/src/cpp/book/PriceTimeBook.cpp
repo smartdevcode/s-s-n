@@ -64,7 +64,7 @@ void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_
         order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
         iop->setVolume(taosim::util::round(iop->volume(), volumeDecimals));
 
-        bestBuyDeque->updateVolume(-usedVolume);
+        bestBuyDeque->updateVolume(-taosim::util::round(usedVolume, volumeDecimals));
 
         if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
             bestBuyDeque->pop_front();
@@ -136,7 +136,7 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
         order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
         iop->setVolume(taosim::util::round(iop->volume(), volumeDecimals));
 
-        bestSellDeque->updateVolume(-usedVolume);
+        bestSellDeque->updateVolume(-taosim::util::round(usedVolume, volumeDecimals));
 
         if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
             bestSellDeque->pop_front();

@@ -176,6 +176,7 @@ public:
         STPFlag stpFlag = STPFlag::CO) noexcept;
 
     [[nodiscard]] taosim::decimal_t price() const noexcept { return m_price; };
+
     void setPrice(taosim::decimal_t newPrice);
 
     virtual void jsonSerialize(

@@ -264,16 +264,24 @@ def report(self : Validator) -> None:
             bt.logging.debug(f"Publishing miner trade metrics...")
             start = time.time()
             for agentId, notices in self.last_state.notices.items():
+                if agentId < 0: continue
                 for notice in notices:
                     if notice.type == "EVENT_TRADE":
                         miner_trade = notice
                         if not has_new_miner_trades:
-                            self.prometheus_miner_trades.clear()
                             has_new_miner_trades = True
                         roles = (["maker"] if miner_trade.makerAgentId == agentId else []) + (["taker"] if miner_trade.takerAgentId == agentId else [])
                         for role in roles:
+                            self.recent_miner_trades[miner_trade.makerAgentId if role == "maker" else miner_trade.takerAgentId][miner_trade.bookId].append([miner_trade, role])
+            
+            if has_new_miner_trades:
+                self.prometheus_miner_trades.clear()
+                for uid, book_miner_trades in self.recent_miner_trades.items():
+                    for bookId, miner_trades in book_miner_trades.items():
+                        self.recent_miner_trades[uid][bookId] = miner_trades[-5:]
+                        for miner_trade, role in self.recent_miner_trades[uid][bookId]:
                             self.prometheus_miner_trades.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, 
-                                    timestamp=miner_trade.timestamp, timestamp_str=duration_from_timestamp(miner_trade.timestamp), book_id=miner_trade.bookId, uid=agentId,
+                                    timestamp=miner_trade.timestamp, timestamp_str=duration_from_timestamp(miner_trade.timestamp), book_id=miner_trade.bookId, uid=uid,
                                     role=role, fee=miner_trade.makerFee if role == 'maker' else miner_trade.takerFee,
                                     price=miner_trade.price, volume=miner_trade.quantity, side=miner_trade.side, miner_trade_gauge_name="miner_trades").set( 1.0 )
             bt.logging.debug(f"Miner Trade metrics published ({time.time()-start:.4f}s).")

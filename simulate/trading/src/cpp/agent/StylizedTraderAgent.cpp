@@ -732,8 +732,7 @@ void StylizedTraderAgent::placeLimitSell(
     }
 
     m_orderFlag.at(bookId) = true;
-    const float draw = std::uniform_real_distribution{0.0f, 1.0f}(*m_rng);
-    LimitOrderFlag flag = (draw < m_alpha) ? LimitOrderFlag::POST_ONLY : LimitOrderFlag::NONE;
+    const bool postOnly = std::bernoulli_distribution{m_alpha}(*m_rng);
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         orderPlacementLatency(),
@@ -746,7 +745,7 @@ void StylizedTraderAgent::placeLimitSell(
             taosim::util::double2decimal(price),
             bookId,
             std::nullopt,
-            flag));
+            postOnly));
 }
 
 //-------------------------------------------------------------------------

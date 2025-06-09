@@ -53,7 +53,7 @@ void CancellationLogContext::jsonSerialize(
         auto& allocator = json.GetAllocator();
         json.AddMember("agentId", rapidjson::Value{agentId}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
-        json.AddMember("timestamp", rapidjson::Value{bookId}, allocator);
+        json.AddMember("timestamp", rapidjson::Value{timestamp}, allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }

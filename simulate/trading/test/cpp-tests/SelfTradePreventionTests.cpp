@@ -11,7 +11,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-
 #include "DistributedProxyAgent.hpp"
 #include "MultiBookExchangeAgent.hpp"
 #include "Order.hpp"
@@ -27,7 +26,6 @@
 #include <gtest/gtest.h>
 #include <pugixml.hpp>
 
-
 #include <regex>
 #include <cassert>
 #include <filesystem>
@@ -39,8 +37,6 @@
 #include <thread>
 #include <utility>
 
-
-
 //-------------------------------------------------------------------------
 
 using namespace taosim;
@@ -48,10 +44,6 @@ using namespace taosim::accounting;
 using namespace taosim::literals;
 
 using namespace testing;
-
-//-------------------------------------------------------------------------
-
-
 
 //-------------------------------------------------------------------------
 
@@ -63,6 +55,10 @@ using testing::Values;
 
 namespace fs = std::filesystem;
 
+//-------------------------------------------------------------------------
+
+static constexpr bool postOnly = false;
+static constexpr taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC;
 
 //-------------------------------------------------------------------------
 
@@ -109,7 +105,7 @@ std::pair<MarketOrder::Ptr, OrderErrorCode> placeMarketOrder(
     MultiBookExchangeAgent* exchange, AgentId agentId, BookId bookId, STPFlag stpFlag, Args&&... args)
 {
     const auto payload = MessagePayload::create<PlaceOrderMarketPayload>(
-        std::forward<Args>(args)..., bookId, std::nullopt, LimitOrderFlag::NONE, stpFlag);
+        std::forward<Args>(args)..., bookId, std::nullopt, stpFlag);
     const auto ec = exchange->clearingManager().handleOrder(MarketOrderDesc{.agentId = agentId, .payload = payload});
     auto marketOrderPtr = exchange->books()[bookId]->placeMarketOrder(
         payload->direction,
@@ -124,10 +120,16 @@ std::pair<MarketOrder::Ptr, OrderErrorCode> placeMarketOrder(
 template<typename... Args>
 requires std::constructible_from<PlaceOrderLimitPayload, Args..., BookId>
 std::pair<LimitOrder::Ptr, OrderErrorCode> placeLimitOrder(
-    MultiBookExchangeAgent* exchange, AgentId agentId, BookId bookId, STPFlag stpFlag, Args&&... args)
+    MultiBookExchangeAgent* exchange,
+    AgentId agentId,
+    BookId bookId,
+    bool postOnly,
+    taosim::TimeInForce timeInForce,
+    STPFlag stpFlag,
+    Args&&... args)
 {
     const auto payload = MessagePayload::create<PlaceOrderLimitPayload>(
-        std::forward<Args>(args)..., bookId, std::nullopt, LimitOrderFlag::NONE, stpFlag);
+        std::forward<Args>(args)..., bookId, std::nullopt, postOnly, timeInForce, stpFlag);
     const auto ec = exchange->clearingManager().handleOrder(LimitOrderDesc{.agentId = agentId, .payload = payload});
     auto limitOrderPtr = exchange->books()[bookId]->placeLimitOrder(
         payload->direction,
@@ -140,13 +142,19 @@ std::pair<LimitOrder::Ptr, OrderErrorCode> placeLimitOrder(
     return {limitOrderPtr, ec};
 }
 
-
 template<typename... Args>
 requires std::constructible_from<PlaceOrderLimitPayload, Args..., BookId>
 std::pair<LimitOrder::Ptr, OrderErrorCode> placeLimitOrder(
     MultiBookExchangeAgent* exchange, AgentId agentId, BookId bookId, Args&&... args)
 {
-    return placeLimitOrder(exchange, agentId, bookId, STPFlag::CO, std::forward<Args>(args)...);
+    return placeLimitOrder(
+        exchange,
+        agentId,
+        bookId,
+        false,
+        taosim::TimeInForce::GTC,
+        STPFlag::CO,
+        std::forward<Args>(args)...);
 }
 
 //-------------------------------------------------------------------------
@@ -192,9 +200,7 @@ protected:
 
 //-------------------------------------------------------------------------
 
-
 }  // namespace
-
 
 //-------------------------------------------------------------------------
 
@@ -330,11 +336,10 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyNone)
               "bid,297,1,291,3\n"));
     //-------------------------------------------------------------------------
 
-    
     const STPFlag stpFlag = STPFlag::NONE;
 
     //---------------------- Buy STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -344,7 +349,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyNone)
 
 
     //---------------------- Buy STP | Margin
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -372,7 +377,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellNone)
     const STPFlag stpFlag = STPFlag::NONE;
     
     //---------------------- SELL STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -382,7 +387,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellNone)
 
 
     //---------------------- SELL STP | Margin
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -412,7 +417,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyCN)
     const STPFlag stpFlag = STPFlag::CN;
 
     //---------------------- Buy STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::BUY, 5_dec, 301_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 5_dec, 301_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -422,14 +427,14 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyCN)
 
 
     //---------------------- Buy STP | Margin
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::BUY, 1_dec, 301_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 1_dec, 301_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
         StrEq("ask,301,4,303,2,307,8\n"
               "bid,297,1,291,3\n"));
 
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -457,7 +462,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellCN)
     const STPFlag stpFlag = STPFlag::CN;
     
     //---------------------- SELL STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::SELL, 5_dec, 299_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 5_dec, 299_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -467,14 +472,14 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellCN)
 
 
     //---------------------- SELL STP | Margin
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::SELL, 1_dec, 299_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 1_dec, 299_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
         StrEq("ask,303,2,307,8\n"
               "bid,299,4,297,1,291,3\n"));
 
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -505,7 +510,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyCB)
     const STPFlag stpFlag = STPFlag::CB;
 
     //---------------------- Buy STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -515,14 +520,14 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyCB)
 
 
     //---------------------- Buy STP | Margin
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::BUY, 1_dec, 301_dec, DEC(.0));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 1_dec, 301_dec, DEC(.0));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
         StrEq("ask,301,4,303,2,307,8\n"
               "bid,297,1,291,3\n"));
 
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::BUY, 1_dec, 301_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 1_dec, 301_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -551,7 +556,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellCB)
     const STPFlag stpFlag = STPFlag::CB;
     
     //---------------------- SELL STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -561,14 +566,14 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellCB)
 
 
     //---------------------- SELL STP | Margin
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::SELL, 1_dec, 299_dec, DEC(0.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 1_dec, 299_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
         StrEq("ask,303,2,307,8\n"
               "bid,299,4,297,1,291,3\n"));
 
-    placeLimitOrder(exchange, agent3, bookId, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
+    placeLimitOrder(exchange, agent3, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -598,7 +603,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyDC)
     const STPFlag stpFlag = STPFlag::DC;
 
     //---------------------- Buy STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -608,7 +613,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderBuyDC)
 
 
     //---------------------- Buy STP | Margin
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(1.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::BUY, 2_dec, 301_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -636,7 +641,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellDC)
     const STPFlag stpFlag = STPFlag::DC;
     
     //---------------------- SELL STP | Normal
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(0.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(0.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
@@ -646,7 +651,7 @@ TEST_F(SelfTradePreventionTest, LimitOrderSellDC)
 
 
     //---------------------- SELL STP | Margin
-    placeLimitOrder(exchange, agent2, bookId, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
+    placeLimitOrder(exchange, agent2, bookId, postOnly, timeInForce, stpFlag, OrderDirection::SELL, 2_dec, 299_dec, DEC(1.));
 
     EXPECT_THAT(
         normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),

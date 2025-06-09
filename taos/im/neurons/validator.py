@@ -28,6 +28,8 @@ import pandas as pd
 import msgpack
 import msgspec
 import math
+import shutil
+from datetime import datetime
 
 # Bittensor
 import bittensor as bt
@@ -377,6 +379,52 @@ class Validator(BaseValidatorNeuron):
                     return True
         return True
     
+    def _compress_outputs(self):
+        self.compressing = True
+        try:
+            if self.simulation.logDir:
+                log_root = Path(self.simulation.logDir).parent
+                for output_dir in log_root.iterdir():
+                    if output_dir.is_dir() and str(output_dir.resolve()) != self.simulation.logDir:
+                        size = sum(file.stat().st_size for file in output_dir.rglob('*'))
+                        bt.logging.info(f"Compressing output directory {output_dir.name} ({int(size / 1024 / 1024)}MB)...")
+                        try:
+                            shutil.make_archive(output_dir, 'zip', output_dir)
+                            bt.logging.success(f"Compressed {output_dir.name} to {output_dir.name + '.zip'}.")
+                        except Exception as ex:
+                            self.pagerduty_alert(f"Failed to compress folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
+                            continue
+                        try:
+                            shutil.rmtree(output_dir)
+                            bt.logging.success(f"Deleted {output_dir.name}.")
+                        except Exception as ex:
+                            self.pagerduty_alert(f"Failed to remove compressed folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
+                if psutil.disk_usage('/').percent > 90:
+                    first_day_of_month = int(datetime.today().replace(day=1).strftime("%Y%m%d"))
+                    bt.logging.warning(f"Disk usage > 90% - cleaning up old archives...")
+                    for output_archive in sorted(log_root.iterdir(), key=lambda f: f.name[:13]):
+                        try:
+                            archive_date = int(output_archive.name[:8])
+                        except:
+                            continue
+                        if output_archive.is_file() and output_archive.name.endswith('.zip') and archive_date < first_day_of_month:                            
+                            try:
+                                output_archive.unlink()
+                                disk_usage = psutil.disk_usage('/').percent
+                                bt.logging.success(f"Deleted {output_dir.name} ({disk_usage}% disk available).")
+                                if disk_usage <= 90:
+                                    break
+                            except Exception as ex:
+                                self.pagerduty_alert(f"Failed to remove archive {output_archive.name} : {ex}", details={"trace" : traceback.format_exc()})
+        except Exception as ex:
+            self.pagerduty_alert(f"Failure during output compression : {ex}", details={"trace" : traceback.format_exc()})
+        finally:            
+            self.compressing = False
+    
+    def compress_outputs(self):
+        if not self.compressing:
+            Thread(target=self._compress_outputs, args=(), daemon=True, name=f'compress_{self.step}').start()
+            
     def _save_state(self) -> None:
         """Saves the state of the validator to a file."""
         self.saving = True
@@ -584,6 +632,7 @@ class Validator(BaseValidatorNeuron):
         self.rewarding = False
         self.reporting = False
         self.saving = False
+        self.compressing = False
         self.initial_balances_published = False
         
         self.load_simulation_config()
@@ -624,6 +673,7 @@ class Validator(BaseValidatorNeuron):
         self.last_state_time = None
         self.step_rates = []
         self.simulation.logDir = event.logDir
+        self.compress_outputs()
         bt.logging.info(f"START TIME: {self.start_time}")
         bt.logging.info(f"TIMESTAMP : {self.start_timestamp}")
         bt.logging.info(f"OUT DIR   : {self.simulation.logDir}")

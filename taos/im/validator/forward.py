@@ -27,7 +27,7 @@ from taos.im.protocol import FinanceAgentResponse, FinanceEventNotification, Mar
 from taos.im.protocol.instructions import *
 from taos.im.validator.reward import set_delays
 
-def validate_responses(self : Validator, synapses : List[MarketSimulationStateUpdate]) -> None:
+def validate_responses(self : Validator, synapses : dict[int, MarketSimulationStateUpdate]) -> None:
     """
     Checks responses from miners for any attempts at invalid actions, and enforces limits on instruction counts
 
@@ -39,7 +39,7 @@ def validate_responses(self : Validator, synapses : List[MarketSimulationStateUp
     """
     total_responses = 0
     total_instructions = 0
-    for uid, synapse in enumerate(synapses):
+    for uid, synapse in synapses.items():
         valid_instructions = []
         if synapse.response:
             synapse.decompress()
@@ -77,7 +77,7 @@ def validate_responses(self : Validator, synapses : List[MarketSimulationStateUp
             bt.logging.debug(f"UID {uid} failed to respond : {synapse.dendrite.status_message}")    
     bt.logging.info(f"Received {total_responses} valid responses containing {total_instructions} instructions.")
 
-def update_stats(self : Validator, synapses : List[MarketSimulationStateUpdate]) -> None:
+def update_stats(self : Validator, synapses : dict[int, MarketSimulationStateUpdate]) -> None:
     """
     Updates miner request statistics maintained and published by validator
 
@@ -87,7 +87,7 @@ def update_stats(self : Validator, synapses : List[MarketSimulationStateUpdate])
     Returns:
         None
     """
-    for uid, synapse in enumerate(synapses):
+    for uid, synapse in synapses.items():
         self.miner_stats[uid]['requests'] += 1
         if synapse.is_timeout:
             self.miner_stats[uid]['timeouts'] += 1
@@ -125,6 +125,7 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
         timeout=self.config.neuron.timeout,
         deserialize=False
     )
+    synapse_responses = {self.metagraph.hotkeys.index(synapse_response.axon.hotkey) : synapse_response for synapse_response in synapse_responses}
     bt.logging.debug(f"Dendrite call completed ({time.time()-start:.4f}s).")
     self.dendrite.synapse_history = self.dendrite.synapse_history[-10:]
     

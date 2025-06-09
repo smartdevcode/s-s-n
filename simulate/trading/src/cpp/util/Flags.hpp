@@ -22,13 +22,13 @@ enum class STPFlag : uint32_t
 
 //-------------------------------------------------------------------------
 
-enum class LimitOrderFlag : uint32_t
+enum class TimeInForce : uint32_t
 {
-    NONE,
-    POST_ONLY,
-    IOC
+    GTC,
+    GTT,
+    IOC,
+    FOK
 };
-
 
 //-------------------------------------------------------------------------
 

@@ -184,9 +184,10 @@ void PlaceOrderLimitPayload::jsonSerialize(
         json.AddMember("leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
+        json.AddMember("postOnly", rapidjson::Value{postOnly}, allocator);
         json.AddMember(
-            "flag",
-            rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+            "timeInForce",
+            rapidjson::Value{magic_enum::enum_name(timeInForce).data(), allocator},
             allocator);
         json.AddMember(
             "stpFlag",
@@ -210,9 +211,10 @@ void PlaceOrderLimitPayload::checkpointSerialize(
         json.AddMember("leverage", rapidjson::Value{taosim::util::packDecimal(leverage)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
+        json.AddMember("postOnly", rapidjson::Value{postOnly}, allocator);
         json.AddMember(
-            "flag",
-            rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+            "timeInForce",
+            rapidjson::Value{magic_enum::enum_name(timeInForce).data(), allocator},
             allocator);
         json.AddMember(
             "stpFlag",
@@ -237,43 +239,16 @@ PlaceOrderLimitPayload::Ptr PlaceOrderLimitPayload::fromJson(const rapidjson::Va
         !json["clientOrderId"].IsNull()
             ? std::make_optional(json["clientOrderId"].GetUint())
             : std::nullopt,
-        json.HasMember("flag")
-            ? magic_enum::enum_cast<LimitOrderFlag>(json["flag"].GetUint())
-                .value_or(LimitOrderFlag::NONE)
-            : LimitOrderFlag::NONE,
+        json.HasMember("postOnly") ? json["postOnly"].GetBool() : false,
+        json.HasMember("timeInForce")
+            ? magic_enum::enum_cast<taosim::TimeInForce>(json["timeInForce"].GetUint())
+                .value_or(taosim::TimeInForce::GTC)
+            : taosim::TimeInForce::GTC,
         json.HasMember("stpFlag")
             ? magic_enum::enum_cast<STPFlag>(json["stpFlag"].GetUint())
                 .value_or(STPFlag::CO)
-            : STPFlag::CO
-        );
+            : STPFlag::CO);
 }
-
-//-------------------------------------------------------------------------
-
-namespace taosim
-{
-
-bool violatesPostOnly(Book::Ptr book, PlaceOrderLimitPayload::Ptr limitOrderPayload) noexcept
-{
-    switch (limitOrderPayload->direction) {
-        case OrderDirection::BUY:
-            return !book->sellQueue().empty()
-                && limitOrderPayload->price >= book->sellQueue().front().price();
-        case OrderDirection::SELL:
-            return !book->buyQueue().empty()
-                && limitOrderPayload->price <= book->buyQueue().back().price();
-        default:
-            std::unreachable();
-    }
-}
-
-bool violatesImmediateOrCancel(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr limitOrderPayload) noexcept
-{
-    return !violatesPostOnly(book, limitOrderPayload);
-}
-
-}  // namespace taosim
 
 //-------------------------------------------------------------------------
 

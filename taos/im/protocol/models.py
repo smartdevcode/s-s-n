@@ -558,3 +558,12 @@ class STP(IntEnum):
     CANCEL_NEWEST=2
     CANCEL_BOTH=3
     DECREASE_CANCEL=4
+
+class TimeInForce(IntEnum):
+    """
+    Enum to represent order time-in-force options.
+    """
+    GTC=0
+    GTT=1
+    IOC=2
+    FOK=3

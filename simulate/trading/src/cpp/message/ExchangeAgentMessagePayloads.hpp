@@ -15,7 +15,6 @@
 #include <optional>
 #include <vector>
 
-using LimitOrderFlag = taosim::LimitOrderFlag;
 using STPFlag = taosim::STPFlag;
 
 //-------------------------------------------------------------------------
@@ -132,10 +131,11 @@ struct PlaceOrderLimitPayload : public MessagePayload
     OrderDirection direction;
     taosim::decimal_t volume;
     taosim::decimal_t price;
-    taosim::decimal_t leverage;
+    taosim::decimal_t leverage{};
     BookId bookId;
     std::optional<ClientOrderID> clientOrderId{};
-    LimitOrderFlag flag{LimitOrderFlag::NONE};
+    bool postOnly{};
+    taosim::TimeInForce timeInForce{taosim::TimeInForce::GTC};
     STPFlag stpFlag{STPFlag::CO};
 
     PlaceOrderLimitPayload(
@@ -144,15 +144,16 @@ struct PlaceOrderLimitPayload : public MessagePayload
         taosim::decimal_t price,
         BookId bookId,
         std::optional<ClientOrderID> clientOrderId = {},
-        LimitOrderFlag flag = LimitOrderFlag::NONE,
+        bool postOnly = false,
+        taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
         STPFlag stpFlag = STPFlag::CO) noexcept
         : direction{direction},
           volume{volume},
           price{price},
-          leverage{0_dec},
           bookId{bookId},
           clientOrderId{clientOrderId},
-          flag{flag},
+          postOnly{postOnly},
+          timeInForce{timeInForce},
           stpFlag{stpFlag}
     {}
 
@@ -163,7 +164,8 @@ struct PlaceOrderLimitPayload : public MessagePayload
         taosim::decimal_t leverage,
         BookId bookId,
         std::optional<ClientOrderID> clientOrderId = {},
-        LimitOrderFlag flag = LimitOrderFlag::NONE,
+        bool postOnly = false,
+        taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
         STPFlag stpFlag = STPFlag::CO) noexcept
         : direction{direction},
           volume{volume},
@@ -171,7 +173,8 @@ struct PlaceOrderLimitPayload : public MessagePayload
           leverage{leverage},
           bookId{bookId},
           clientOrderId{clientOrderId},
-          flag{flag},
+          postOnly{postOnly},
+          timeInForce{timeInForce},
           stpFlag{stpFlag}
     {}
 
@@ -182,29 +185,6 @@ struct PlaceOrderLimitPayload : public MessagePayload
 
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
 };
-
-namespace taosim
-{
-    
-[[nodiscard]] inline bool violatesNone(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr limitOrderPayload) noexcept
-{
-    return false;
-}
-
-[[nodiscard]] bool violatesPostOnly(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr limitOrderPayload) noexcept;
-
-[[nodiscard]] bool violatesImmediateOrCancel(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr limitOrderPayload) noexcept;
-
-inline constexpr std::array limitOrderFlag2ViolationChecker {
-    &violatesNone,
-    &violatesPostOnly,
-    &violatesImmediateOrCancel
-};
-    
-}  // namespace taosim
 
 //-------------------------------------------------------------------------
 

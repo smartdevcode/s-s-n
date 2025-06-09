@@ -4,7 +4,7 @@ from pydantic import BaseModel, PositiveFloat, NonNegativeInt
 from typing import Literal
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentInstruction
-from taos.im.protocol.models import OrderDirection, STP
+from taos.im.protocol.models import OrderDirection, STP, TimeInForce
 
 """
 Classes representing instructions that may be submitted by miner agents in a intelligent market simulation are defined here.
@@ -79,6 +79,8 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
     """
     type : Literal['PLACE_ORDER_LIMIT'] = 'PLACE_ORDER_LIMIT'
     price : PositiveFloat
+    postOnly : bool = False
+    timeInForce : Literal[TimeInForce.GTC, TimeInForce.IOC] = TimeInForce.GTC
     def payload(self) -> dict:
         return {
             "direction": self.direction,
@@ -86,6 +88,8 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
             "price": self.price,
             "bookId": self.bookId,
             "clientOrderId":self.clientOrderId,
+            "postOnly" : self.postOnly,
+            "timeInForce" : self.timeInForce,
             "stpFlag":self.stp
         }
     

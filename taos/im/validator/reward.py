@@ -119,7 +119,7 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
                 + self.config.scoring.sharpe.normalization_max) / (self.config.scoring.sharpe.normalization_max - self.config.scoring.sharpe.normalization_min)
         self.sharpe_values[uid]['normalized_average'] = normalized_avg_sharpe
         self.sharpe_values[uid]['normalized_total'] = normalized_total_sharpe
-        return normalized_total_sharpe
+        return normalized_avg_sharpe
     except Exception as ex:
         bt.logging.error(f"Failed to calculate Sharpe for UID {uid} : {traceback.format_exc()}")
 
@@ -216,7 +216,7 @@ def get_rewards(
         [reward(self, synapse, uid.item()) for uid in self.metagraph.uids]
     ).to(self.device)
 
-def set_delays(self : Validator, synapse_responses : list[MarketSimulationStateUpdate]) -> list[FinanceAgentResponse]:
+def set_delays(self : Validator, synapse_responses : dict[int, MarketSimulationStateUpdate]) -> list[FinanceAgentResponse]:
     """
     Calculates and applies the simulation time delay to be applied to each instruction received by the validator
 
@@ -228,7 +228,7 @@ def set_delays(self : Validator, synapse_responses : list[MarketSimulationStateU
         torch.FloatTensor: A tensor of rewards for the given query and responses.
     """
     responses = []
-    for i, synapse_response in enumerate(synapse_responses):
+    for uid, synapse_response in synapse_responses.items():
         response = synapse_response.response
         if response:
             # Delay is calculated to be proportional to the configured maximum in the same proportion as the response time to the timeout

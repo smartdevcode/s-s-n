@@ -66,6 +66,15 @@ public:
         AgentId agentId) const;
 
 private:
+    [[nodiscard]] bool checkTimeInForce(
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+    [[nodiscard]] bool checkIOC(
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+    [[nodiscard]] bool checkFOK(
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+    [[nodiscard]] bool checkPostOnly(
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+
     Parameters m_params;
     MultiBookExchangeAgent* m_exchange;
 };
