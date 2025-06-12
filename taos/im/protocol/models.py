@@ -145,20 +145,20 @@ class MarketSimulationConfig(BaseModel):
     sta_agent_sigmaEps : float
     sta_agent_r_aversion : float
     
-    futures_agent_count : int
-    futures_agent_capital_type : str
-    futures_agent_base_balance : float
-    futures_agent_quote_balance : float
-    futures_agent_wealth : float
+    futures_agent_count : int | None = None
+    futures_agent_capital_type : str | None = None
+    futures_agent_base_balance : float | None = None
+    futures_agent_quote_balance : float | None = None
+    futures_agent_wealth : float | None = None
 
-    futures_agent_volume : float
-    futures_agent_sigmaEps : float
-    futures_agent_lambda : float
-    futures_agent_feed_latency_mean : int
-    futures_agent_feed_latency_std : int
-    futures_agent_order_latency_min : int
-    futures_agent_order_latency_max : int
-    futures_agent_selection_scale : float
+    futures_agent_volume : float | None = None
+    futures_agent_sigmaEps : float | None = None
+    futures_agent_lambda : float | None = None
+    futures_agent_feed_latency_mean : int | None = None
+    futures_agent_feed_latency_std : int | None = None
+    futures_agent_order_latency_min : int | None = None
+    futures_agent_order_latency_max : int | None = None
+    futures_agent_selection_scale : float | None = None
 
     @classmethod
     def from_xml(cls, xml : Element):

@@ -193,21 +193,22 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
         float: The new score value for the miner.
     """
     try:
+        sampled_timestamp = math.ceil(synapse.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
         # Prune the trading volume history of the miner to exclude values prior to the latest `trade_volume_assessment_period`
         for book_id, role_trades in self.trade_volumes[uid].items():
             for role, trades in role_trades.items():
                 if trades != {}:
                     if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
                         self.trade_volumes[uid][book_id][role] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
+                if not sampled_timestamp in self.trade_volumes[uid][book_id]['total']:
+                    self.trade_volumes[uid][book_id]['total'][sampled_timestamp] = 0.0
+                    self.trade_volumes[uid][book_id]['maker'][sampled_timestamp] = 0.0
+                    self.trade_volumes[uid][book_id]['taker'][sampled_timestamp] = 0.0
+                    self.trade_volumes[uid][book_id]['self'][sampled_timestamp] = 0.0
         # Update trade volume history with new trades since the previous step
+        
         for notice in synapse.notices[uid]:
             if notice.type == 'EVENT_TRADE':
-                sampled_timestamp = math.ceil(notice.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
-                if not sampled_timestamp in self.trade_volumes[uid][notice.bookId]['total']:
-                    self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = 0.0
-                    self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = 0.0
-                    self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = 0.0
-                    self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = 0.0
                 self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
                 if notice.makerAgentId == notice.takerAgentId:                
                     self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
