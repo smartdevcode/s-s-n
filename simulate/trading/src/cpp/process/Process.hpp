@@ -19,6 +19,7 @@ public:
 
     virtual void update(Timestamp timestamp) = 0;
     [[nodiscard]] virtual double value() const = 0;
+    [[nodiscard]] virtual uint64_t count() const {return 0;}
 
     [[nodiscard]] auto&& valueSignal(this auto&& self) noexcept { return self.m_valueSignal; }
 

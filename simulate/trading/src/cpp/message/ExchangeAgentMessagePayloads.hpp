@@ -47,6 +47,7 @@ struct PlaceOrderMarketPayload : public MessagePayload
     taosim::decimal_t volume;
     taosim::decimal_t leverage;
     BookId bookId;
+    Currency currency;
     std::optional<ClientOrderID> clientOrderId{};
     STPFlag stpFlag{STPFlag::CO};
 
@@ -54,9 +55,10 @@ struct PlaceOrderMarketPayload : public MessagePayload
         OrderDirection direction,
         taosim::decimal_t volume,
         BookId bookId,
+        Currency currency = Currency::BASE,
         std::optional<ClientOrderID> clientOrderId = {},
         STPFlag stpFlag = STPFlag::CO) noexcept
-        : direction{direction}, volume{volume}, leverage{0_dec}, bookId{bookId}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
+        : direction{direction}, volume{volume}, leverage{0_dec}, bookId{bookId}, currency{currency}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
     {}
 
     PlaceOrderMarketPayload(
@@ -64,9 +66,10 @@ struct PlaceOrderMarketPayload : public MessagePayload
         taosim::decimal_t volume,
         taosim::decimal_t leverage,
         BookId bookId,
+        Currency currency = Currency::BASE,
         std::optional<ClientOrderID> clientOrderId = {},
         STPFlag stpFlag = STPFlag::CO) noexcept
-        : direction{direction}, volume{volume}, leverage{leverage}, bookId{bookId}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
+        : direction{direction}, volume{volume}, leverage{leverage}, bookId{bookId}, currency{currency}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
     {}
 
     virtual void jsonSerialize(
@@ -133,9 +136,11 @@ struct PlaceOrderLimitPayload : public MessagePayload
     taosim::decimal_t price;
     taosim::decimal_t leverage{};
     BookId bookId;
+    Currency currency;
     std::optional<ClientOrderID> clientOrderId{};
     bool postOnly{};
     taosim::TimeInForce timeInForce{taosim::TimeInForce::GTC};
+    std::optional<Timestamp> expiryPeriod{};
     STPFlag stpFlag{STPFlag::CO};
 
     PlaceOrderLimitPayload(
@@ -143,17 +148,21 @@ struct PlaceOrderLimitPayload : public MessagePayload
         taosim::decimal_t volume,
         taosim::decimal_t price,
         BookId bookId,
+        Currency currency = Currency::BASE,
         std::optional<ClientOrderID> clientOrderId = {},
         bool postOnly = false,
         taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
+        std::optional<Timestamp> expiryPeriod = std::nullopt,
         STPFlag stpFlag = STPFlag::CO) noexcept
         : direction{direction},
           volume{volume},
           price{price},
           bookId{bookId},
+          currency{currency},
           clientOrderId{clientOrderId},
           postOnly{postOnly},
           timeInForce{timeInForce},
+          expiryPeriod{expiryPeriod},
           stpFlag{stpFlag}
     {}
 
@@ -163,18 +172,22 @@ struct PlaceOrderLimitPayload : public MessagePayload
         taosim::decimal_t price,
         taosim::decimal_t leverage,
         BookId bookId,
+        Currency currency = Currency::BASE,
         std::optional<ClientOrderID> clientOrderId = {},
         bool postOnly = false,
         taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
+        std::optional<Timestamp> expiryPeriod = std::nullopt,
         STPFlag stpFlag = STPFlag::CO) noexcept
         : direction{direction},
           volume{volume},
           price{price},
           leverage{leverage},
           bookId{bookId},
+          currency{currency},
           clientOrderId{clientOrderId},
           postOnly{postOnly},
           timeInForce{timeInForce},
+          expiryPeriod{expiryPeriod},
           stpFlag{stpFlag}
     {}
 

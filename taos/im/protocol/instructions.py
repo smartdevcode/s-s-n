@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
-from pydantic import BaseModel, PositiveFloat, NonNegativeInt
+from pydantic import BaseModel, PositiveFloat, NonNegativeInt, PositiveInt
 from typing import Literal
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentInstruction
-from taos.im.protocol.models import OrderDirection, STP, TimeInForce
+from taos.im.protocol.models import OrderDirection, STP, TimeInForce, OrderCurrency
 
 """
 Classes representing instructions that may be submitted by miner agents in a intelligent market simulation are defined here.
@@ -48,7 +48,8 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
     direction : Literal[OrderDirection.BUY, OrderDirection.SELL]
     quantity : PositiveFloat
     clientOrderId : int | None    
-    stp : Literal[STP.NO_STP, STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
+    stp : Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
+    currency : Literal[OrderCurrency.BASE, OrderCurrency.QUOTE] = OrderCurrency.BASE
     
     def __str__(self):
         return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {self.quantity} ON BOOK {self.bookId}"
@@ -64,11 +65,12 @@ class PlaceMarketOrderInstruction(PlaceOrderInstruction):
             "volume": self.quantity,
             "bookId":self.bookId,
             "clientOrderId":self.clientOrderId,
-            "stpFlag":self.stp
+            "stpFlag":self.stp,
+            "currency":self.currency
         }
     
     def __str__(self):
-        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {self.quantity}@MARKET ON BOOK {self.bookId}"
+        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {self.quantity}{'' if self.currency==OrderCurrency.BASE else 'QUOTE'}@MARKET ON BOOK {self.bookId}"
         
 class PlaceLimitOrderInstruction(PlaceOrderInstruction):
     """
@@ -80,7 +82,8 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
     type : Literal['PLACE_ORDER_LIMIT'] = 'PLACE_ORDER_LIMIT'
     price : PositiveFloat
     postOnly : bool = False
-    timeInForce : Literal[TimeInForce.GTC, TimeInForce.IOC] = TimeInForce.GTC
+    timeInForce : Literal[TimeInForce.GTC, TimeInForce.GTT, TimeInForce.IOC, TimeInForce.FOK] = TimeInForce.GTC
+    expiryPeriod : PositiveInt | None = None
     def payload(self) -> dict:
         return {
             "direction": self.direction,
@@ -90,7 +93,8 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
             "clientOrderId":self.clientOrderId,
             "postOnly" : self.postOnly,
             "timeInForce" : self.timeInForce,
-            "stpFlag":self.stp
+            "expiryPeriod" : self.expiryPeriod,
+            "stpFlag" : self.stp
         }
     
     def __str__(self):

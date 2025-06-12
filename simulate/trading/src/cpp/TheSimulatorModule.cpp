@@ -108,11 +108,12 @@ PYBIND11_EMBEDDED_MODULE(thesimulator, m)
 
     py::class_<PlaceOrderMarketPayload, MessagePayload, std::shared_ptr<PlaceOrderMarketPayload>>(
         m, "PlaceOrderMarketPayload")
-        .def(py::init<OrderDirection, decimal_t, decimal_t, BookId>())
+        .def(py::init<OrderDirection, decimal_t, decimal_t, BookId, Currency>())
         .def_readwrite("direction", &PlaceOrderMarketPayload::direction)
         .def_readwrite("volume", &PlaceOrderMarketPayload::volume)
         .def_readwrite("leverage", &PlaceOrderMarketPayload::leverage)
         .def_readwrite("bookId", &PlaceOrderMarketPayload::bookId)
+        .def_readwrite("currency", &PlaceOrderMarketPayload::currency)
         .def_readwrite("clientOrderId", &PlaceOrderMarketPayload::clientOrderId)
         ;
 
@@ -137,12 +138,13 @@ PYBIND11_EMBEDDED_MODULE(thesimulator, m)
 
     py::class_<PlaceOrderLimitPayload, MessagePayload, std::shared_ptr<PlaceOrderLimitPayload>>(
         m, "PlaceOrderLimitPayload")
-        .def(py::init<OrderDirection, decimal_t, decimal_t, decimal_t, BookId>())
+        .def(py::init<OrderDirection, decimal_t, decimal_t, decimal_t, BookId, Currency>())
         .def_readwrite("direction", &PlaceOrderLimitPayload::direction)
         .def_readwrite("volume", &PlaceOrderLimitPayload::volume)
         .def_readwrite("price", &PlaceOrderLimitPayload::price)
         .def_readwrite("leverage", &PlaceOrderLimitPayload::leverage)
         .def_readwrite("bookId", &PlaceOrderLimitPayload::bookId)
+        .def_readwrite("currency", &PlaceOrderLimitPayload::currency)
         .def_readwrite("clientOrderId", &PlaceOrderLimitPayload::clientOrderId)
         ;
 

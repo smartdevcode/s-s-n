@@ -105,14 +105,14 @@ std::pair<MarketOrder::Ptr, OrderErrorCode> placeMarketOrder(
 {
     const auto payload =
         MessagePayload::create<PlaceOrderMarketPayload>(std::forward<Args>(args)..., bookId);
-    const auto ec = exchange->clearingManager().handleOrder(MarketOrderDesc{.agentId = agentId, .payload = payload});
+    const auto orderResult = exchange->clearingManager().handleOrder(MarketOrderDesc{.agentId = agentId, .payload = payload});
     auto marketOrderPtr = exchange->books()[bookId]->placeMarketOrder(
         payload->direction,
         Timestamp{},
-        payload->volume,
+        orderResult.orderSize,
         payload->leverage,
         OrderClientContext{agentId});
-    return {marketOrderPtr, ec};
+    return {marketOrderPtr, orderResult.ec};
 }
 
 template<typename... Args>
@@ -122,15 +122,15 @@ std::pair<LimitOrder::Ptr, OrderErrorCode> placeLimitOrder(
 {
     const auto payload =
         MessagePayload::create<PlaceOrderLimitPayload>(std::forward<Args>(args)..., bookId);
-    const auto ec = exchange->clearingManager().handleOrder(LimitOrderDesc{.agentId = agentId, .payload = payload});
+    const auto orderResult = exchange->clearingManager().handleOrder(LimitOrderDesc{.agentId = agentId, .payload = payload});
     auto limitOrderPtr = exchange->books()[bookId]->placeLimitOrder(
         payload->direction,
         Timestamp{},
-        payload->volume,
+        orderResult.orderSize,
         payload->price,
         payload->leverage,
         OrderClientContext{agentId});
-    return {limitOrderPtr, ec};
+    return {limitOrderPtr, orderResult.ec};
 }
 
 //-------------------------------------------------------------------------

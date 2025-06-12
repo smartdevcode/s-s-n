@@ -59,7 +59,7 @@ private:
     enum RegimeState {
         NORMAL,
         REGIME_A,
-        REGIME_B
+        NEWS    
     };
 
 
@@ -114,6 +114,7 @@ private:
     std::vector<TopLevel> m_topLevel;
     DelayBounds m_opl;
     double m_price;
+    double m_priceExt;
     std::vector<bool> m_orderFlag;
     std::vector<LimitedDeque<double>> m_priceHist;
     std::vector<LimitedDeque<double>> m_logReturns;
@@ -127,6 +128,7 @@ private:
     float m_sigmaNRegime;
     double m_tauFRegime;
     bool m_regimeChangeFlag;
+    std::vector<Timestamp> m_regimeSwitchKickback;
     std::vector<float> m_regimeChangeProb;
     std::vector<RegimeState> m_regimeState;
     Weight m_weightOrig;

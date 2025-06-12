@@ -32,7 +32,6 @@ void BasicOrder::removeLeveragedVolume(taosim::decimal_t decrease)
             decrease,
             leveragedVolume));
     }
-    ///##
     m_volume -= decrease / (1_dec + m_leverage);
 }
 
@@ -75,10 +74,6 @@ void BasicOrder::jsonSerialize(rapidjson::Document& json, const std::string& key
             "volume", rapidjson::Value{taosim::util::decimal2double(m_volume)}, allocator);
         json.AddMember(
             "leverage", rapidjson::Value{taosim::util::decimal2double(m_leverage)}, allocator);
-        json.AddMember(
-            "stpFlag",
-            rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
-            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -94,10 +89,6 @@ void BasicOrder::checkpointSerialize(rapidjson::Document& json, const std::strin
         json.AddMember("timestamp", rapidjson::Value{m_timestamp}, allocator);
         json.AddMember("volume", rapidjson::Value{taosim::util::packDecimal(m_volume)}, allocator);
         json.AddMember("leverage", rapidjson::Value{taosim::util::packDecimal(m_leverage)}, allocator);
-        json.AddMember(
-            "stpFlag",
-            rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
-            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -108,13 +99,12 @@ BasicOrder::BasicOrder(
     OrderID id,
     Timestamp timestamp,
     taosim::decimal_t volume,
-    taosim::decimal_t leverage,
-    STPFlag stpFlag) noexcept
+    taosim::decimal_t leverage) noexcept
     : m_id{id},
       m_timestamp{timestamp},
       m_volume{volume},
-      m_leverage{leverage},
-      m_stpFlag{stpFlag}
+      m_leverage{leverage}
+      
 {}
 
 //-------------------------------------------------------------------------
@@ -126,8 +116,8 @@ Order::Order(
     OrderDirection direction,
     taosim::decimal_t leverage,
     STPFlag stpFlag) noexcept
-    : BasicOrder(orderId, timestamp, volume, leverage, stpFlag),
-      m_direction{direction}
+    : BasicOrder(orderId, timestamp, volume, leverage),
+      m_direction{direction}, m_stpFlag{stpFlag}
 {}
 
 //-------------------------------------------------------------------------
@@ -139,6 +129,10 @@ void Order::jsonSerialize(rapidjson::Document& json, const std::string& key) con
         auto& allocator = json.GetAllocator();
         json.AddMember(
             "direction", rapidjson::Value{std::to_underlying(m_direction)}, allocator);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -152,6 +146,10 @@ void Order::checkpointSerialize(rapidjson::Document& json, const std::string& ke
         auto& allocator = json.GetAllocator();
         json.AddMember(
             "direction", rapidjson::Value{std::to_underlying(m_direction)}, allocator);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
+            allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }

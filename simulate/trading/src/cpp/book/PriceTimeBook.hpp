@@ -20,12 +20,10 @@ public:
         BookId id,
         size_t maxDepth,
         size_t detailedDepth);
-
-    virtual taosim::decimal_t calculatCorrespondingVolume(taosim::decimal_t quotePrice) override;
     
 protected:
-    virtual void processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice) override;
-    virtual void processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice) override;
+    virtual taosim::decimal_t processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice) override;
+    virtual taosim::decimal_t processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice) override;
     
     virtual TickContainer* preventSelfTrade(TickContainer* queue, LimitOrder::Ptr iop, Order::Ptr order, AgentId agentId);
 };

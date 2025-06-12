@@ -8,6 +8,7 @@ add_library(agent STATIC
     LocalAgentManager.cpp
     LocalAgentRoster.cpp
     MultiBookExchangeAgent.cpp
+    FuturesTraderAgent.cpp
     OrderLogAgent.cpp
     PythonAgent.cpp
     StylizedTraderAgent.cpp

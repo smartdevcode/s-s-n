@@ -139,7 +139,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         bt.logging.debug(f"Accounts populated ({time.time()-start:.4f}s).")
         start = time.time()                        
         notices = {int(uid) : [] for uid in payload['accounts'] if int(uid) >= 0}
-        for notice in payload['notices']:
+        for notice in sorted(payload['notices'], key=lambda x: (x['timestamp'], -x['delay'])):
             notice = FinanceEventNotification.from_json(notice)
             if notice.event.agentId:
                 notices[notice.event.agentId].append(notice.event)

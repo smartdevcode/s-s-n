@@ -143,6 +143,7 @@ BENCHMARK_DEFINE_F(RunFixture, SimpleRun)(benchmark::State& state)
                     //payload->bookId.value(),
                     payload->bookId,
                     payload->direction,
+                    payload->currency,
                     payload->volume);
             }
             else if (response["type"] == "PLACE_ORDER_LIMIT") {
@@ -154,6 +155,7 @@ BENCHMARK_DEFINE_F(RunFixture, SimpleRun)(benchmark::State& state)
                     //payload->bookId.value(),
                     payload->bookId,
                     payload->direction,
+                    payload->currency,
                     payload->volume,
                     payload->price);
             }

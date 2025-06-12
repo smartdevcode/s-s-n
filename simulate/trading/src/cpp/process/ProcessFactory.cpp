@@ -7,6 +7,7 @@
 #include "GBM.hpp"
 #include "FundamentalPrice.hpp"
 #include "JumpDiffusion.hpp"
+#include "FuturesSignal.hpp"
 #include "Simulation.hpp"
 #include "taosim/exchange/ExchangeConfig.hpp"
 
@@ -34,6 +35,13 @@ std::unique_ptr<Process> ProcessFactory::createFromXML(pugi::xml_node node, uint
             updatePeriod);
     } else if (name == "JumpDiffusion") {
         return JumpDiffusion::fromXML(node, seedShift, updatePeriod);
+    } else if (name == "FuturesSignal") {
+        return FuturesSignal::fromXML(
+            m_simulation, 
+            node, 
+            seedShift, 
+            taosim::util::decimal2double(m_exchangeConfig->initialPrice),
+            updatePeriod);
     }
 
     throw std::invalid_argument(fmt::format(

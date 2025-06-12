@@ -59,9 +59,13 @@ def get_inventory_value(account : Account, book : Book, method='midquote') -> fl
                     break
             return account.quote_balance.total + liq_value
         
-def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,float]]) -> float:
+def normalize(lower, upper, value):
+    return (max(min(value, upper), lower) + upper) / (upper - lower)
+        
+def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,float]]) -> dict:
     """
-    Calculates the intraday sharpe ratio for a particular UID using the change in inventory values over previous `config.scoring.sharpe.lookback` observations to represent returns.
+    Calculates intraday Sharpe ratios for a particular UID using the change in inventory values over previous `config.scoring.sharpe.lookback` observations to represent returns.
+    Values are also stored to a property of the Validator class to be accessed later for scoring and reporting purposes.
 
     Args:
         self (taos.im.neurons.validator.Validator) : Validator instance
@@ -69,7 +73,8 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
         inventory_values (Dict[Dict[int, float]]) : Array of last `config.scoring.sharpe.lookback` inventory values for the miner
 
     Returns:
-    float: The overall Sharpe ratio for the given UID
+    dict: A dictionary containing all relevant calculated Sharpe values for the UID.  This includes Sharpe for their total inventory value and Sharpe calculated on each book along with
+          several aggregate values obtained from the values for each book and their normalized counterparts.
     """
     try:
         if len(inventory_values) <= 1: return 0.0
@@ -108,18 +113,19 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
         all_sharpes = [sharpe for bookId, sharpe in self.sharpe_values[uid]['books'].items()]
         avg_sharpe = sum(all_sharpes) / len(all_sharpes)
         self.sharpe_values[uid]['average'] = avg_sharpe
+        median_sharpe = np.median(all_sharpes)
+        self.sharpe_values[uid]['median'] = median_sharpe
+        
         # In order to produce non-zero values for Sharpe ratio of the agent, the result of the usual calculation is normalized to fall within a configured range.
         # This allows to simply multiply scaling factors onto the resulting score, enabling straighforward zeroing of weights for agents behaving undesirably by other assessments.
         # This also enforces a cap which eliminates extreme Sharpe values which would be considered unrealistic.
-        normalized_avg_sharpe = (
-            max(min(avg_sharpe, self.config.scoring.sharpe.normalization_max), self.config.scoring.sharpe.normalization_min) \
-                + self.config.scoring.sharpe.normalization_max) / (self.config.scoring.sharpe.normalization_max - self.config.scoring.sharpe.normalization_min)
-        normalized_total_sharpe = (
-            max(min(total_sharpe, self.config.scoring.sharpe.normalization_max), self.config.scoring.sharpe.normalization_min) \
-                + self.config.scoring.sharpe.normalization_max) / (self.config.scoring.sharpe.normalization_max - self.config.scoring.sharpe.normalization_min)
+        normalized_avg_sharpe = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, avg_sharpe)
+        normalized_total_sharpe = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, total_sharpe)
+        normalized_median_sharpe = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, median_sharpe)
         self.sharpe_values[uid]['normalized_average'] = normalized_avg_sharpe
         self.sharpe_values[uid]['normalized_total'] = normalized_total_sharpe
-        return normalized_avg_sharpe
+        self.sharpe_values[uid]['normalized_median'] = normalized_median_sharpe
+        return self.sharpe_values[uid]
     except Exception as ex:
         bt.logging.error(f"Failed to calculate Sharpe for UID {uid} : {traceback.format_exc()}")
 
@@ -135,10 +141,44 @@ def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[
     Returns: 
         float: The new score value for the given UID.
     """
-    # Initially the score is based only on the Sharpe value, other metrics may be included with relative weights at a later stage.
-    score = self.reward_weights['sharpe'] * sharpe(self, uid, inventory_values)
-    self.unnormalized_scores[uid] = score
-    return score
+    sharpe_values = sharpe(self, uid, inventory_values)
+    # The maximum volume to be traded by a miner in a `trade_volume_assessment_period` (24H) is `capital_turnover_cap` (10) times the initial miner capital
+    volume_cap =  round(self.config.scoring.activity.capital_turnover_cap * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
+    # Calculate the volume traded by miners on each book in the period over which Sharpe values were calculated
+    miner_volumes = {book_id : round(sum([volume for time, volume in book_volume['total'].items() if time >= self.simulation_timestamp - self.config.scoring.sharpe.lookback * self.simulation.publish_interval]), self.simulation.volumeDecimals) for book_id, book_volume in self.trade_volumes[uid].items()}
+    # Weight the (as yet unnormalized) Sharpe values by a factor proportional to the traded volume - this magnifies wins and losses occurring in periods with higher trading volumes
+    volume_weighted_sharpes = {book_id : min(1 + (miner_volumes[book_id] / volume_cap), 2.0) * sharpe for book_id, sharpe in sharpe_values['books'].items()}
+    # Normalize the volume-weighted Sharpe values to take values in range [0,1] by scaling against the configured lower and upper bounds `sharpe.normalization_min` and `sharpe.normalization_max`
+    normalized_volume_weighted_sharpes = {book_id : normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, vw_sharpe) for book_id, vw_sharpe in volume_weighted_sharpes.items()}
+    # Calculate the factor to be multiplied on the normalized volume-weighted Sharpes when there has been no trading activity in the previous Sharpe assessment window
+    # This factor is designed to reduce the activity multiplier by half after each `sharpe.lookback` steps of inactivity
+    inactivity_decay_factor = (2 ** (-1 / self.config.scoring.sharpe.lookback))
+    latest_volumes = {book_id : list(book_volume['total'].values())[-1] if len(book_volume['total']) > 0 else 0.0 for book_id, book_volume in self.trade_volumes[uid].items()}
+    # Calculate the activity factors to be multiplied onto the normalized volume-weighted Sharpes to obtain the final values for assessment
+    # If the miner has traded in the previous Sharpe assessment window, the factor is equal to the ratio of the miner trading volume to the cap
+    # If the miner has not traded, their existing activity factor is decayed by the factor defined above so as to halve the miner score over each Sharpe assessment window where they remain inactive
+    self.activity_factors[uid] = {book_id : min(1 + (miner_volume / volume_cap), 2.0) if latest_volumes[book_id] > 0 else self.activity_factors[uid][book_id] * inactivity_decay_factor for book_id, miner_volume in miner_volumes.items()}
+    # Calculate the activity-weighted Sharpes by multiplying the activity factors onto the normalized volume-weighted Sharpes
+    activity_weighted_sharpes = [self.activity_factors[uid][book_id] * nvw_sharpe for book_id, nvw_sharpe in normalized_volume_weighted_sharpes.items()]
+    # Define a function which uses the 1.5 rule to detect left-hand outliers in the activity-weighted Sharpes
+    def detect_outliers(sharpes):
+        data = np.array(sharpes)
+        q1 = np.percentile(data, 25)
+        q3 = np.percentile(data, 75)
+        iqr = q3 - q1
+        lower_threshold = q1 - 1.5 * iqr
+        outliers = data[data < lower_threshold]
+        return outliers
+    # Outliers detected here are activity-weighted Sharpes which are significantly lower than those achieved on other books
+    outliers = detect_outliers(activity_weighted_sharpes)
+    # A penalty equal to the difference between the lowest outlier value and the value at the centre of the possible activity weighted Sharpe values is calculated
+    outlier_penalty = 0.5 - np.min(outliers) if len(outliers) > 0 and np.min(outliers) < 0.5 else 0
+    # The median of the activity weighted Sharpes provides the base score for the miner
+    volume_weighted_median = np.median(activity_weighted_sharpes)
+    # The penalty factor is subtracted from the base score to punish particularly poor performance on any particular book
+    sharpe_score = max((volume_weighted_median - abs(outlier_penalty)), 0)
+    
+    return self.reward_weights['sharpe'] * sharpe_score
 
 def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -> float:
     """
@@ -152,26 +192,14 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
     Returns:
         float: The new score value for the miner.
     """
-    # Calculate the current value of the agent's inventory and append to the history array
     try:
-        if uid in synapse.accounts:
-            self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.simulation.miner_wealth for book_id, book in synapse.books.items()}
-        else:
-            self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
-        # Prune the inventory history
-        self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])
-        inventory_score = score_inventory_values(self, uid, self.inventory_history[uid])
-        # In order to ensure that miner agents must actively respond to validator requests to be scored, as well as to encourage the use of more active strategies by miners,
-        # we multiply the risk-adjusted performance measure by an "activity factor".
-        # This is calculated as a ratio of the agent's trading volume in the last `trade_volume_assessment_period` (defined in simulation timesteps) 
-        # to a configured multiple of the value of the initial capital allocated.
-        # Miners are thus required to turn over their initial portfolio value at least `capital_turnover_rate` times per `trade_volume_assessment_period`, 
-        # otherwise they receive only a fraction of the rewards earned as a result of risk-adjusted performance.
+        # Prune the trading volume history of the miner to exclude values prior to the latest `trade_volume_assessment_period`
         for book_id, role_trades in self.trade_volumes[uid].items():
             for role, trades in role_trades.items():
                 if trades != {}:
                     if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
                         self.trade_volumes[uid][book_id][role] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
+        # Update trade volume history with new trades since the previous step
         for notice in synapse.notices[uid]:
             if notice.type == 'EVENT_TRADE':
                 sampled_timestamp = math.ceil(notice.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
@@ -187,13 +215,17 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
                     self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
                 elif notice.takerAgentId == uid:
                     self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-        target_volume = round(self.config.scoring.activity.capital_turnover_rate * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
-        self.activity_factors[uid] = round(
-            min(1.0,
-                min([round(sum([book_volume for book_volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals) / target_volume for book_id in range(self.simulation.book_count)])
-            )
-            ,6)
-        return self.activity_factors[uid] * inventory_score
+        
+        # Calculate the current value of the agent's inventory and append to the history array
+        if uid in synapse.accounts:
+            self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.simulation.miner_wealth for book_id, book in synapse.books.items()}
+        else:
+            self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
+        # Prune the inventory history
+        self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])        
+        
+        inventory_score = score_inventory_values(self, uid, self.inventory_history[uid])        
+        return inventory_score
     except Exception as ex:
         bt.logging.error(f"Failed to calculate reward for UID {uid} at step {self.step} : {traceback.format_exc()}")
         return self.scores[uid]

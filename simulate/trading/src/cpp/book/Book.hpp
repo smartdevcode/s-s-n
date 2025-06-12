@@ -81,7 +81,6 @@ public:
         std::optional<STPFlag> stpFlag = STPFlag::CO);
     bool cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volumeToCancel = {});
 
-    virtual taosim::decimal_t calculatCorrespondingVolume(taosim::decimal_t quotePrice) = 0;
     bool tryGetOrder(OrderID id, LimitOrder::Ptr& orderPtr) const;
     std::optional<LimitOrder::Ptr> getOrder(OrderID orderId) const;
     void L2Serialize(rapidjson::Document& json, const std::string& key = {}) const;
@@ -116,8 +115,8 @@ protected:
     LimitOrder::Ptr m_lastBetteringSellOrder = nullptr;
     bool m_initMode = false;
 
-    virtual void processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice) = 0;
-    virtual void processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice) = 0;
+    virtual taosim::decimal_t processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice) = 0;
+    virtual taosim::decimal_t processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice) = 0;
 
     void logTrade(
         OrderDirection direction,

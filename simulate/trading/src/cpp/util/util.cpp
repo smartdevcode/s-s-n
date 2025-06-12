@@ -52,6 +52,44 @@ std::vector<std::string> getLastLines( std::string const& filename, int lineCoun
     return split(lines,'\n');
 }
 
+double getClosestPreviousEntry(const std::string& filename, long long currentTimestamp) {
+    std::ifstream file(filename);
+    std::string line;
+    double closestRet =  0.0;
+    long long closestTimestamp = 0;
+    long long closestDiff = std::numeric_limits<long long>::max();
+
+    while (std::getline(file, line)) {
+        std::istringstream ss(line);
+        std::string token;
+
+        try {
+            
+        // Get timestamp
+        std::getline(ss, token, ',');
+        long long timestamp = std::stoll(token);
+
+        // Get value
+        std::getline(ss, token, ',');
+        double value = std::stod(token);
+
+        // Only consider timestamps <= currentTimestamp
+        if (timestamp <= currentTimestamp) {
+            long long diff = currentTimestamp - timestamp;
+            if (diff < closestDiff) {
+                closestTimestamp = timestamp;
+                closestRet = value;
+                closestDiff = diff;
+            }
+        }
+        } catch (...) {
+            // fmt::println('Something went wrong');
+        }
+    }
+
+    return closestRet;
+}
+
 //-------------------------------------------------------------------------
 
 Nodes parseSimulationFile(const fs::path& path)

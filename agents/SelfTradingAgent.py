@@ -1,5 +1,6 @@
+from taos.common.agents import launch
 from taos.im.agents import FinanceSimulationAgent
-from taos.im.protocol.models import OrderDirection, STP
+from taos.im.protocol.models import *
 from taos.im.protocol.instructions import *
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 
@@ -36,7 +37,7 @@ class SelfTradingAgent(FinanceSimulationAgent):
         response = FinanceAgentResponse(agent_id=self.uid)
         # Iterate over all the book realizations in the state message
         for book_id, book in state.books.items():
-            # If the book is populated (it of course always should be)
+            # If we have already placed orders, set the prices such that we expect to trade against our own orders
             if self.lastAsk and self.lastBid:
                 bidprice = self.lastAsk
                 askprice = self.lastBid
@@ -44,6 +45,7 @@ class SelfTradingAgent(FinanceSimulationAgent):
                 self.lastAsk = None
                 self.lastBid = None
             else:
+                # If the book is populated (it of course always should be)
                 if len(book.bids) > 0 and len(book.asks) > 0:
                     # Calculate placement prices for new orders to be a random distance between the current best bid and best ask
                     bidprice = round(random.uniform(book.bids[0].price+10**(-1*self.simulation_config.priceDecimals),book.asks[0].price-10**(-1*self.simulation_config.priceDecimals)),self.simulation_config.priceDecimals)
@@ -54,6 +56,7 @@ class SelfTradingAgent(FinanceSimulationAgent):
                     askprice = round(random.uniform(bidprice,100.05),self.simulation_config.priceDecimals)
                 # Obtain a random quantity
                 quantity = self.quantity()
+                # Populate previous quantity and placement price values
                 self.lastQty = quantity
                 self.lastBid = bidprice
                 self.lastAsk = askprice
@@ -72,3 +75,6 @@ class SelfTradingAgent(FinanceSimulationAgent):
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response
+
+if __name__ == "__main__":
+    launch(SelfTradingAgent)

@@ -21,6 +21,13 @@ enum class OrderDirection : uint32_t
     SELL
 };
 
+enum class Currency : uint32_t
+{
+    BASE,
+    QUOTE    
+};
+
+
 [[nodiscard]] constexpr std::string_view OrderDirection2StrView(OrderDirection dir) noexcept
 {
     return magic_enum::enum_name(dir);
@@ -81,10 +88,9 @@ public:
     [[nodiscard]] OrderID id() const noexcept { return m_id; }
     [[nodiscard]] Timestamp timestamp() const noexcept { return m_timestamp; }
     [[nodiscard]] taosim::decimal_t volume() const noexcept { return m_volume; }
-    [[nodiscard]] taosim::decimal_t totalVolume() const noexcept { return m_volume * (1_dec + m_leverage); }
+    [[nodiscard]] taosim::decimal_t totalVolume() const noexcept { return m_volume * taosim::util::dec1p(m_leverage); }
     [[nodiscard]] taosim::decimal_t leverage() const noexcept { return m_leverage; }
-    [[nodiscard]] STPFlag stpFlag() const noexcept { return m_stpFlag; }
-
+    
     void removeVolume(taosim::decimal_t decrease);
     void removeLeveragedVolume(taosim::decimal_t decrease);
     void setVolume(taosim::decimal_t newVolume);
@@ -96,17 +102,17 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
 protected:
-    BasicOrder(OrderID id, Timestamp timestamp, 
-        taosim::decimal_t orderVolume, 
-        taosim::decimal_t leverage = 0_dec,
-        STPFlag stpFlag = STPFlag::CO) noexcept;
+    BasicOrder(
+        OrderID id,
+        Timestamp timestamp,
+        taosim::decimal_t volume,
+        taosim::decimal_t leverage = 0_dec) noexcept;
 
 private:
     OrderID m_id;
     Timestamp m_timestamp;
     taosim::decimal_t m_volume;
     taosim::decimal_t m_leverage;
-    STPFlag m_stpFlag;
 };
 
 //-------------------------------------------------------------------------
@@ -117,6 +123,7 @@ public:
     using Ptr = std::shared_ptr<Order>;
 
     [[nodiscard]] OrderDirection direction() const noexcept { return m_direction; }
+    [[nodiscard]] STPFlag stpFlag() const noexcept { return m_stpFlag; }
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
@@ -134,6 +141,7 @@ protected:
 
 private:
     OrderDirection m_direction;
+    STPFlag m_stpFlag;
 };
 
 //-------------------------------------------------------------------------

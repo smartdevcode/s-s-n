@@ -125,6 +125,7 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     }
 
     m_price = m_priceF0;
+    m_priceExt = 300.0;
 
     m_orderFlag = std::vector<bool>(m_bookCount, false);
 
@@ -189,6 +190,7 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
 
     m_debug = node.attribute("debug").as_bool();
 
+    m_regimeSwitchKickback.resize(m_bookCount);
     m_sigmaFRegime = node.attribute("sigmaFRegime").as_float();
     m_sigmaCRegime = node.attribute("sigmaCRegime").as_float();
     m_sigmaNRegime = node.attribute("sigmaNRegime").as_float();
@@ -385,6 +387,10 @@ void StylizedTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
     m_logReturns.at(bookId).push_back(
                     std::log(lastPrice / m_priceHist.at(bookId).back()));
     m_priceHist.at(bookId).push_back(lastPrice);
+    m_priceExt = getProcessValue(bookId, "external");
+    m_logReturnsExternal.at(bookId).push_back(
+                    std::log(m_priceExt/m_priceHistExternal.at(bookId).back()));
+    m_priceHistExternal.at(bookId).push_back(m_priceExt);
 
     const double askVol = taosim::util::decimal2double(payload->askTotalVolume);
     const double bidVol = taosim::util::decimal2double(payload->bidTotalVolume);
@@ -521,10 +527,11 @@ StylizedTraderAgent::ForecastResult StylizedTraderAgent::forecast(BookId bookId)
 
     const auto& logReturns = m_logReturns.at(bookId);
 
-    const double compF = 1.0 / m_tauF.at(bookId) * std::log(pf/ m_price);
+    // const double compF = m_regimeState.at(bookId) == RegimeState::NORMAL ? 1.0 / m_tauF.at(bookId) * std::log(pf/ m_price) : 1.0 / m_tauF.at(bookId) * m_logReturnsExternal.at(bookId).back();
+    const double compF =  1.0 / m_tauF.at(bookId) * std::log(pf/ m_price);
     const double compC = 1.0 / m_tau * ranges::accumulate(logReturns, 0.0);
     const double compN = std::normal_distribution{0.0, m_sigmaEps}(*m_rng);
-    const double tauFNormalizer = m_regimeState.at(bookId) == RegimeState::NORMAL ? 1 : m_tauF.at(bookId) / m_weightNormalizer *0.01;
+    const double tauFNormalizer = m_regimeState.at(bookId) == RegimeState::REGIME_A ?  m_tauF.at(bookId) / m_weightNormalizer *0.01 : 1;
     // const double compExt = 1.0 /m_tau * ranges::accumulate(logReturnsExternal,0.0);
     const double logReturnForecast = m_weightNormalizer
         * (m_weight.F * compF + m_weight.C * compC + m_weight.N * compN) * tauFNormalizer;// + compExt;
@@ -744,6 +751,7 @@ void StylizedTraderAgent::placeLimitSell(
             taosim::util::double2decimal(volume),
             taosim::util::double2decimal(price),
             bookId,
+            Currency::BASE, //#
             std::nullopt,
             postOnly));
 }

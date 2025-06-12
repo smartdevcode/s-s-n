@@ -15,6 +15,7 @@ add_executable(taosim-tests
     SubscriptionRegistryTests.cpp
     UtilTests.cpp
     SelfTradePreventionTests.cpp
+    QuoteBasedOrderTests.cpp
 )
 
 target_compile_definitions(taosim-tests PRIVATE "${internal_compile_definitions}")

@@ -42,12 +42,12 @@ FundamentalPrice::FundamentalPrice(
 
 void FundamentalPrice::update(Timestamp timestamp)
 {
-    if ( fs::exists( m_seedfile ) ) {
-        std::vector<std::string> lines = taosim::util::getLastLines(m_seedfile, 2);
-        if (timestamp - m_last_seed_time >= m_seedInterval) {
-            int count = m_last_count;
-            uint64_t seed = 0;
+    if (timestamp - m_last_seed_time >= m_seedInterval) {
+        int count = m_last_count;
+        uint64_t seed = 0;
+        if ( fs::exists( m_seedfile ) ) {
             try {
+                std::vector<std::string> lines = taosim::util::getLastLines(m_seedfile, 2);
                 if (lines.size() >= 2) {
                     std::vector<std::string> line = taosim::util::split(lines[lines.size() - 2],',');
                     if (line.size()== 2) {
@@ -69,28 +69,17 @@ void FundamentalPrice::update(Timestamp timestamp)
                 seed = m_last_seed + distr(gen);
                 fmt::println("WARNING : Fundamental price seed not updated - using random seed.  Last Count {} | Count {} | Last Seed {} | Seed {}", m_last_count, count, seed, m_last_seed);
             }
-            m_rng = RNG{seed}; 
-            m_last_count = count;
-            m_last_seed = seed;
-            m_last_seed_time = timestamp;
-        }
-        m_t += m_dt;
-        m_W += m_gaussian(m_rng);
-        m_dJ += m_poisson(m_rng)* m_jump(m_rng);
-        m_value = m_X0 * std::exp((m_mu - 0.5 * m_sigma * m_sigma) * m_t + m_sigma * m_W + m_dJ);
-        m_valueSignal(m_value);
-    } else {
-        // fmt::println("FundamentalPrice::update : NO SEED FILE PRESENT AT {}", m_seedfile);
-        uint64_t seed = 0;
-        if (timestamp - m_last_seed_time >= m_seedInterval) {
+        } else {
             std::random_device rd;
             std::mt19937 gen(rd());
             std::uniform_int_distribution<> distr(10800000,11200000);
             seed = distr(gen);
-            m_rng = RNG{seed}; 
-            m_last_seed = seed;
-            m_last_seed_time = timestamp;
         }
+        m_rng = RNG{seed}; 
+        m_last_count = count;
+        m_last_seed = seed;
+        m_last_seed_time = timestamp;
+        
         m_t += m_dt;
         m_W += m_gaussian(m_rng);
         m_dJ += m_poisson(m_rng)* m_jump(m_rng);

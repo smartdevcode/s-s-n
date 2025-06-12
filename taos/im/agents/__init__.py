@@ -19,12 +19,12 @@ class FinanceSimulationAgent(SimulationAgent):
         Returns:
             None
         """
-        self.uid = uid
-        self.config = config
-
         self.history = []
         self.accounts = {}
-        self.initialize()
+        super().__init__(uid, config)
+
+    def handle(self, state: MarketSimulationStateUpdate) -> FinanceAgentResponse:
+        return super().handle(state)
 
     def update(self, state : MarketSimulationStateUpdate) -> None:
         """

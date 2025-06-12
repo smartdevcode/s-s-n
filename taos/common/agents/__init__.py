@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
 from abc import ABC, abstractmethod  # Importing the ABC class and abstractmethod decorator for creating abstract base classes
+from fastapi import APIRouter
 from taos.common.protocol import SimulationStateUpdate, AgentResponse, EventNotification  # Importing required classes for simulation state and agent responses
 
 # Defining an abstract base class for simulation agents
@@ -11,6 +12,8 @@ class SimulationAgent(ABC):
         """
         self.uid = uid
         self.config = config 
+        self.router = APIRouter()
+        self.router.add_api_route("/handle", self.handle, methods=["POST"])
         self.initialize()  # Calling the abstract method to perform any agent-specific setup
 
     def handle(self, state: SimulationStateUpdate) -> AgentResponse:
@@ -74,3 +77,18 @@ class SimulationAgent(ABC):
         Returns:
         """
         ...
+
+def launch(agent_class):
+    import argparse
+    import uvicorn
+    from taos.common.config import ParseKwargs
+    from fastapi import FastAPI
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, required=True)
+    parser.add_argument("--agent_id", type=int, required=True)
+    parser.add_argument("--params",nargs='*',action=ParseKwargs)
+    args = parser.parse_args()
+    app = FastAPI()
+    agent = agent_class(args.agent_id, args.params)
+    app.include_router(agent.router)
+    uvicorn.run(app, port=args.port)

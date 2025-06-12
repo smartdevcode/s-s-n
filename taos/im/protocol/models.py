@@ -144,6 +144,21 @@ class MarketSimulationConfig(BaseModel):
     sta_agent_tauF : int
     sta_agent_sigmaEps : float
     sta_agent_r_aversion : float
+    
+    futures_agent_count : int
+    futures_agent_capital_type : str
+    futures_agent_base_balance : float
+    futures_agent_quote_balance : float
+    futures_agent_wealth : float
+
+    futures_agent_volume : float
+    futures_agent_sigmaEps : float
+    futures_agent_lambda : float
+    futures_agent_feed_latency_mean : int
+    futures_agent_feed_latency_std : int
+    futures_agent_order_latency_min : int
+    futures_agent_order_latency_max : int
+    futures_agent_selection_scale : float
 
     @classmethod
     def from_xml(cls, xml : Element):
@@ -163,6 +178,8 @@ class MarketSimulationConfig(BaseModel):
         STA_balances_config = STA_config.find("Balances") if STA_config.find("Balances") else balances_config
         HFT_config = xml.find('Agents').find('HighFrequencyTraderAgent')
         HFT_balances_config = HFT_config.find("Balances") if HFT_config.find("Balances") else balances_config
+        Futures_config = xml.find('Agents').find('FuturesTraderAgent')
+        Futures_balances_config = Futures_config.find("Balances") if Futures_config.find("Balances") else balances_config
         return MarketSimulationConfig(
             time_unit = str(xml.attrib['timescale']),
             duration = int(xml.attrib['duration']),
@@ -250,7 +267,22 @@ class MarketSimulationConfig(BaseModel):
             sta_agent_tauHist = int(STA_config.attrib['tauHist']),
             sta_agent_tauF = int(STA_config.attrib['tau']),
             sta_agent_sigmaEps = float(STA_config.attrib['sigmaEps']),
-            sta_agent_r_aversion = float(STA_config.attrib['r_aversion'])
+            sta_agent_r_aversion = float(STA_config.attrib['r_aversion']),
+            
+            futures_agent_count = int(Futures_config.attrib['instanceCount']),
+            futures_agent_capital_type = "static" if Futures_balances_config.find("Base") != None else Futures_balances_config.attrib['type'],
+            futures_agent_base_balance = float(Futures_balances_config.find('Base').attrib['total']) if Futures_balances_config.find("Base") != None else None,
+            futures_agent_quote_balance = float(Futures_balances_config.find('Quote').attrib['total']) if Futures_balances_config.find("Quote") != None else None,
+            futures_agent_wealth = round(float(Futures_balances_config.find('Quote').attrib['total']) + float(Futures_balances_config.find('Base').attrib['total']) * float(MBE_config.attrib['initialPrice']), int(MBE_config.attrib['quoteDecimals'])) if Futures_balances_config.find("Base") != None else float(Futures_balances_config.attrib['wealth']),
+        
+            futures_agent_volume = float(Futures_config.attrib['volume']),
+            futures_agent_sigmaEps = float(Futures_config.attrib['sigmaEps']),
+            futures_agent_lambda = float(Futures_config.attrib['lambda']),
+            futures_agent_feed_latency_mean = int(Futures_config.attrib['MFLmean']),
+            futures_agent_feed_latency_std = int(Futures_config.attrib['MFLstd']),
+            futures_agent_order_latency_min = int(Futures_config.attrib['minOPLatency']),
+            futures_agent_order_latency_max = int(Futures_config.attrib['maxOPLatency']),
+            futures_agent_selection_scale = float(Futures_config.attrib['scaleR']),
         )
 
     def label(self) -> str:
@@ -567,3 +599,10 @@ class TimeInForce(IntEnum):
     GTT=1
     IOC=2
     FOK=3
+
+class OrderCurrency(IntEnum):
+    """
+    Enum to represent order direction.
+    """
+    BASE=0
+    QUOTE=1

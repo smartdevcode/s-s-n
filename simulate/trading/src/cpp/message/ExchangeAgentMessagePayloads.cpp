@@ -46,6 +46,7 @@ void PlaceOrderMarketPayload::jsonSerialize(
         json.AddMember("direction", rapidjson::Value{std::to_underlying(direction)}, allocator);
         json.AddMember("volume", rapidjson::Value{taosim::util::decimal2double(volume)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
+        json.AddMember("currency", rapidjson::Value{std::to_underlying(currency)}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
         json.AddMember(
             "stpFlag",
@@ -66,6 +67,7 @@ void PlaceOrderMarketPayload::checkpointSerialize(
         json.AddMember("direction", rapidjson::Value{std::to_underlying(direction)}, allocator);
         json.AddMember("volume", rapidjson::Value{taosim::util::packDecimal(volume)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
+        json.AddMember("currency", rapidjson::Value{std::to_underlying(currency)}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
         json.AddMember(
             "stpFlag",
@@ -83,6 +85,7 @@ PlaceOrderMarketPayload::Ptr PlaceOrderMarketPayload::fromJson(const rapidjson::
         OrderDirection{json["direction"].GetUint()},
         taosim::json::getDecimal(json["volume"]),
         json["bookId"].GetUint(),
+        Currency{json["currency"].GetUint()},
         !json["clientOrderId"].IsNull()
             ? std::make_optional(json["clientOrderId"].GetUint())
             : std::nullopt,
@@ -177,18 +180,19 @@ void PlaceOrderLimitPayload::jsonSerialize(
     auto serialize = [&](rapidjson::Document& json) {
         json.SetObject();
         auto& allocator = json.GetAllocator();
-        json.AddMember(
-            "direction", rapidjson::Value{std::to_underlying(direction)}, allocator);
+        json.AddMember("direction", rapidjson::Value{std::to_underlying(direction)}, allocator);
         json.AddMember("volume", rapidjson::Value{taosim::util::decimal2double(volume)}, allocator);
         json.AddMember("price", rapidjson::Value{taosim::util::decimal2double(price)}, allocator);
         json.AddMember("leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
+        json.AddMember("currency", rapidjson::Value{std::to_underlying(currency)}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
         json.AddMember("postOnly", rapidjson::Value{postOnly}, allocator);
         json.AddMember(
             "timeInForce",
             rapidjson::Value{magic_enum::enum_name(timeInForce).data(), allocator},
             allocator);
+        taosim::json::setOptionalMember(json, "expiryPeriod", expiryPeriod);
         json.AddMember(
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
@@ -210,12 +214,14 @@ void PlaceOrderLimitPayload::checkpointSerialize(
         json.AddMember("price", rapidjson::Value{taosim::util::packDecimal(price)}, allocator);
         json.AddMember("leverage", rapidjson::Value{taosim::util::packDecimal(leverage)}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
+        json.AddMember("currency", rapidjson::Value{std::to_underlying(currency)}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", clientOrderId);
         json.AddMember("postOnly", rapidjson::Value{postOnly}, allocator);
         json.AddMember(
             "timeInForce",
             rapidjson::Value{magic_enum::enum_name(timeInForce).data(), allocator},
             allocator);
+        taosim::json::setOptionalMember(json, "expiryPeriod", expiryPeriod);
         json.AddMember(
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
@@ -236,6 +242,7 @@ PlaceOrderLimitPayload::Ptr PlaceOrderLimitPayload::fromJson(const rapidjson::Va
             ? taosim::json::getDecimal(json["leverage"])
             : 0_dec,
         json["bookId"].GetUint(),
+        Currency{json["currency"].GetUint()},
         !json["clientOrderId"].IsNull()
             ? std::make_optional(json["clientOrderId"].GetUint())
             : std::nullopt,
@@ -244,6 +251,11 @@ PlaceOrderLimitPayload::Ptr PlaceOrderLimitPayload::fromJson(const rapidjson::Va
             ? magic_enum::enum_cast<taosim::TimeInForce>(json["timeInForce"].GetUint())
                 .value_or(taosim::TimeInForce::GTC)
             : taosim::TimeInForce::GTC,
+        json.HasMember("expiryPeriod")
+            ? !json["expiryPeriod"].IsNull()
+                ? std::make_optional(json["expiryPeriod"].GetUint64())
+                : std::nullopt
+            : std::nullopt,
         json.HasMember("stpFlag")
             ? magic_enum::enum_cast<STPFlag>(json["stpFlag"].GetUint())
                 .value_or(STPFlag::CO)
@@ -411,6 +423,7 @@ RetrieveOrdersResponsePayload::Ptr RetrieveOrdersResponsePayload::fromJson(
         orders.emplace_back(
             order["orderId"].GetUint(),
             order["timestamp"].GetUint64(),
+            // Currency{order["type"].GetUint()},
             taosim::json::getDecimal(order["volume"]),
             OrderDirection{order["direction"].GetUint()},
             taosim::json::getDecimal(order["price"]));
@@ -837,6 +850,7 @@ EventOrderMarketPayload::Ptr EventOrderMarketPayload::fromJson(const rapidjson::
         MarketOrder{
             json["orderId"].GetUint(),
             json["timestamp"].GetUint64(),
+            // Currency{json["currency"].GetUint()},
             taosim::json::getDecimal(json["volume"]),
             OrderDirection{json["direction"].GetUint()}});
 }
@@ -873,6 +887,7 @@ EventOrderLimitPayload::Ptr EventOrderLimitPayload::fromJson(const rapidjson::Va
         LimitOrder{
             json["orderId"].GetUint(),
             json["timestamp"].GetUint64(),
+            // Currency{json["currency"].GetUint()},
             taosim::json::getDecimal(json["volume"]),
             OrderDirection{json["direction"].GetUint()},
             taosim::json::getDecimal(json["price"])});

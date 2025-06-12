@@ -52,11 +52,20 @@ def validate_responses(self : Validator, synapses : dict[int, MarketSimulationSt
                 bt.logging.warning(f"Invalid response submitted by agent {uid} (Mismatched Agent Ids) : {synapse.response}")
                 synapse.response = None
                 continue
+            volume_cap =  round(self.config.scoring.activity.capital_turnover_cap * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
+            miner_volumes = {book_id : round(sum(book_volume['total'].values()), self.simulation.volumeDecimals) for book_id, book_volume in self.trade_volumes[uid].items()}        
             for instruction in synapse.response.instructions:
                 if instruction.agentId != uid or instruction.type == 'RESET_AGENT':
                     bt.logging.warning(f"Invalid instruction submitted by agent {uid} (Mismatched Agent Ids) : {instruction}")
                     valid_instructions = []
                     break
+                # If a miner exceeds `capital_turnover_cap` times their initial wealth in trading volume over a single `trade_volume_assessment_period`, they are restricted from placing additional orders.
+                # Only cancellations may be submitted and processed by the miner until their volume on the specified book in the previous period is below the cap.
+                if miner_volumes[instruction.bookId] >= volume_cap and instruction.type != "CANCEL_ORDERS":
+                    bt.logging.debug(f"Agent {uid} has reached their volume cap on book {instruction.bookId} : Traded {miner_volumes[instruction.bookId]} / {volume_cap}.")
+                    continue
+                if instruction.type in ['PLACE_ORDER_MARKET', 'PLACE_ORDER_LIMIT'] and instruction.stp == STP.NO_STP:
+                    instruction.stp = STP.CANCEL_OLDEST
                 valid_instructions.append(instruction)
             final_instructions = []
             # Enforce the configured limit on maximum submitted instructions (to prevent overloading simulator)

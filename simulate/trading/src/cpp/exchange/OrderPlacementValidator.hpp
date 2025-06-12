@@ -31,6 +31,7 @@ public:
         OrderDirection direction;
         decimal_t amount;
         decimal_t leverage;
+        decimal_t orderSize;
     };
 
     struct Parameters

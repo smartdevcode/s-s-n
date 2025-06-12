@@ -38,10 +38,38 @@ def add_im_validator_args(cls, parser):
     )
     
     parser.add_argument(
-        "--simulation.seed_symbol",
+        "--simulation.seeding.fundamental.symbol.coinbase",
         type=str,
-        help="Binance spot market symbol for which price will be used to seed simulation price.",
+        help="Coinbase spot market symbol price to be used to seed simulation price.",
+        default="BTC-USD",
+    )
+    
+    parser.add_argument(
+        "--simulation.seeding.fundamental.symbol.binance",
+        type=str,
+        help="Binance spot market symbol price to be used to seed simulation price.",
         default="btcusdt",
+    )
+    
+    parser.add_argument(
+        "--simulation.seeding.external.symbol.coinbase",
+        type=str,
+        help="Coinbase futures market symbol price to be used to seed external price used in simulation.",
+        default="TAO-PERP-INTX",
+    )
+    
+    parser.add_argument(
+        "--simulation.seeding.external.symbol.binance",
+        type=str,
+        help="Binance futures market symbol price to be used to seed external price used in simulation.",
+        default="taousdt",
+    )
+    
+    parser.add_argument(
+        "--simulation.seeding.external.sampling_seconds",
+        type=int,
+        help="real time period in seconds over which external trade prices are written to file.",
+        default=60,
     )
 
     parser.add_argument(
@@ -101,23 +129,23 @@ def add_im_validator_args(cls, parser):
     )
 
     parser.add_argument(
-        "--scoring.activity.capital_turnover_rate",
+        "--scoring.activity.capital_turnover_cap",
         type=float,
-        help="The number of times within each `trade_volume_assessment_period` that miner agents must trade the equivalent in volume to their initial capital allocation value in order to receive full rewards for their risk-adjusted performance.",
-        default=1.0,
+        help="The number of times within each `trade_volume_assessment_period` that miner agents are able to trade the equivalent in volume to their initial capital allocation value before they are restricted from further activity.",
+        default=10.0,
     )
 
     parser.add_argument(
         "--scoring.max_delay",
         type=int,
-        help="Maximum simulation timestamp delay to be applied to miner responses.",
+        help="Maximum simulation timestamp delay to may be applied to miner responses.",
         default=500_000_000,
     )
 
     parser.add_argument(
         "--scoring.min_delay",
         type=int,
-        help="Maximum simulation timestamp delay to be applied to miner responses.",
+        help="Minimum simulation timestamp delay that may be applied to miner responses.",
         default=10_000_000,
     )
     

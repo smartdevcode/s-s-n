@@ -47,6 +47,12 @@ struct CancelOrderDesc
     decimal_t volumeToCancel;
 };
 
+struct OrderResult
+{
+    OrderErrorCode ec;
+    decimal_t orderSize;
+};
+
 //-------------------------------------------------------------------------
 
 class ClearingManager
@@ -72,7 +78,7 @@ public:
     
     [[nodiscard]] FeePolicyWrapper* feePolicy() { return m_feePolicy.get(); };
 
-    [[nodiscard]] OrderErrorCode handleOrder(const OrderDesc& orderDesc);
+    [[nodiscard]] OrderResult handleOrder(const OrderDesc& orderDesc);
     void handleCancelOrder(const CancelOrderDesc& cancelDesc);
     Fees handleTrade(const TradeDesc& tradeDesc);
     void updateFeeTiers(Timestamp time) noexcept;

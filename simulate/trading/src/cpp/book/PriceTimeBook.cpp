@@ -19,8 +19,9 @@ PriceTimeBook::PriceTimeBook(
 
 //-------------------------------------------------------------------------
 
-void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice)
+taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice)
 {
+    taosim::decimal_t processedQuote = {};
     const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
     const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
     const auto agentId = m_order2clientCtx[order->id()].agentId;
@@ -55,6 +56,7 @@ void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_
         }
 
         if (usedVolume > 0_dec) {
+            processedQuote += usedVolume * bestBuyDeque->price();
             logTrade(OrderDirection::SELL, order->id(), iop->id(), usedVolume, bestBuyDeque->price());
         }
 
@@ -87,12 +89,14 @@ void PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_
             bestBuyDeque = &m_buyQueue.back();
         }
     }
+    return processedQuote;
 }
 
 //-------------------------------------------------------------------------
 
-void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice)
+taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice)
 {
+    taosim::decimal_t processedQuote = {};
     const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
     const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
     const auto agentId = m_order2clientCtx[order->id()].agentId;
@@ -127,6 +131,7 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
         }
 
         if (usedVolume > 0_dec) {
+            processedQuote += usedVolume * bestSellDeque->price();
             logTrade(OrderDirection::BUY, order->id(), iop->id(), usedVolume, bestSellDeque->price());
         }
 
@@ -159,6 +164,7 @@ void PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, taosim::decimal
             bestSellDeque = &m_sellQueue.front();
         }
     }
+    return processedQuote;
 }
 
 
@@ -198,8 +204,9 @@ TickContainer* PriceTimeBook::preventSelfTrade(TickContainer* queue, LimitOrder:
 
     if (stpFlag == STPFlag::CO || stpFlag == STPFlag::CB) {
         auto volumeToCancel = iop->totalVolume();
+        const auto ticksOnLevelBeforeCancel = queue->size();
         if (cancelAndLog(iop->id())) {
-            if (queue->empty()) {
+            if (ticksOnLevelBeforeCancel == 1) {
                 bool isBuy = iop->direction() == OrderDirection::BUY;
                 if ((isBuy && m_buyQueue.empty()) || (!isBuy && m_sellQueue.empty()))
                     return nullptr;
@@ -220,8 +227,9 @@ TickContainer* PriceTimeBook::preventSelfTrade(TickContainer* queue, LimitOrder:
         } else if (iop->totalVolume() < order->totalVolume()){
             auto volumeToCancel = taosim::util::round(iop->totalVolume() / taosim::util::dec1p(order->leverage()),
                 m_simulation->exchange()->config().parameters().volumeIncrementDecimals);
+            const auto ticksOnLevelBeforeCancel = queue->size();
             if (cancelAndLog(iop->id())){
-                if (queue->empty()) {
+                if (ticksOnLevelBeforeCancel == 1) {
                     bool isBuy = iop->direction() == OrderDirection::BUY;
                     if ((isBuy && m_buyQueue.empty()) || (!isBuy && m_sellQueue.empty()))
                         return nullptr;
@@ -242,26 +250,6 @@ TickContainer* PriceTimeBook::preventSelfTrade(TickContainer* queue, LimitOrder:
 
     return queue;
 
-}
-
-//-------------------------------------------------------------------------
-
-taosim::decimal_t PriceTimeBook::calculatCorrespondingVolume(taosim::decimal_t quotePrice)
-{
-    taosim::decimal_t volume = {};
-    
-    for (auto buyDequeIt = m_buyQueue.begin(); buyDequeIt != m_buyQueue.end(); ++buyDequeIt) {
-        if (quotePrice - buyDequeIt->price() * buyDequeIt->totalVolume() > 0_dec){
-            volume += buyDequeIt->totalVolume();
-            quotePrice -= buyDequeIt->price() * buyDequeIt->totalVolume();
-        } else {
-            volume += taosim::util::round(quotePrice / buyDequeIt->price(), 
-                m_simulation->exchange()->config().parameters().volumeIncrementDecimals);
-            break;
-        }
-    }
-
-    return volume;
 }
 
 //-------------------------------------------------------------------------

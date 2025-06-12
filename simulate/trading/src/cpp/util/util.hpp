@@ -40,6 +40,7 @@ template<typename... Args>
 [[nodiscard]] std::vector<std::string> split(std::string_view str, char delim) noexcept;
 
 std::vector<std::string> getLastLines(const std::string& filename, int lineCount) noexcept;
+double getClosestPreviousEntry(const std::string& filename, long long currentTimestamp);
 
 struct Nodes
 {

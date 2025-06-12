@@ -45,13 +45,10 @@ import psutil
 from git import Repo
 from pathlib import Path
 
-from binance.websocket.spot.websocket_stream import SpotWebsocketStreamClient
-from taos.im.utils.coinbase import CoinbaseClient
-from coinbase.websocket import WSClientConnectionClosedException,WSClientException
-
 from taos.common.neurons.validator import BaseValidatorNeuron
 from taos.common.utils.misc import run_process
 
+from taos.im.config import add_im_validator_args
 from taos.im.protocol.simulator import SimulatorBookMessage, SimulatorResponseBatch, SimulatorMessageBatch
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceEventNotification, FinanceAgentResponse
 from taos.im.protocol.models import MarketSimulationConfig
@@ -87,123 +84,10 @@ class Validator(BaseValidatorNeuron):
                 time.sleep(bt.settings.BLOCKTIME * 10)
             except Exception as ex:
                 bt.logging.error(f"Failed to sync : {traceback.format_exc()}")
-
-    def seed(self) -> None:
-        """
-        Retrieve price data for use as simulation fundamental price seed, and record to simulator-accessible location.
-        This process is also run in a separate thread parallel to the FastAPI server.
-        """
-        try:
-            self.seed_count = 0
-            self.seed_filename = None
-            last_count = self.seed_count
-            self.last_seed = None
-            self.pending_seed_data = ''
-            self.seed_exchange = 'coinbase'
-            self.seed_client = 'coinbase'
-
-            def binance_seed(_, message : str) -> None:
-                try:
-                    # bt.logging.trace(f"BI SEED {self.seed_count} : {message}")
-                    message_dict = json.loads(message)
-                    if 'e' in message_dict and message_dict['e'] == 'trade':
-                        seed = float(message_dict['p'])
-                        record_seed(seed)
-                except Exception as ex:
-                    bt.logging.error(f"Exception getting Binance seed value : Message={message} | Error={ex}")
-
-            def coinbase_seed(message : str) -> None:
-                try:
-                    # bt.logging.trace(f"CB SEED {self.seed_count} : {message}")
-                    message_dict = json.loads(message)
-                    if 'channel' in message_dict and message_dict['channel'] == 'market_trades':
-                        for event in message_dict['events']:
-                            if event['type'] == 'update' and 'trades' in event:
-                                seed = float(event['trades'][0]['price'])
-                                record_seed(seed)
-                                return
-                except Exception as ex:
-                    bt.logging.error(f"Exception getting Coinbase seed value : Message={message} | Error={ex}")
-
-            def record_seed(seed : int) -> None:
-                try:
-                    if not self.last_seed or self.last_seed != seed:
-                        self.seed_count += 1
-                        if not self.simulation.logDir:
-                            self.pending_seed_data += f"{self.seed_count},{seed}\n"
-                        else:
-                            if self.seed_filename != os.path.join(self.simulation.logDir,"fundamental_seed.csv"):
-                                self.last_seed = None
-                                self.seed_count = 0
-                                self.pending_seed_data = ''
-                            if not self.last_seed:
-                                self.seed_filename = os.path.join(self.simulation.logDir,"fundamental_seed.csv")
-                                if os.path.exists(self.seed_filename) and os.stat(self.seed_filename).st_size > 0:
-                                    with open(self.seed_filename) as f:
-                                        for line in f:
-                                            pass
-                                        self.seed_count = self.seed_count + int(line.split(',')[0])
-                                self.seed_file = open(self.seed_filename,'a')
-                                self.seed_file.write(self.pending_seed_data)
-                                self.pending_seed_data = ''
-                            self.seed_file.write(f"{self.seed_count},{seed}\n")
-                            self.seed_file.flush()
-                            self.last_seed = seed
-                except Exception as ex:
-                    bt.logging.error(f"Exception in seed handling : Seed={seed} | Error={ex}")
-
-            def connect() -> None:
-                attempts = 0
-                while True:
-                    try:
-                        attempts += 1
-                        self.seed_exchange='coinbase'
-                        self.seed_client = CoinbaseClient(on_message=coinbase_seed)
-                        bt.logging.info("Attempting to connect to Coinbase Trades Stream...")
-                        self.seed_client.open()
-                        self.seed_client.subscribe(product_ids=["BTC-USD"], channels=["market_trades"])
-                        bt.logging.success("Subscribed to Coinbase Trades Stream!")
-                        break
-                    except Exception as ex:
-                        bt.logging.warning(f"Unable to connect to Coinbase Trades Stream! {ex}. Trying Binance.")
-                        try:
-                            self.seed_exchange='binance'
-                            self.seed_client = SpotWebsocketStreamClient(on_message=binance_seed)
-                            self.seed_client.trade(symbol=validator.config.simulation.seed_symbol)
-                            bt.logging.success("Subscribed to Binance Trades Stream!")
-                            break
-                        except Exception as ex:
-                            bt.logging.error(f"Unable to connect to Binance Trades Stream : {ex}.")
-                            self.pagerduty_alert(f"Failed connecting to fundamental price seed stream (Attempt {attempts})")
-
-            connect()
-
-            while True:
-                try:
-                    if self.seed_exchange=='coinbase':
-                        try:
-                            self.seed_client.sleep_with_exception_check(10)
-                        except WSClientException as e:
-                            bt.logging.warning(f"Error in Coinbase websocket : {e}")
-                        except WSClientConnectionClosedException as e:
-                            bt.logging.error("Coinbase connection closed! Sleeping for 10 seconds before reconnecting...")
-                            time.sleep(10)
-                        if not self.seed_client._is_websocket_open():
-                            connect()
-                    else:
-                        time.sleep(10)
-                    if self.last_seed:
-                        self.seed_file.flush()
-                        if last_count == self.seed_count:
-                            bt.logging.warning(f"No new seed in last 10 seconds!  Restarting connection.")
-                            if self.seed_exchange=='coinbase' and self.seed_client._is_websocket_open():
-                                self.seed_client.close()
-                            connect()
-                        last_count = self.seed_count
-                except Exception as ex:
-                    bt.logging.error(f"Exception in seed loop : {ex}")
-        except Exception as ex:
-            self.pagerduty_alert(f"Failure in seeding process : {ex}", details={"traceback" : traceback.format_exc()})
+                
+    def seed(self) -> None:    
+        from taos.im.validator.seed import seed
+        seed(self)
 
     def update_repo(self, end=False) -> Tuple[bool, bool, bool, bool]:
         """
@@ -537,7 +421,9 @@ class Validator(BaseValidatorNeuron):
             self.hotkeys = validator_state["hotkeys"]
             self.deregistered_uids = list(validator_state["deregistered_uids"]) if "deregistered_uids" in validator_state else []
             self.scores = torch.tensor(validator_state["scores"])
-            self.activity_factors = validator_state["activity_factors"] if "activity_factors" in validator_state else {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
+            self.activity_factors = validator_state["activity_factors"] if "activity_factors" in validator_state else {uid : {bookId : 0.0 for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+            if isinstance(self.activity_factors[0], float):
+                self.activity_factors = {uid : {bookId : self.activity_factors[uid] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.inventory_history = validator_state["inventory_history"] if "inventory_history" in validator_state else {uid : {} for uid in range(self.subnet_info.max_uids)}
             for uid in self.inventory_history:
                 for timestamp in self.inventory_history[uid]:
@@ -584,7 +470,7 @@ class Validator(BaseValidatorNeuron):
                 bt.logging.warning(f"`neuron.reset is True, ignoring previous state info at {self.validator_state_file}.")
             else:
                 bt.logging.info(f"No previous state information at {self.validator_state_file}, initializing new simulation state.") 
-            self.activity_factors = {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
+            self.activity_factors = {uid : {bookId : 0.0 for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
             self.sharpe_values = {uid :
                 {
@@ -593,8 +479,10 @@ class Validator(BaseValidatorNeuron):
                     },
                     'total' : 0.0,
                     'average' : 0.0,
+                    'median' : 0.0,
                     'normalized_average' : 0.0,
-                    'normalized_total' : 0.0
+                    'normalized_total' : 0.0,
+                    'normalized_median' : 0.0
                 } for uid in range(self.subnet_info.max_uids)
             }
             self.unnormalized_scores = {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
@@ -709,9 +597,12 @@ class Validator(BaseValidatorNeuron):
             },
             'total' : 0.0,
             'average' : 0.0,
+            'median' : 0.0,
             'normalized_average' : 0.0,
-            'normalized_total' : 0.0
-        } 
+            'normalized_total' : 0.0,
+            'normalized_median' : 0.0
+        }
+        self.activity_factors[uid] = {bookId : 0.0 for bookId in range(self.simulation.book_count)}
         self.unnormalized_scores[uid] = 0.0
         self.inventory_history[uid] = {}
         self.deregistered_uids.append(uid)
@@ -851,10 +742,9 @@ class Validator(BaseValidatorNeuron):
 
 # The main method which runs the validator
 if __name__ == "__main__":
-    from taos.im.validator.forward import forward, notify
+    from taos.im.validator.forward import forward, notify    
     from taos.im.validator.report import report, publish_info, init_metrics    
     from taos.im.validator.reward import get_rewards
-    from taos.im.config import add_im_validator_args
     if float(platform.freedesktop_os_release()['VERSION_ID']) < 22.04:
         raise Exception(f"taos validator requires Ubuntu >= 22.04!")
     # Initialize FastAPI client and attach validator router

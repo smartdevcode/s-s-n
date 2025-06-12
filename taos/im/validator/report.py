@@ -57,6 +57,24 @@ def init_metrics(self : Validator) -> None:
         'miner_gauge_name'
     ])
     self.prometheus_info = Info('neuron_info', "Info summaries for the running validator.", ['wallet', 'netuid'])
+    
+def publish_validator_gauges(self : Validator):   
+    bt.logging.debug(f"Publishing validator metrics...") 
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="uid").set( self.uid )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="stake").set( self.metagraph.stake[self.uid] )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="validator_trust").set( self.metagraph.validator_trust[self.uid] )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="dividends").set( self.metagraph.dividends[self.uid] )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="emission").set( self.metagraph.emission[self.uid] )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="last_update").set( self.current_block - self.metagraph.last_update[self.uid] )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="active").set( self.metagraph.active[self.uid] )
+    cpu_usage = psutil.cpu_percent()
+    memory_info = psutil.virtual_memory()
+    memory_usage = memory_info.percent
+    disk_info = psutil.disk_usage('/')
+    disk_usage = disk_info.percent
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="cpu_usage_percent").set( cpu_usage )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="ram_usage_percent").set( memory_usage )
+    self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="disk_usage_percent").set( disk_usage )
 
 def publish_info(self : Validator) -> None:
     """
@@ -77,7 +95,8 @@ def publish_info(self : Validator) -> None:
     } | { 
          f"simulation_{name}" : str(value) for name, value in self.simulation.model_dump().items() if name != 'logDir' and name != 'fee_policy'
     } | self.simulation.fee_policy.to_prom_info()
-    self.prometheus_info.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid ).info (prometheus_info)
+    self.prometheus_info.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid ).info (prometheus_info)    
+    publish_validator_gauges(self)
     
 def duration_from_timestamp(timestamp : int) -> str:
     seconds, nanoseconds = divmod(timestamp, 1_000_000_000)
@@ -107,22 +126,9 @@ def report(self : Validator) -> None:
         self.prometheus_simulation_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, simulation_gauge_name="step_rate").set( sum(self.step_rates) / len(self.step_rates) if len(self.step_rates) > 0 else 0 )
         has_new_trades = False
         has_new_miner_trades = False
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="uid").set( self.uid )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="stake").set( self.metagraph.stake[self.uid] )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="validator_trust").set( self.metagraph.validator_trust[self.uid] )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="dividends").set( self.metagraph.dividends[self.uid] )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="emission").set( self.metagraph.emission[self.uid] )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="last_update").set( self.current_block - self.metagraph.last_update[self.uid] )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="active").set( self.metagraph.active[self.uid] )
-            
-        cpu_usage = psutil.cpu_percent()
-        memory_info = psutil.virtual_memory()
-        memory_usage = memory_info.percent
-        disk_info = psutil.disk_usage('/')
-        disk_usage = disk_info.percent
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="cpu_usage_percent").set( cpu_usage )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="ram_usage_percent").set( memory_usage )
-        self.prometheus_validator_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, validator_gauge_name="disk_usage_percent").set( disk_usage )
+        
+        publish_validator_gauges(self)    
+        
         self.prometheus_books.clear()
         bt.logging.debug(f"Simulation metrics published ({time.time()-start:.4f}s).")
         if self.simulation.logDir:
@@ -334,8 +340,8 @@ def report(self : Validator) -> None:
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="min_daily_maker_volume").set(min_daily_volume['maker'])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="min_daily_taker_volume").set(min_daily_volume['taker'])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="min_daily_self_volume").set(min_daily_volume['self'])
-                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="activity_factor").set(self.activity_factors[agentId])                
-                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="sharpe").set(self.sharpe_values[agentId]['total'])
+                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="activity_factor").set(min(self.activity_factors[agentId].values()))                
+                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="sharpe").set(self.sharpe_values[agentId]['median'])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="unnormalized_score").set(self.unnormalized_scores[agentId])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="score").set(scores[agentId].item())
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="placement").set(placements[agentId].item())
@@ -358,7 +364,7 @@ def report(self : Validator) -> None:
                     placement=placements[agentId].item(), base_balance=total_base_balance, quote_balance=total_quote_balance,
                     inventory_value=total_inventory_history[agentId][-1], inventory_value_change=total_inventory_history[agentId][-1] - total_inventory_history[agentId][-2] if len(total_inventory_history[agentId]) > 1 else 0.0,
                     pnl=pnl[agentId], pnl_change=pnl[agentId] - (total_inventory_history[agentId][-2] - total_inventory_history[agentId][0]) if len(total_inventory_history[agentId]) > 1 else 0.0,
-                    min_daily_volume=min_daily_volume['total'], activity_factor=self.activity_factors[agentId], sharpe=self.sharpe_values[agentId]['total'], unnormalized_score=self.unnormalized_scores[agentId], score=scores[agentId].item(),
+                    min_daily_volume=min_daily_volume['total'], activity_factor=min(self.activity_factors[agentId].values()), sharpe=self.sharpe_values[agentId]['median'], unnormalized_score=self.unnormalized_scores[agentId], score=scores[agentId].item(),
                     miner_gauge_name='miners'
                 ).set( 1.0 )
                 time_metric += time.time() - start_metric

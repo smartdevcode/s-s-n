@@ -43,7 +43,7 @@ accounting::AccountRegistry& ClearingManager::accounts() noexcept
 
 //-------------------------------------------------------------------------
 
-OrderErrorCode ClearingManager::handleOrder(const OrderDesc& orderDesc)
+OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
 {
     const auto [agentId, bookId, quantity, price, expectedValidationResult] =
         std::visit(
@@ -86,7 +86,10 @@ OrderErrorCode ClearingManager::handleOrder(const OrderDesc& orderDesc)
             orderDesc);
 
     if (!expectedValidationResult.has_value()) {
-        return expectedValidationResult.error();
+        return {
+            .ec =  expectedValidationResult.error(),
+            .orderSize = 0_dec
+        };
     }
     const auto& validationResult = expectedValidationResult.value();
 
@@ -113,7 +116,10 @@ OrderErrorCode ClearingManager::handleOrder(const OrderDesc& orderDesc)
         validationResult.direction == OrderDirection::BUY ? "ASK" : "BID", curPrice, m_exchange->getMaxLeverage()
     );    
 
-    return OrderErrorCode::VALID;
+    return {
+        .ec = OrderErrorCode::VALID,
+        .orderSize = validationResult.orderSize
+    };
 }
 
 //-------------------------------------------------------------------------
@@ -225,13 +231,20 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
         restingAgentActiveOrders.begin(),
         restingAgentActiveOrders.end(),
         [restingOrderId](const auto o) { return o->id() == restingOrderId; });
-    if (restingOrderIt == restingAgentActiveOrders.end()) {        
+    if (restingOrderIt == restingAgentActiveOrders.end()) {
         throw std::runtime_error{fmt::format(
-            "{} | AGENT #{} BOOK {} : Resting order #{} not found in active orders.",
+            "{} | AGENT #{} BOOK {} : Resting order #{} not found in active orders while processing {} trade #{} against order #{} from {} for {}@{}.",
             m_exchange->simulation()->currentTimestamp(),
             restingAgentId,
             bookId,
-            restingOrderId)};
+            restingOrderId,
+            trade->direction() == OrderDirection::BUY ? "BUY" : "SELL",
+            trade->id(),
+            trade->aggressingOrderID(),
+            aggressingAgentId,
+            trade->volume(),
+            trade->price()
+        )};
     }
     LimitOrder::Ptr restingOrder = std::dynamic_pointer_cast<LimitOrder>(*restingOrderIt);
 

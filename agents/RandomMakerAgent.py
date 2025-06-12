@@ -1,5 +1,6 @@
+from taos.common.agents import launch
 from taos.im.agents import FinanceSimulationAgent
-from taos.im.protocol.models import OrderDirection, STP
+from taos.im.protocol.models import *
 from taos.im.protocol.instructions import *
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 
@@ -67,3 +68,6 @@ class RandomMakerAgent(FinanceSimulationAgent):
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response
+
+if __name__ == "__main__":
+    launch(RandomMakerAgent)

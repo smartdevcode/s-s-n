@@ -136,7 +136,7 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
 
                             const auto& loan = accounts()[idIt->agentId][bookId].getLoan(idIt->orderId);
                             if (loan.has_value()){
-                                taosim::decimal_t remainingVolume = book->calculatCorrespondingVolume(loan->get().amount());
+                                taosim::decimal_t remainingVolume = loan->get().amount();
 
                                 simulation()->logDebug("Margin Call for BUY order #{} of agent {} at price {} (marginCall:{}) in Book {} for volume {}x{}",
                                     idIt->orderId,
@@ -157,7 +157,8 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                     MessagePayload::create<PlaceOrderMarketPayload>(
                                         OrderDirection::SELL,
                                         remainingVolume,
-                                        bookId),
+                                        bookId,
+                                        Currency::QUOTE),
                                     m_marginCallCounter++
                                 );
 
@@ -834,7 +835,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
     }
-    const OrderErrorCode ec = m_clearingManager->handleOrder(
+    const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::MarketOrderDesc{
             .agentId = payload->agentId,
             .payload = subPayload
@@ -844,10 +845,10 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
     }
 
-    if (ec != OrderErrorCode::VALID) {
+    if (orderResult.ec != OrderErrorCode::VALID) {
         simulation()->logDebug(
             "Invalid Market Order Placement by Distributed Agent - {} : {}",
-            ec,
+            orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
         return fastRespondToMessage(
             msg,
@@ -857,13 +858,13 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
                 MessagePayload::create<PlaceOrderMarketErrorResponsePayload>(
                     subPayload,
                     MessagePayload::create<ErrorResponsePayload>(
-                        OrderErrorCode2StrView(ec).data()))));
+                        OrderErrorCode2StrView(orderResult.ec).data()))));
     }
 
     const auto order = m_books[subPayload->bookId]->placeMarketOrder(
         subPayload->direction,
         msg->arrival,
-        subPayload->volume,
+        orderResult.orderSize,
         subPayload->leverage,
         OrderClientContext{payload->agentId, subPayload->clientOrderId},
         subPayload->stpFlag
@@ -891,7 +892,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
     }
-    const auto ec = m_clearingManager->handleOrder(
+    const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::LimitOrderDesc{
             .agentId = payload->agentId,
             .payload = subPayload
@@ -901,10 +902,10 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
     }
 
-    if (ec != OrderErrorCode::VALID) {
+    if (orderResult.ec != OrderErrorCode::VALID) {
         simulation()->logDebug(
             "Invalid Limit Order Placement by Distributed Agent - {} : {}",
-            ec,
+            orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
         return fastRespondToMessage(
             msg,
@@ -914,13 +915,13 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
                 MessagePayload::create<PlaceOrderLimitErrorResponsePayload>(
                     subPayload,
                     MessagePayload::create<ErrorResponsePayload>(
-                        OrderErrorCode2StrView(ec).data()))));
+                        OrderErrorCode2StrView(orderResult.ec).data()))));
     }
 
     const auto order = m_books[subPayload->bookId]->placeLimitOrder(
         subPayload->direction,
         msg->arrival,
-        subPayload->volume,
+        orderResult.orderSize,
         subPayload->price,
         subPayload->leverage,
         OrderClientContext{payload->agentId, subPayload->clientOrderId},
@@ -936,6 +937,19 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
             payload->agentId,
             MessagePayload::create<PlaceOrderLimitResponsePayload>(order->id(), subPayload)),
         0);
+
+    if (subPayload->timeInForce == taosim::TimeInForce::GTT && subPayload->expiryPeriod.has_value()) {
+        simulation()->dispatchMessage(
+            simulation()->currentTimestamp(),
+            subPayload->expiryPeriod.value(),
+            msg->source,
+            name(),
+            "DISTRIBUTED_CANCEL_ORDERS",
+            MessagePayload::create<DistributedAgentResponsePayload>(
+                payload->agentId,
+                MessagePayload::create<CancelOrdersPayload>(
+                    std::vector{Cancellation{order->id()}}, subPayload->bookId)));
+    }
 }
 
 //-------------------------------------------------------------------------
@@ -1091,7 +1105,7 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
         const auto& balances = simulation()->exchange()->accounts()[agentId][payload->bookId];
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
     }
-    const OrderErrorCode ec = m_clearingManager->handleOrder(
+    const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::MarketOrderDesc{
             .agentId = msg->source,
             .payload = payload
@@ -1102,10 +1116,10 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
     }
     
-    if (ec != OrderErrorCode::VALID) {
+    if (orderResult.ec != OrderErrorCode::VALID) {
         simulation()->logDebug(
             "Invalid Market Order Placement by Local Agent - {} : {}",
-            ec,
+            orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
         return fastRespondToMessage(
             msg,
@@ -1113,13 +1127,13 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
             MessagePayload::create<PlaceOrderMarketErrorResponsePayload>(
                 payload,
                 MessagePayload::create<ErrorResponsePayload>(
-                    OrderErrorCode2StrView(ec).data())));
+                    OrderErrorCode2StrView(orderResult.ec).data())));
     }
 
     const auto order = m_books[payload->bookId]->placeMarketOrder(
         payload->direction,
         msg->arrival,
-        payload->volume,
+        orderResult.orderSize,
         payload->leverage,
         OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
         payload->stpFlag
@@ -1144,7 +1158,7 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
         const auto& balances = simulation()->exchange()->accounts()[agentId][payload->bookId];
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
     }
-    const OrderErrorCode ec = m_clearingManager->handleOrder(
+    const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::LimitOrderDesc{
             .agentId = msg->source,
             .payload = payload
@@ -1155,10 +1169,10 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
     }
 
-    if (ec != OrderErrorCode::VALID) {
+    if (orderResult.ec != OrderErrorCode::VALID) {
         simulation()->logDebug(
             "Invalid Limit Order Placement by Local Agent - {} : {}",
-            ec,
+            orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
         return fastRespondToMessage(
             msg,
@@ -1166,13 +1180,13 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
             MessagePayload::create<PlaceOrderLimitErrorResponsePayload>(
                 payload,
                 MessagePayload::create<ErrorResponsePayload>(
-                    OrderErrorCode2StrView(ec).data())));
+                    OrderErrorCode2StrView(orderResult.ec).data())));
     }
 
     const auto order = m_books[payload->bookId]->placeLimitOrder(
         payload->direction,
         msg->arrival,
-        payload->volume,
+        orderResult.orderSize,
         payload->price,
         payload->leverage,
         OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
@@ -1185,6 +1199,17 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
         1);
 
     notifyLimitOrderSubscribers(order);
+
+    if (payload->timeInForce == taosim::TimeInForce::GTT && payload->expiryPeriod.has_value()) {
+        simulation()->dispatchMessage(
+            simulation()->currentTimestamp(),
+            payload->expiryPeriod.value(),
+            msg->source,
+            name(),
+            "CANCEL_ORDERS",
+            MessagePayload::create<CancelOrdersPayload>(
+                std::vector{Cancellation{order->id()}}, payload->bookId));
+    }
 }
 
 //-------------------------------------------------------------------------

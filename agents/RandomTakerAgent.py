@@ -1,6 +1,8 @@
+from taos.common.agents import launch
 from taos.im.agents import FinanceSimulationAgent
+from taos.im.protocol.models import *
+from taos.im.protocol.instructions import *
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
-from taos.im.protocol.models import OrderDirection, STP
 
 import random
 
@@ -18,6 +20,12 @@ class RandomTakerAgent(FinanceSimulationAgent):
         # Initialize a variable which allows to maintain the same direction of trade for a defined period
         self.direction = {}
 
+    def quantity(self):
+        """
+        Obtains a random quantity for order placement within the bounds defined by the agent strategy parameters.
+        """
+        return round(random.uniform(self.min_quantity,self.max_quantity),self.simulation_config.volumeDecimals)
+
     def respond(self, state : MarketSimulationStateUpdate) -> FinanceAgentResponse:
         """
         The main logic of the strategy executed when a new state is received from validator.
@@ -32,7 +40,10 @@ class RandomTakerAgent(FinanceSimulationAgent):
                 # Randomly select a new trade direction for the agent on this book
                 self.direction[book_id] = random.choice([OrderDirection.BUY,OrderDirection.SELL])
             # Attach a market order instruction in the current trade direction for a random quantity within bounds defined by the parameters
-            response.market_order(book_id=book_id, direction=self.direction[book_id], quantity=round(random.uniform(self.min_quantity,self.max_quantity),self.simulation_config.volumeDecimals), stp=STP.DECREASE_CANCEL)
+            response.market_order(book_id=book_id, direction=self.direction[book_id], quantity=self.quantity(), stp=random.choice([STP.DECREASE_CANCEL, STP.CANCEL_OLDEST]))
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response
+
+if __name__ == "__main__":
+    launch(RandomTakerAgent)
