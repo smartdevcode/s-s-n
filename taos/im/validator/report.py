@@ -242,7 +242,6 @@ def report(self : Validator) -> None:
                 start_inv = [i for i in list(self.inventory_history[agentId].values()) if len(i) > bookId][0]
                 last_inv = list(self.inventory_history[agentId].values())[-1]
                 sharpes = self.sharpe_values[agentId]
-                activity_factors = {bookId : round(min(1.0, daily_volumes[agentId][bookId]['total'] / round(self.simulation.miner_wealth, self.simulation.volumeDecimals)),6) for bookId in accounts.keys()}
                 for bookId, account in accounts.items():
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="base_balance_total").set( account.base_balance.total )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="base_balance_free").set( account.base_balance.free )
@@ -261,7 +260,7 @@ def report(self : Validator) -> None:
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="daily_maker_volume").set( daily_volumes[agentId][bookId]['maker'] )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="daily_taker_volume").set( daily_volumes[agentId][bookId]['taker'] )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="daily_self_volume").set( daily_volumes[agentId][bookId]['self'] )
-                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="activity_factor").set( activity_factors[bookId] )
+                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="activity_factor").set( self.activity_factors[agentId][bookId] )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="sharpe").set( sharpes['books'][bookId] )
             if all(initial_balance_publish_status):
                 self.initial_balances_published = True

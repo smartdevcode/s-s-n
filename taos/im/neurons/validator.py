@@ -46,7 +46,6 @@ from git import Repo
 from pathlib import Path
 
 from taos.common.neurons.validator import BaseValidatorNeuron
-from taos.common.utils.misc import run_process
 
 from taos.im.config import add_im_validator_args
 from taos.im.protocol.simulator import SimulatorBookMessage, SimulatorResponseBatch, SimulatorMessageBatch
@@ -79,17 +78,17 @@ class Validator(BaseValidatorNeuron):
             try:
                 bt.logging.debug("Synchronizing...")
                 self.sync(save_state=False)
-                if not self.check_simulator():
-                    self.restart_simulator()
+                if not check_simulator(self):
+                    restart_simulator(self)
                 time.sleep(bt.settings.BLOCKTIME * 10)
             except Exception as ex:
                 bt.logging.error(f"Failed to sync : {traceback.format_exc()}")
-                
-    def seed(self) -> None:    
+
+    def seed(self) -> None:
         from taos.im.validator.seed import seed
         seed(self)
 
-    def update_repo(self, end=False) -> Tuple[bool, bool, bool, bool]:
+    def update_repo(self, end=False) -> bool:
         """
         Checks for and pulls latest changes from the taos repo.
         If source has changed, the simulator is rebuilt and restarted.
@@ -97,172 +96,29 @@ class Validator(BaseValidatorNeuron):
         If validator source is updated, restart validator process.
         """
         try:
-            self.repo = Repo(self.repo_path)
+            validator_py_files_changed, simulator_config_changed, simulator_py_files_changed, simulator_cpp_files_changed = check_repo(self)
             remote = self.repo.remotes[self.config.repo.remote]
-            fetch = remote.fetch(self.repo.active_branch.name)
-            diff = self.repo.head.commit.diff(remote.refs[self.repo.active_branch.name].object.hexsha)
-            validator_py_files_changed = False
-            simulator_config_changed = False
-            simulator_py_files_changed = False
-            simulator_cpp_files_changed = False
-            for cht in diff.change_type:
-                changes = list(diff.iter_change_type(cht))
-                for c in changes:
-                    if str(self.repo_path / c.b_path) == self.simulator_config_file:
-                        simulator_config_changed = True
-                    if c.b_path.endswith('.cpp'):
-                        simulator_cpp_files_changed = True
-                    if c.b_path.endswith('.py'):
-                        if 'simulate/trading' in c.b_path:
-                            simulator_py_files_changed = True
-                        else:
-                            validator_py_files_changed = True
-            if len(diff) > 0:
-                pull = remote.pull()
-            if simulator_cpp_files_changed or simulator_py_files_changed:
-                bt.logging.warning("SIMULATOR SOURCE CHANGED")
-                self.rebuild_simulator()
-            if simulator_config_changed:
-                bt.logging.warning("SIMULATOR CONFIG CHANGED")
-            if end or validator_py_files_changed or simulator_cpp_files_changed or simulator_py_files_changed or simulator_config_changed:
-                self.restart_simulator()
-            if validator_py_files_changed:
-                self.update_validator()
-            return validator_py_files_changed, simulator_config_changed, simulator_py_files_changed, simulator_cpp_files_changed
+
+            if not end:
+                if validator_py_files_changed and not (simulator_cpp_files_changed or simulator_py_files_changed):
+                    bt.logging.warning("VALIDATOR LOGIC UPDATED - PULLING AND DEPLOYING.")
+                    remote.pull()
+                    update_validator(self)
+            else:
+                remote.pull()
+                if simulator_cpp_files_changed or simulator_py_files_changed:
+                    bt.logging.warning("SIMULATOR SOURCE CHANGED")
+                    rebuild_simulator(self)
+                if simulator_config_changed:
+                    bt.logging.warning("SIMULATOR CONFIG CHANGED")
+                restart_simulator(self)
+                if validator_py_files_changed:
+                    update_validator(self)
+            return True
         except Exception as ex:
             self.pagerduty_alert(f"Failed to update repo : {ex}", details={"traceback" : traceback.format_exc()})
-            return False, False
+            return False
 
-    def update_validator(self) -> None:
-        """
-        Updates, installs and restarts validator.
-        """
-        py_cmd = ["pip", "install", "-e", "."]
-        bt.logging.info(f"UPDATING VALIDATOR (PY)...")
-        make = run_process(py_cmd, cwd=(self.repo_path ).resolve())
-        if make.returncode == 0:
-            bt.logging.success("VALIDATOR PY UPDATE SUCCESSFUL.  RESTARTING...")
-        else:
-            raise Exception(f"FAILED TO COMPLETE VALIDATOR PY UPDATE:\n{make.stderr}")
-
-        pm2_json = subprocess.run(['pm2', 'jlist'],capture_output = True, text = True).stdout
-        pm2_js = json.loads(pm2_json) if pm2_json else []
-        restart_cmd = None
-        if len(pm2_js) > 0:
-            pm2_processes = {p['name'] : p for p in pm2_js}
-            if 'validator' in pm2_processes:
-                bt.logging.info("FOUND VALIDATOR IN pm2 PROCESSES.")
-                restart_cmd = ["pm2 restart validator"]
-        if not restart_cmd:
-            for proc in psutil.process_iter():
-                if 'python validator.py' in ' '.join(proc.cmdline()):
-                    bt.logging.info(f"FOUND VALIDATOR PROCESS `{proc.name()}` WITH PID {proc.pid}")
-                    proc.kill()
-            restart_cmd = [f"pm2 start --name=validator \"python validator.py --netuid {self.config.netuid} --subtensor.chain_endpoint {self.config.subtensor.chain_endpoint} --wallet.path {self.config.wallet.path} --wallet.name {self.config.wallet.name} --wallet.hotkey {self.config.wallet.hotkey}\""]
-        bt.logging.info(f"RESTARTING VALIDATOR : {' '.join(restart_cmd)}")
-        validator = subprocess.run(restart_cmd, cwd=str((self.repo_path / 'taos' / 'im' / 'neurons').resolve()), shell=True, capture_output=True)
-        return
-        # if validator.returncode == 0:
-        #     bt.logging.info("VALIDATOR RESTART SUCCESSFUL.")
-        # else:
-        #     raise Exception(f"FAILED TO RESTART VALIDATOR:\nSTDOUT : {validator.stdout}\nSTDERR : {validator.stderr}")
-
-    def rebuild_simulator(self) -> None:
-        """
-        Re-compiles the C++ simulator.
-        """
-        gcc_version_proc = subprocess.run(['g++ -dumpversion'], shell=True, capture_output=True)
-        if gcc_version_proc.returncode == 0:
-            gcc_version = gcc_version_proc.stdout
-            gcc14_check_proc = subprocess.run(['g++-14 -dumpversion'], shell=True, capture_output=True)
-            if gcc14_check_proc.returncode != 0:
-                raise Exception(f"Could not find g++-14 on system : {gcc14_check_proc.stderr}")
-        else:
-            raise Exception(f"Could not find g++ version : {gcc_version_proc.stderr}")
-        if gcc_version != '14':
-            make_cmd = ["cmake","-DENABLE_TRACES=1", "-DCMAKE_BUILD_TYPE=Release", "..", "-D", "CMAKE_CXX_COMPILER=g++-14"]
-        else:
-            make_cmd = ["cmake","-DENABLE_TRACES=1", "-DCMAKE_BUILD_TYPE=Release", ".."]
-
-        bt.logging.info(f"REBUILDING SIMULATOR (MAKE)...")
-        make = run_process(make_cmd, (self.repo_path / 'simulate' / 'trading' / 'build').resolve())
-        if make.returncode == 0:
-            bt.logging.success("MAKE PROCESS SUCCESSFUL.  BUILDING...")
-            build_cmd = ["cmake", "--build","."]
-            bt.logging.info(f"REBUILDING SIMULATOR (BUILD)...")
-            build = run_process(build_cmd, cwd=(self.repo_path / 'simulate' / 'trading' / 'build').resolve())
-            if build.returncode == 0:
-                bt.logging.success("REBUILT SIMULATOR.")
-            else:
-                raise Exception(f"FAILED TO COMPLETE SIMULATOR BUILD:\n{build.stderr}")
-        else:
-            raise Exception(f"FAILED TO COMPLETE SIMULATOR MAKE:\n{make.stderr}")
-
-        py_cmd = ["pip", "install", "-e", "."]
-        bt.logging.info(f"REBUILDING SIMULATOR (PY)...")
-        py = run_process(py_cmd, cwd=(self.repo_path / 'simulate' / 'trading').resolve())
-        if py.returncode == 0:
-            bt.logging.success("PY UPDATE SUCCESSFUL.")
-        else:
-            raise Exception(f"FAILED TO COMPLETE SIMULATOR PY UPDATE:\n{make.stderr}")
-
-    def restart_simulator(self) -> None:
-        """
-        Restarts the C++ simulator process.
-        """
-        pm2_json = subprocess.run(['pm2', 'jlist'],capture_output = True, text = True).stdout
-        pm2_js = json.loads(pm2_json) if pm2_json else []
-
-        restart_cmd = None
-        if len(pm2_js) > 0:
-            pm2_processes = {p['name'] : p for p in pm2_js}
-            if 'simulator' in pm2_processes:
-                bt.logging.info("FOUND SIMULATOR IN pm2 PROCESSES.")
-                restart_cmd = ["pm2 restart simulator"]
-        if not restart_cmd:
-            for proc in psutil.process_iter():
-                if '../build/src/cpp/taosim' in ' '.join(proc.cmdline()):
-                    bt.logging.info(f"FOUND SIMULATOR PROCESS `{proc.name()}` WITH PID {proc.pid}")
-                    proc.kill()
-            restart_cmd = [f"pm2 start --no-autorestart --name=simulator \"../build/src/cpp/taosim -f {self.simulator_config_file}\""]
-        bt.logging.info(f"RESTARTING SIMULATOR : {' '.join(restart_cmd)}")
-        simulator = subprocess.run(restart_cmd, cwd=str((self.repo_path / 'simulate' / 'trading' / 'run').resolve()), shell=True, capture_output=True)
-        if simulator.returncode == 0:
-            if self.check_simulator():
-                bt.logging.success("SIMULATOR RESTART SUCCESSFUL.")
-            else:
-                self.pagerduty_alert("FAILED TO RESTART SIMULATOR!  NOT FOUND IN PM2 AFTER RESTART.")
-        else:
-            raise Exception(f"FAILED TO RESTART SIMULATOR:\nSTDOUT : {simulator.stdout}\nSTDERR : {simulator.stderr}")
-
-    def check_simulator(self) -> bool:
-        """
-        If no new state update has been retrieved for 5 minutes, check if the simulator process is still running.
-        If the simulator is found not to be online, restart it.
-        TODO: Use checkpointing functionality to resume latest simulation.
-        """
-        if self.last_state_time and self.last_state_time < time.time() - 300:
-            pm2_json = subprocess.run(['pm2', 'jlist'],capture_output = True, text = True).stdout
-            pm2_js = json.loads(pm2_json) if pm2_json else []
-            pm2_processes = {p['name'] : p for p in pm2_js}
-            if 'simulator' in pm2_processes:
-                if pm2_processes['simulator']['pm2_env']['status'] != 'online':
-                    self.pagerduty_alert(f"Simulator process (PM2) has stopped! Status={pm2_processes['simulator']['pm2_env']['status']}")
-                    return False
-                else: 
-                    return True
-            else:
-                found = False
-                for proc in psutil.process_iter():
-                    if '../build/src/cpp/taosim' in ' '.join(proc.cmdline()):
-                        found = True
-                if not found:
-                    self.pagerduty_alert(f"Simulator process (No PM2) has stopped!")
-                    return False
-                else: 
-                    return True
-        return True
-    
     def _compress_outputs(self):
         self.compressing = True
         try:
@@ -291,7 +147,7 @@ class Validator(BaseValidatorNeuron):
                             archive_date = int(output_archive.name[:8])
                         except:
                             continue
-                        if output_archive.is_file() and output_archive.name.endswith('.zip') and archive_date < first_day_of_month:                            
+                        if output_archive.is_file() and output_archive.name.endswith('.zip') and archive_date < first_day_of_month:
                             try:
                                 output_archive.unlink()
                                 disk_usage = psutil.disk_usage('/').percent
@@ -302,13 +158,13 @@ class Validator(BaseValidatorNeuron):
                                 self.pagerduty_alert(f"Failed to remove archive {output_archive.name} : {ex}", details={"trace" : traceback.format_exc()})
         except Exception as ex:
             self.pagerduty_alert(f"Failure during output compression : {ex}", details={"trace" : traceback.format_exc()})
-        finally:            
+        finally:
             self.compressing = False
-    
+
     def compress_outputs(self):
         if not self.compressing:
             Thread(target=self._compress_outputs, args=(), daemon=True, name=f'compress_{self.step}').start()
-            
+
     def _save_state(self) -> None:
         """Saves the state of the validator to a file."""
         self.saving = True
@@ -363,12 +219,12 @@ class Validator(BaseValidatorNeuron):
             if os.path.exists(self.validator_state_file + ".tmp"):
                 os.remove(self.validator_state_file + ".tmp")
             self.pagerduty_alert(f"Failed to save state : {ex}", details={"trace" : traceback.format_exc()})
-        finally:            
+        finally:
             self.saving = False
 
-    def save_state(self) -> None:        
+    def save_state(self) -> None:
         if not self.saving:
-            Thread(target=self._save_state, args=(), daemon=True, name=f'save_{self.step}').start()            
+            Thread(target=self._save_state, args=(), daemon=True, name=f'save_{self.step}').start()
 
     def load_state(self) -> None:
         """Loads the state of the validator from a file."""
@@ -398,7 +254,7 @@ class Validator(BaseValidatorNeuron):
             self.recent_miner_trades = {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.fundamental_price = {bookId : None for bookId in range(self.simulation.book_count)}
             # self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
-                
+
         if os.path.exists(self.validator_state_file.replace('.mp', '.pt')):
             bt.logging.info("Pytorch validator state file exists - converting to msgpack...")
             pt_validator_state = torch.load(self.validator_state_file.replace('.mp', '.pt'), weights_only=False)
@@ -410,9 +266,9 @@ class Validator(BaseValidatorNeuron):
                 file.write(packed_data)
             os.rename(self.validator_state_file.replace('.mp', '.pt'), self.validator_state_file.replace('.mp', '.pt') + ".bak")
             bt.logging.info(f"Pytorch validator state file converted to msgpack at {self.validator_state_file}")
-            
+
         if not self.config.neuron.reset and os.path.exists(self.validator_state_file):
-            bt.logging.info(f"Loading validator state variables from {self.validator_state_file}...")  
+            bt.logging.info(f"Loading validator state variables from {self.validator_state_file}...")
             with open(self.validator_state_file, 'rb') as file:
                 byte_data = file.read()
             validator_state = msgpack.unpackb(byte_data, use_list=False, strict_map_key=False)
@@ -431,7 +287,7 @@ class Validator(BaseValidatorNeuron):
                         for bookId in range(len(self.inventory_history[uid][timestamp]),self.simulation.book_count):
                             self.inventory_history[uid][timestamp][bookId] = 0.0
                     if len(self.inventory_history[uid][timestamp]) > self.simulation.book_count:
-                        self.inventory_history[uid][timestamp] = {k : v for k, v in self.inventory_history[uid][timestamp].items() if k < self.simulation.book_count}                
+                        self.inventory_history[uid][timestamp] = {k : v for k, v in self.inventory_history[uid][timestamp].items() if k < self.simulation.book_count}
             self.sharpe_values = validator_state["sharpe_values"]
             for uid in self.sharpe_values:
                 if len(self.sharpe_values[uid]['books']) < self.simulation.book_count:
@@ -448,7 +304,7 @@ class Validator(BaseValidatorNeuron):
                         if not reorg:
                             bt.logging.info(f"Optimizing miner volume history structures...")
                             reorg = True
-                        volumes = {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}}                        
+                        volumes = {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}}
                         for time, role_volume in self.trade_volumes[uid][bookId].items():
                             sampled_time = math.ceil(time / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
                             for role, volume in role_volume.items():
@@ -464,12 +320,12 @@ class Validator(BaseValidatorNeuron):
             if reorg:
                 self._save_state()
             bt.logging.success(f"Loaded validator state.")
-        else:           
+        else:
             # If no state exists or the neuron.reset flag is set, re-initialize the validator state
             if self.config.neuron.reset and os.path.exists(self.validator_state_file):
                 bt.logging.warning(f"`neuron.reset is True, ignoring previous state info at {self.validator_state_file}.")
             else:
-                bt.logging.info(f"No previous state information at {self.validator_state_file}, initializing new simulation state.") 
+                bt.logging.info(f"No previous state information at {self.validator_state_file}, initializing new simulation state.")
             self.activity_factors = {uid : {bookId : 0.0 for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
             self.sharpe_values = {uid :
@@ -522,7 +378,7 @@ class Validator(BaseValidatorNeuron):
         self.saving = False
         self.compressing = False
         self.initial_balances_published = False
-        
+
         self.load_simulation_config()
 
         # Add routes for methods receiving input from simulator
@@ -531,8 +387,8 @@ class Validator(BaseValidatorNeuron):
         self.router.add_api_route("/account", self.account, methods=["GET"])
 
         self.repo_path = Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent
-        if self.config.neuron.reset or not os.path.exists(self.simulation_state_file) or not os.path.exists(self.validator_state_file):
-            self.update_repo()
+        self.repo = Repo(self.repo_path)
+        self.update_repo()
 
         self.miner_stats = {uid : {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []} for uid in range(self.subnet_info.max_uids)}
         init_metrics(self)
@@ -615,7 +471,7 @@ class Validator(BaseValidatorNeuron):
         """
         if not self.config.reporting.disabled and not self.reporting:
             Thread(target=report, args=(self,), daemon=True, name=f'report_{self.step}').start()
-    
+
     def _reward(self, state : MarketSimulationStateUpdate):
         # Calculate the rewards for the miner based on the latest simulation state.
         try:
@@ -630,7 +486,7 @@ class Validator(BaseValidatorNeuron):
             bt.logging.debug(f"{self.scores}")
         finally:
             self.rewarding = False
-        
+
     def reward(self, state) -> None:
         """
         Update agent rewards and recalculate scores.
@@ -642,6 +498,11 @@ class Validator(BaseValidatorNeuron):
         """
         The route method which receives and processes simulation state updates received from the simulator.
         """
+        # Every 1H of simulation time, check if there are any changes to the validator - if updates exist, pull them and restart.
+        if self.simulation_timestamp % 3600_000_000_000 == 0:
+            bt.logging.info("Checking for validator updates...")
+            self.update_repo()
+            bt.logging.info("Nothing to update.")
         bt.logging.debug("Received state update from simulator")
         global_start = time.time()
         start = time.time()
@@ -650,10 +511,10 @@ class Validator(BaseValidatorNeuron):
         start = time.time()
         message = msgspec.json.decode(body)
         bt.logging.debug(f"Request body decoded ({time.time()-start:.4f}s).")
-        start = time.time()        
+        start = time.time()
         state = MarketSimulationStateUpdate.from_json(message) # Populate synapse class from request data
         bt.logging.debug(f"Synapse populated ({time.time()-start:.4f}s).")
-        
+
         # Update variables
         if not self.start_time:
             self.start_time = time.time()
@@ -668,7 +529,7 @@ class Validator(BaseValidatorNeuron):
             state.config = self.simulation.model_copy()
             state.config.logDir = None
         self.step += 1
-        
+
         # Log received state data
         bt.logging.info(f"STATE UPDATE RECEIVED | VALIDATOR STEP : {self.step} | TIMESTAMP : {state.timestamp}")
         if self.config.logging.debug or self.config.logging.trace:
@@ -681,28 +542,28 @@ class Validator(BaseValidatorNeuron):
                 else:
                     debug_text += "EMPTY" + "\n"
             bt.logging.debug("\n" + debug_text.strip("\n"))
-        
+
         # Process deregistration notices
         for notice in state.notices[self.uid]:
             if notice.type == "RESPONSE_DISTRIBUTED_RESET_AGENT" or notice.type == "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT":
                 for reset in notice.resets:
                     if reset.success:
-                        bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")     
+                        bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")
                         if reset.agentId in self.deregistered_uids:
                             self.deregistered_uids.remove(reset.agentId)
                     else:
                         self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
-        
+
         # Await reporting and state saving to complete before proceeding with next step
         while self.reporting or self.saving or self.rewarding:
             bt.logging.info(f"Waiting for {'reporting' if self.reporting else ''}{', ' if self.reporting and self.saving else ''}{'state saving' if self.saving else ''}{', ' if (self.reporting or self.saving) and self.rewarding else ''}{'rewarding' if self.rewarding else ''} to complete...")
             time.sleep(1)
-        
+
         # Calculate latest rewards and update miner scores
         self.reward(state)
-        # Forward state synapse to miners, populate response data to simulator object and serialize for returning to simulator.     
+        # Forward state synapse to miners, populate response data to simulator object and serialize for returning to simulator.
         response = SimulatorResponseBatch(await forward(self, state)).serialize()
-        
+
         # Log response data, start state serialization and reporting threads, and return miner instructions to the simulator
         if len(response['responses']) > 0:
             bt.logging.trace(f"RESPONSE : {response}")
@@ -742,8 +603,9 @@ class Validator(BaseValidatorNeuron):
 
 # The main method which runs the validator
 if __name__ == "__main__":
-    from taos.im.validator.forward import forward, notify    
-    from taos.im.validator.report import report, publish_info, init_metrics    
+    from taos.im.validator.update import check_repo, update_validator, check_simulator, rebuild_simulator, restart_simulator
+    from taos.im.validator.forward import forward, notify
+    from taos.im.validator.report import report, publish_info, init_metrics
     from taos.im.validator.reward import get_rewards
     if float(platform.freedesktop_os_release()['VERSION_ID']) < 22.04:
         raise Exception(f"taos validator requires Ubuntu >= 22.04!")

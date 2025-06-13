@@ -141,25 +141,24 @@ def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[
     Returns: 
         float: The new score value for the given UID.
     """
-    sharpe_values = sharpe(self, uid, inventory_values)
+    sharpe_data = sharpe(self, uid, inventory_values)
+    sharpes = sharpe_data['books']
+    normalized_sharpes = {book_id : normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, sharpe) for book_id, sharpe in sharpes.items()}
     # The maximum volume to be traded by a miner in a `trade_volume_assessment_period` (24H) is `capital_turnover_cap` (10) times the initial miner capital
     volume_cap =  round(self.config.scoring.activity.capital_turnover_cap * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
     # Calculate the volume traded by miners on each book in the period over which Sharpe values were calculated
     miner_volumes = {book_id : round(sum([volume for time, volume in book_volume['total'].items() if time >= self.simulation_timestamp - self.config.scoring.sharpe.lookback * self.simulation.publish_interval]), self.simulation.volumeDecimals) for book_id, book_volume in self.trade_volumes[uid].items()}
-    # Weight the (as yet unnormalized) Sharpe values by a factor proportional to the traded volume - this magnifies wins and losses occurring in periods with higher trading volumes
-    volume_weighted_sharpes = {book_id : min(1 + (miner_volumes[book_id] / volume_cap), 2.0) * sharpe for book_id, sharpe in sharpe_values['books'].items()}
-    # Normalize the volume-weighted Sharpe values to take values in range [0,1] by scaling against the configured lower and upper bounds `sharpe.normalization_min` and `sharpe.normalization_max`
-    normalized_volume_weighted_sharpes = {book_id : normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, vw_sharpe) for book_id, vw_sharpe in volume_weighted_sharpes.items()}
-    # Calculate the factor to be multiplied on the normalized volume-weighted Sharpes when there has been no trading activity in the previous Sharpe assessment window
+    # Calculate the factor to be multiplied on the Sharpes when there has been no trading activity in the previous Sharpe assessment window
     # This factor is designed to reduce the activity multiplier by half after each `sharpe.lookback` steps of inactivity
     inactivity_decay_factor = (2 ** (-1 / self.config.scoring.sharpe.lookback))
     latest_volumes = {book_id : list(book_volume['total'].values())[-1] if len(book_volume['total']) > 0 else 0.0 for book_id, book_volume in self.trade_volumes[uid].items()}
-    # Calculate the activity factors to be multiplied onto the normalized volume-weighted Sharpes to obtain the final values for assessment
+    # Calculate the activity factors to be multiplied onto the Sharpes to obtain the final values for assessment
     # If the miner has traded in the previous Sharpe assessment window, the factor is equal to the ratio of the miner trading volume to the cap
     # If the miner has not traded, their existing activity factor is decayed by the factor defined above so as to halve the miner score over each Sharpe assessment window where they remain inactive
     self.activity_factors[uid] = {book_id : min(1 + (miner_volume / volume_cap), 2.0) if latest_volumes[book_id] > 0 else self.activity_factors[uid][book_id] * inactivity_decay_factor for book_id, miner_volume in miner_volumes.items()}
-    # Calculate the activity-weighted Sharpes by multiplying the activity factors onto the normalized volume-weighted Sharpes
-    activity_weighted_sharpes = [self.activity_factors[uid][book_id] * nvw_sharpe for book_id, nvw_sharpe in normalized_volume_weighted_sharpes.items()]
+    # Calculate the activity-weighted Sharpes by multiplying the activity factors onto the normalized volume-weighted Sharpes - this magnifies wins and losses occurring in periods with higher trading volumes
+    activity_weighted_normalized_sharpes = [(activity_factor if activity_factor < 1 or normalized_sharpes[book_id] > 0.5 else 2 - activity_factor) * normalized_sharpes[book_id] for book_id, activity_factor in self.activity_factors[uid].items()]
+
     # Define a function which uses the 1.5 rule to detect left-hand outliers in the activity-weighted Sharpes
     def detect_outliers(sharpes):
         data = np.array(sharpes)
@@ -170,13 +169,13 @@ def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[
         outliers = data[data < lower_threshold]
         return outliers
     # Outliers detected here are activity-weighted Sharpes which are significantly lower than those achieved on other books
-    outliers = detect_outliers(activity_weighted_sharpes)
+    outliers = detect_outliers(activity_weighted_normalized_sharpes)
     # A penalty equal to the difference between the lowest outlier value and the value at the centre of the possible activity weighted Sharpe values is calculated
-    outlier_penalty = 0.5 - np.min(outliers) if len(outliers) > 0 and np.min(outliers) < 0.5 else 0
+    outlier_penalty = np.min(outliers) if len(outliers) > 0 and np.min(outliers) < 0.0 else 0
     # The median of the activity weighted Sharpes provides the base score for the miner
-    volume_weighted_median = np.median(activity_weighted_sharpes)
+    activity_weighted_normalized_median = np.median(activity_weighted_normalized_sharpes)
     # The penalty factor is subtracted from the base score to punish particularly poor performance on any particular book
-    sharpe_score = max((volume_weighted_median - abs(outlier_penalty)), 0)
+    sharpe_score = activity_weighted_normalized_median - abs(outlier_penalty)
     
     return self.reward_weights['sharpe'] * sharpe_score
 
