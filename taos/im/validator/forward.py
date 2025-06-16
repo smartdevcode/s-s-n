@@ -20,6 +20,7 @@
 
 import time
 import bittensor as bt
+import asyncio
 from typing import List
 
 from taos.im.neurons.validator import Validator
@@ -39,8 +40,17 @@ def validate_responses(self : Validator, synapses : dict[int, MarketSimulationSt
     """
     total_responses = 0
     total_instructions = 0
+    success = 0
+    timeouts = 0
+    failures = 0
     for uid, synapse in synapses.items():
         valid_instructions = []
+        if synapse.is_timeout:
+            timeouts += 1
+        elif synapse.is_failure:
+            failures += 1
+        elif synapse.is_success:
+            success += 1
         if synapse.response:
             synapse.decompress()
             if synapse.compressed:
@@ -74,17 +84,19 @@ def validate_responses(self : Validator, synapses : dict[int, MarketSimulationSt
                 if hasattr(instruction, 'bookId') and instruction.bookId not in instructions_per_book:
                     instructions_per_book[instruction.bookId] = 0
                 instructions_per_book[instruction.bookId] += 1
-                if instructions_per_book[instruction.bookId] < self.config.scoring.max_instructions_per_book:
+                if instructions_per_book[instruction.bookId] <= self.config.scoring.max_instructions_per_book:
                     final_instructions.append(instruction)
             if len(final_instructions) < len(valid_instructions):
-                bt.logging.warning(f"Agent {uid} sent more than {self.config.scoring.max_instructions_per_book} instructions on some books - excess instructions were dropped.")
+                bt.logging.warning(f"Agent {uid} sent {len(valid_instructions)} instructions (Avg. {len(valid_instructions) / len(instructions_per_book)} / book), with more than {self.config.scoring.max_instructions_per_book} instructions on some books - excess instructions were dropped.  Final instruction count {len(final_instructions)}.")
+                for book_id, count in instructions_per_book.items():
+                    bt.logging.debug(f"Agent {uid} Book {book_id} : {count} Instructions")
             # Update the synapse response with only the validated instructions
             synapse.response.instructions = final_instructions
             total_responses += 1
             total_instructions += len(synapse.response.instructions)
         else:
             bt.logging.debug(f"UID {uid} failed to respond : {synapse.dendrite.status_message}")    
-    bt.logging.info(f"Received {total_responses} valid responses containing {total_instructions} instructions.")
+    bt.logging.info(f"Received {total_responses} valid responses containing {total_instructions} instructions ({success} SUCCESS | {timeouts} TIMEOUTS | {failures} FAILURES).")
 
 def update_stats(self : Validator, synapses : dict[int, MarketSimulationStateUpdate]) -> None:
     """
@@ -128,14 +140,30 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     # Forward the simulation state update to all miners in the network
     bt.logging.info(f"Querying Miners...")
     start = time.time()
-    synapse_responses = await self.dendrite(
-        axons=self.metagraph.axons,
-        synapse=synapse.compress(),
-        timeout=self.config.neuron.timeout,
-        deserialize=False
-    )
-    synapse_responses = {self.metagraph.hotkeys.index(synapse_response.axon.hotkey) : synapse_response for synapse_response in synapse_responses}
-    bt.logging.debug(f"Dendrite call completed ({time.time()-start:.4f}s).")
+    if not self.dendrite._session:
+        await self.dendrite.session
+        self.dendrite._session._connector._limit = 256
+        
+    axon_synapses = {}
+    for uid in range(self.subnet_info.max_uids):
+        axon_synapses[uid] = synapse.model_copy()
+        axon_synapses[uid].accounts = {account_uid : account if account_uid == uid else {} for account_uid, account in axon_synapses[uid].accounts.items()}
+        axon_synapses[uid].notices = {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in axon_synapses[uid].notices.items()}
+        axon_synapses[uid] = axon_synapses[uid].compress()
+    async def query_uid(uid):
+        response = await self.dendrite(
+            axons=[self.metagraph.axons[uid]],
+            synapse=axon_synapses[uid],
+            timeout=self.config.neuron.timeout,
+            deserialize=False
+        )
+        return response
+    synapse_responses = await asyncio.gather(
+            *(query_uid(uid) for uid in range(self.subnet_info.max_uids))
+        )
+    synapse_responses = {self.metagraph.hotkeys.index(synapse_response[0].axon.hotkey) : synapse_response[0] for synapse_response in synapse_responses}
+    
+    bt.logging.info(f"Dendrite call completed ({time.time()-start:.4f}s).")
     self.dendrite.synapse_history = self.dendrite.synapse_history[-10:]
     
     # Validate the miner responses
@@ -151,7 +179,7 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     # and add the modified responses to the return array.
     bt.logging.debug(f"Setting Delays...")
     responses.extend(set_delays(self, synapse_responses))
-    bt.logging.debug(f"Responses: {responses}")   
+    bt.logging.trace(f"Responses: {responses}")
     return responses
 
 async def notify(self : Validator, notices : List[FinanceEventNotification]) -> None:

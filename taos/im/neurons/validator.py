@@ -317,6 +317,11 @@ class Validator(BaseValidatorNeuron):
                         self.trade_volumes[uid][bookId] = {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}}
                 if len(self.trade_volumes[uid]) > self.simulation.book_count:
                     self.trade_volumes[uid] = {k : v for k, v in self.trade_volumes[uid].items() if k < self.simulation.book_count}
+                if len(self.activity_factors[uid]) < self.simulation.book_count:
+                    for bookId in range(len(self.activity_factors[uid]),self.simulation.book_count):
+                        self.activity_factors[uid][bookId] = 0.0
+                if len(self.activity_factors[uid]) > self.simulation.book_count:
+                    self.activity_factors[uid] = {k : v for k, v in self.activity_factors[uid].items() if k < self.simulation.book_count}
             if reorg:
                 self._save_state()
             bt.logging.success(f"Loaded validator state.")
@@ -502,7 +507,6 @@ class Validator(BaseValidatorNeuron):
         if self.simulation_timestamp % 3600_000_000_000 == 0:
             bt.logging.info("Checking for validator updates...")
             self.update_repo()
-            bt.logging.info("Nothing to update.")
         bt.logging.debug("Received state update from simulator")
         global_start = time.time()
         start = time.time()

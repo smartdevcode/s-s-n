@@ -168,10 +168,10 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         try:
             if not self.compressed:
                 compressed = self.model_copy()
-                if self.books != {}:
-                    compressed.books = pybase64.b64encode(zlib.compress(msgspec.json.encode({bookId : book.model_dump(mode='json') for bookId, book in self.books.items()}))).decode("ascii")
-                    compressed.accounts = pybase64.b64encode(zlib.compress(msgspec.json.encode({accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in self.accounts.items()}))).decode("ascii")
-                    compressed.notices = pybase64.b64encode(zlib.compress(msgspec.json.encode({agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in self.notices.items()}))).decode("ascii")
+                if compressed.books != {}:
+                    compressed.books = pybase64.b64encode(zlib.compress(msgspec.json.encode({bookId : book.model_dump(mode='json') for bookId, book in compressed.books.items()}))).decode("ascii")
+                    compressed.accounts = pybase64.b64encode(zlib.compress(msgspec.json.encode({accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in compressed.accounts.items()}))).decode("ascii")
+                    compressed.notices = pybase64.b64encode(zlib.compress(msgspec.json.encode({agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in compressed.notices.items()}))).decode("ascii")
                     compressed.config = pybase64.b64encode(zlib.compress(msgspec.json.encode(compressed.config.model_dump(mode='json')))).decode("ascii")
                 if compressed.response:
                     compressed.response = pybase64.b64encode(zlib.compress(msgspec.json.encode(compressed.response.model_dump(mode='json')))).decode("ascii")

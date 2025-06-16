@@ -77,7 +77,7 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
           several aggregate values obtained from the values for each book and their normalized counterparts.
     """
     try:
-        if len(inventory_values) <= 1: return 0.0
+        if len(inventory_values) <= 1: return self.sharpe_values[uid]
         # Calculate the per-book Sharpe ratio values
         book_inventory_values = {bookId : np.array([inventory_value[bookId] for inventory_value in inventory_values.values() if bookId in inventory_value]) for bookId in list(inventory_values.values())[-1]}
         timestamps = list(inventory_values.keys())
