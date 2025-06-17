@@ -11,3 +11,4 @@ pypd
 msgpack
 msgspec
 pybase64
+lz4
