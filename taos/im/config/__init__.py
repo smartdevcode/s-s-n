@@ -85,6 +85,20 @@ def add_im_validator_args(cls, parser):
         help="Port number on which to serve validator listener.",
         default=8000,
     )
+    
+    parser.add_argument(
+        "--compression.engine",
+        choices=['zlib', 'lz4'],
+        help="Compression engine to apply, either `zlib` or `lz4.",
+        default="zlib",
+    )
+    
+    parser.add_argument(
+        "--compression.level",
+        type=int,
+        help="Compression level.",
+        default=1,
+    )
 
     parser.add_argument(
         "--scoring.max_instructions_per_book",

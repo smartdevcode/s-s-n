@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
 import zlib
+import lz4.frame
 import json
 import time
 import pybase64
 import msgspec
 import bittensor as bt
-from typing import Optional, ClassVar
+from typing import Optional, ClassVar, Literal
 from enum import Enum
 from taos.im.protocol.simulator import *
 from taos.im.protocol.models import *
@@ -55,7 +56,8 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
     accounts : dict[int,dict[int, Account]] | str
     notices : dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | str | None = None
     response: Optional[FinanceAgentResponse] | str = None
-    compressed : bool = False    
+    compressed : bool = False
+    compression_engine : str = "zlib"
     
     required_fields: ClassVar[list[str]] = None
     def get_required_fields(self) -> list[str]:
@@ -159,22 +161,31 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         self.notices = {}
         return self
 
-    def compress(self):
+    def compress(self, level=-1, engine : Literal["zlib", "lz4"] | None = None):
         """
         Method to compress large synapse fields for transmission over the network.
 
         Note this method DOES NOT modify the synapse in place, so that the original synapse data can be referenced after sending without requiring decompression.
         """
         try:
+            if engine:
+                self.compression_engine = engine
+            match self.compression_engine:
+                case "zlib":
+                    compressor = zlib.compress
+                case "lz4":
+                    compressor = lz4.frame.compress
+                case _:
+                    raise Exception(f"Invalid compression engine `{engine}` - allowed values are `zlib` or `lz4`")
             if not self.compressed:
                 compressed = self.model_copy()
                 if compressed.books != {}:
-                    compressed.books = pybase64.b64encode(zlib.compress(msgspec.json.encode({bookId : book.model_dump(mode='json') for bookId, book in compressed.books.items()}))).decode("ascii")
-                    compressed.accounts = pybase64.b64encode(zlib.compress(msgspec.json.encode({accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in compressed.accounts.items()}))).decode("ascii")
-                    compressed.notices = pybase64.b64encode(zlib.compress(msgspec.json.encode({agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in compressed.notices.items()}))).decode("ascii")
-                    compressed.config = pybase64.b64encode(zlib.compress(msgspec.json.encode(compressed.config.model_dump(mode='json')))).decode("ascii")
+                    compressed.books = pybase64.b64encode(compressor(msgspec.json.encode({bookId : book.model_dump(mode='json') for bookId, book in compressed.books.items()}),level)).decode("ascii")
+                    compressed.accounts = pybase64.b64encode(compressor(msgspec.json.encode({accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in compressed.accounts.items()}),level)).decode("ascii")
+                    compressed.notices = pybase64.b64encode(compressor(msgspec.json.encode({agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in compressed.notices.items()}),level)).decode("ascii")
+                    compressed.config = pybase64.b64encode(compressor(msgspec.json.encode(compressed.config.model_dump(mode='json')),level)).decode("ascii")
                 if compressed.response:
-                    compressed.response = pybase64.b64encode(zlib.compress(msgspec.json.encode(compressed.response.model_dump(mode='json')))).decode("ascii")
+                    compressed.response = pybase64.b64encode(compressor(msgspec.json.encode(compressed.response.model_dump(mode='json')),level)).decode("ascii")
                 compressed.compressed = True
                 return compressed
             else:
@@ -190,14 +201,21 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         Note this method DOES modify the synapse in place, so that the synapse can be used normally after decompression.
         """
         try:
+            match self.compression_engine:
+                case "zlib":
+                    decompressor = zlib.decompress
+                case "lz4":
+                    decompressor = lz4.frame.decompress
+                case _:
+                    raise Exception(f"Invalid compression engine `{engine}` - allowed values are `zlib` or `lz4`")
             if self.compressed:
                 if self.books != {}:
-                    self.books = msgspec.json.decode(zlib.decompress(pybase64.b64decode(self.books)))
-                    self.accounts = msgspec.json.decode(zlib.decompress(pybase64.b64decode(self.accounts)))
-                    self.notices = msgspec.json.decode(zlib.decompress(pybase64.b64decode(self.notices)))
-                    self.config = msgspec.json.decode(zlib.decompress(pybase64.b64decode(self.config)))
+                    self.books = msgspec.json.decode(decompressor(pybase64.b64decode(self.books)))
+                    self.accounts = msgspec.json.decode(decompressor(pybase64.b64decode(self.accounts)))
+                    self.notices = msgspec.json.decode(decompressor(pybase64.b64decode(self.notices)))
+                    self.config = msgspec.json.decode(decompressor(pybase64.b64decode(self.config)))
                 if self.response:
-                    self.response = msgspec.json.decode(zlib.decompress(pybase64.b64decode(self.response)))
+                    self.response = msgspec.json.decode(decompressor(pybase64.b64decode(self.response)))
                 self.compressed = False
             return self
         except Exception as ex:

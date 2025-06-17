@@ -144,24 +144,21 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
         await self.dendrite.session
         self.dendrite._session._connector._limit = 256
         
-    axon_synapses = {}
-    for uid in range(self.subnet_info.max_uids):
-        axon_synapses[uid] = synapse.model_copy()
-        axon_synapses[uid].accounts = {account_uid : account if account_uid == uid else {} for account_uid, account in axon_synapses[uid].accounts.items()}
-        axon_synapses[uid].notices = {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in axon_synapses[uid].notices.items()}
-        axon_synapses[uid] = axon_synapses[uid].compress()
     async def query_uid(uid):
-        response = await self.dendrite(
-            axons=[self.metagraph.axons[uid]],
-            synapse=axon_synapses[uid],
+        axon_synapse = synapse.model_copy()
+        axon_synapse.accounts = {account_uid : account if account_uid == uid else {} for account_uid, account in axon_synapse.accounts.items()}
+        axon_synapse.notices = {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in axon_synapse.notices.items()}
+        axon_synapse = axon_synapse.compress(level=self.config.compression.level, engine=self.config.compression.engine)
+        return await self.dendrite(
+            axons=self.metagraph.axons[uid],
+            synapse=axon_synapse,
             timeout=self.config.neuron.timeout,
             deserialize=False
         )
-        return response
     synapse_responses = await asyncio.gather(
             *(query_uid(uid) for uid in range(self.subnet_info.max_uids))
         )
-    synapse_responses = {self.metagraph.hotkeys.index(synapse_response[0].axon.hotkey) : synapse_response[0] for synapse_response in synapse_responses}
+    synapse_responses = {self.metagraph.hotkeys.index(synapse_response.axon.hotkey) : synapse_response for synapse_response in synapse_responses}
     
     bt.logging.info(f"Dendrite call completed ({time.time()-start:.4f}s).")
     self.dendrite.synapse_history = self.dendrite.synapse_history[-10:]
