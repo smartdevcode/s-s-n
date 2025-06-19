@@ -561,7 +561,7 @@ class Validator(BaseValidatorNeuron):
 
         # Process deregistration notices
         for notice in state.notices[self.uid]:
-            if notice.type == "RESPONSE_DISTRIBUTED_RESET_AGENT" or notice.type == "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT":
+            if notice.type in ["RESPONSE_DISTRIBUTED_RESET_AGENT", "RDRA"] or notice.type in ["ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT", "ERDRA"]:
                 for reset in notice.resets:
                     if reset.success:
                         bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")
