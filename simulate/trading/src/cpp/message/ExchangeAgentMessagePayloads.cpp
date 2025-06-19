@@ -1089,25 +1089,3 @@ ResetAgentsErrorResponsePayload::Ptr ResetAgentsErrorResponsePayload::fromJson(
 }
 
 //-------------------------------------------------------------------------
-
-void WakeupForCancellationPayload::jsonSerialize(
-    rapidjson::Document& json, const std::string& key) const
-{
-    auto serialize = [this](rapidjson::Document& json) {
-        json.SetObject();
-        auto& allocator = json.GetAllocator();
-        json.AddMember("orderToCancelId", rapidjson::Value{orderToCancelId}, allocator);
-        json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
-    };
-    taosim::json::serializeHelper(json, key, serialize);
-}
-
-//-------------------------------------------------------------------------
-
-void WakeupForCancellationPayload::checkpointSerialize(
-    rapidjson::Document& json, const std::string& key) const
-{
-    jsonSerialize(json, key);
-}
-
-//-------------------------------------------------------------------------

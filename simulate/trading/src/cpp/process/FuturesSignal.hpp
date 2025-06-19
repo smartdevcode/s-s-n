@@ -7,6 +7,7 @@
 #include "Process.hpp"
 #include "RNG.hpp"
 #include "common.hpp"
+#include "taosim/simulation/ISimulation.hpp"
 
 #include <pugixml.hpp>
 
@@ -20,7 +21,7 @@ class FuturesSignal : public Process
 {
 public:
     FuturesSignal(
-        Simulation* simulation,
+        taosim::simulation::ISimulation* simulation,
         uint64_t bookId,
         uint64_t seedInterval,
         double X0) noexcept;
@@ -33,12 +34,12 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static std::unique_ptr<FuturesSignal> fromXML(
-        Simulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod);
+        taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod);
     [[nodiscard]] static std::unique_ptr<FuturesSignal> fromCheckpoint(
-        Simulation* simulation, const rapidjson::Value& json, double X0);
+        taosim::simulation::ISimulation* simulation, const rapidjson::Value& json, double X0);
 
 private:
-    Simulation* m_simulation;
+    taosim::simulation::ISimulation* m_simulation;
     uint64_t m_bookId;
     uint64_t m_seedInterval;
     std::string m_seedfile;

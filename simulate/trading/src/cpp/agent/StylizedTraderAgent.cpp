@@ -288,7 +288,7 @@ void StylizedTraderAgent::receiveMessage(Message::Ptr msg)
     if (msg->type == "EVENT_SIMULATION_START") {
         handleSimulationStart();
     }
-    else if (msg->type == "EVENT_SIMULATION_STOP") {
+    else if (msg->type == "EVENT_SIMULATION_END") {
         handleSimulationStop();
     }
     else if (msg->type == "RESPONSE_SUBSCRIBE_EVENT_TRADE") {

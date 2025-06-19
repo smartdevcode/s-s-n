@@ -171,7 +171,7 @@ void FuturesTraderAgent::receiveMessage(Message::Ptr msg)
     if (msg->type == "EVENT_SIMULATION_START") {
         handleSimulationStart();
     }
-    else if (msg->type == "EVENT_SIMULATION_STOP") {
+    else if (msg->type == "EVENT_SIMULATION_END") {
         handleSimulationStop();
     }
     else if (msg->type == "RESPONSE_SUBSCRIBE_EVENT_TRADE") {
@@ -244,7 +244,6 @@ void FuturesTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
         MessagePayload::create<RetrieveL1Payload>(bookId));
 
     const uint64_t processCount = getProcessCount(bookId, "external");
-    // Try to update the first value fast as possible, return after the check
     if (processCount == 0 && m_priceHist.at(bookId).back() < 0.0001) {
         const double newProcessValue = getProcessValue(bookId, "external");
         m_priceHist.at(bookId).push_back(newProcessValue);  
@@ -254,12 +253,6 @@ void FuturesTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
         const double newProcessValue = getProcessValue(bookId, "external"); 
         m_lastUpdate.at(bookId) = processCount;
 
-        // Earlier do nothing but it should not matter, print if this happens
-        // if (m_priceHist.at(bookId).back() == newProcessValue) {
-            // fmt::println("NO PRICE CHANGE {}", newProcessValue);
-        // }
-
-        // Make sure no zero division, just in case
         const double lastProcessValue = m_priceHist.at(bookId).back();
         if (lastProcessValue == 0) {
             m_logReturns.at(bookId).push_back(0.0);
@@ -267,8 +260,6 @@ void FuturesTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
             m_logReturns.at(bookId).push_back(std::log(newProcessValue / lastProcessValue));
         }
         m_volumeFactor.at(bookId) = std::min(2.0,std::exp(std::abs(m_logReturns.at(bookId).back())));
-        // fmt::println("UPDATE ON VOLUME FACTOR {} - {}", m_volumeFactor.at(bookId),name());
-        // reset the counter!
         m_factorCounter.at(bookId) = 0;
         m_priceHist.at(bookId).push_back(newProcessValue);
     } else {
@@ -373,11 +364,11 @@ void FuturesTraderAgent::placeOrder(BookId bookId)
     const double sign = logReturn < 0.0 ? -1.0 : 1.0;
     const double epsilon = std::normal_distribution{0.0, m_sigmaEps}(*m_rng);
     const double forecast =  sign + epsilon;
-    std::lognormal_distribution<> lognormalDist(std::log(m_volume * m_volumeFactor.at(bookId)), 1); 
+    const float newMean = std::log(m_volume) * m_volumeFactor.at(bookId);
+    std::lognormal_distribution<> lognormalDist(newMean, 1); 
     double volume = lognormalDist(*m_rng);
     volume =  std::floor(volume / m_volumeIncrement) * m_volumeIncrement;
     if (volume == 0) return;
-    // fmt::println("VOLUME {}", volume);
     if (forecast > 0) {
         placeBuy(bookId, volume);
     }

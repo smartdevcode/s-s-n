@@ -17,15 +17,13 @@ FeePolicyWrapper::FeePolicyWrapper(
     std::unique_ptr<FeePolicy> feePolicy,
     accounting::AccountRegistry* accountRegistry) noexcept
     : m_feePolicy{std::move(feePolicy)},
-      m_accountRegistry{accountRegistry},
-      m_mtx{std::make_unique<std::shared_mutex>()}
+      m_accountRegistry{accountRegistry}
 {}
 
 //-------------------------------------------------------------------------
 
 Fees FeePolicyWrapper::calculateFees(const TradeDesc& tradeDesc)
 {
-    std::shared_lock lock{*m_mtx};
     const auto [bookId, restingAgentId, aggressingAgentId, trade] = tradeDesc;
     const auto volumeWeightedPrice = trade->volume() * trade->price();
     return {
@@ -38,7 +36,6 @@ Fees FeePolicyWrapper::calculateFees(const TradeDesc& tradeDesc)
 
 Fees FeePolicyWrapper::getRates(BookId bookId, AgentId agentId) const noexcept
 {
-    std::shared_lock lock{*m_mtx};
     const auto agentBaseName = m_accountRegistry->getAgentBaseName(agentId);
     if (agentBaseName.has_value()) {
         auto it = m_agentBaseNameFeePolicies.find(agentBaseName.value());
@@ -53,7 +50,6 @@ Fees FeePolicyWrapper::getRates(BookId bookId, AgentId agentId) const noexcept
 
 decimal_t FeePolicyWrapper::agentVolume(BookId bookId, AgentId agentId) const noexcept
 {
-    std::unique_lock lock{*m_mtx};
     const auto agentBaseName = m_accountRegistry->getAgentBaseName(agentId);
     if (agentBaseName.has_value()) {
         auto agentFeePolicyIt = m_agentBaseNameFeePolicies.find(agentBaseName.value().get());
@@ -81,7 +77,6 @@ decimal_t FeePolicyWrapper::agentVolume(BookId bookId, AgentId agentId) const no
 
 bool FeePolicyWrapper::contains(const std::string& agentBaseName) const noexcept
 {
-    std::shared_lock lock{*m_mtx};
     return m_agentBaseNameFeePolicies.contains(agentBaseName);
 }
 
@@ -89,7 +84,6 @@ bool FeePolicyWrapper::contains(const std::string& agentBaseName) const noexcept
 
 void FeePolicyWrapper::updateAgentsTiers(Timestamp time) noexcept
 {
-    std::unique_lock lock{*m_mtx};
     ranges::for_each(
         policiesView()
         | views::filter([time](auto feePolicy) { return time % feePolicy->slotPeriod() == 0; }),
@@ -100,7 +94,6 @@ void FeePolicyWrapper::updateAgentsTiers(Timestamp time) noexcept
 
 void FeePolicyWrapper::updateHistory(BookId bookId, AgentId agentId, decimal_t volume) noexcept
 {
-    std::unique_lock lock{*m_mtx};
     for (auto feePolicy : policiesView()) {
         feePolicy->updateHistory(bookId, agentId, volume);
     }
@@ -110,7 +103,6 @@ void FeePolicyWrapper::updateHistory(BookId bookId, AgentId agentId, decimal_t v
 
 void FeePolicyWrapper::resetHistory() noexcept
 {
-    std::unique_lock lock{*m_mtx};
     for (auto feePolicy : policiesView()) {
         feePolicy->resetHistory();
     }
@@ -120,7 +112,6 @@ void FeePolicyWrapper::resetHistory() noexcept
 
 void FeePolicyWrapper::resetHistory(const std::unordered_set<AgentId>& agentIds) noexcept
 {
-    std::unique_lock lock{*m_mtx};
     for (auto feePolicy : policiesView()) {
         feePolicy->resetHistory(agentIds);
     }

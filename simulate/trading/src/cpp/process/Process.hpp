@@ -13,7 +13,7 @@
 class Process : public CheckpointSerializable
 {
 public:
-    using ValueSignal = bs2::signal<void(double)>;
+    using ValueSignal = UnsyncSignal<void(double)>;
 
     virtual ~Process() noexcept = default;
 

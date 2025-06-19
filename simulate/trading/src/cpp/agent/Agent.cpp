@@ -5,7 +5,6 @@
 #include "Agent.hpp"
 
 #include "MultiBookExchangeAgent.hpp"
-#include "ParameterStorage.hpp"
 #include "Simulation.hpp"
 
 //-------------------------------------------------------------------------
@@ -13,7 +12,7 @@
 void Agent::configure(const pugi::xml_node& node)
 {
     if (auto att = node.attribute("name")) {
-        setName(simulation()->parameters().processString(att.as_string()));
+        setName(node.attribute("name").as_string());
     }
     m_type = node.name();
 }

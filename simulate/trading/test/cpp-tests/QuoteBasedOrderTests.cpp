@@ -15,7 +15,6 @@
 #include "DistributedProxyAgent.hpp"
 #include "MultiBookExchangeAgent.hpp"
 #include "Order.hpp"
-#include "ParameterStorage.hpp"
 #include "PayloadFactory.hpp"
 #include "Simulation.hpp"
 #include "server.hpp"
@@ -251,9 +250,7 @@ protected:
         params = GetParam();
         static constexpr Timestamp kStepSize = 10;
         nodes = taosim::util::parseSimulationFile(kTestDataPath / "MultiAgentFees.xml");
-        auto params = std::make_shared<ParameterStorage>();
-        params->set("step", std::to_string(kStepSize));
-        simulation = std::make_unique<Simulation>(params);
+        simulation = std::make_unique<Simulation>();
         simulation->setDebug(true);
         simulation->configure(nodes.simulation);
         exchange = simulation->exchange();

@@ -91,7 +91,6 @@ private:
 
     friend class Simulation;
     friend class MultiBookExchangeAgent;
-    friend class ThreadSafeMessageQueue;
 };
 
 //-------------------------------------------------------------------------

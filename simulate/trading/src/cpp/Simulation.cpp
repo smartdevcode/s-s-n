@@ -4,7 +4,7 @@
  */
 #include "Simulation.hpp"
 
-#include "SimulationException.hpp"
+#include "taosim/simulation/SimulationException.hpp"
 #include "util.hpp"
 
 #include <boost/algorithm/string/regex.hpp>
@@ -26,19 +26,17 @@
 
 //-------------------------------------------------------------------------
 
-Simulation::Simulation(ParameterStorage::Ptr parameters) : Simulation(parameters, 0, 0, ".")
+Simulation::Simulation() noexcept
+    : IMessageable{this, "SIMULATION"},
+      m_localAgentManager{std::make_unique<LocalAgentManager>(this)}
 {}
 
 //-------------------------------------------------------------------------
 
-Simulation::Simulation(
-    ParameterStorage::Ptr parameters,
-    Timestamp startTimestamp,
-    Timestamp duration,
-    const std::string& directory)
+Simulation::Simulation(uint32_t blockIdx, const fs::path& baseLogDir)
     : IMessageable{this, "SIMULATION"},
-      m_parameters{parameters},
-      m_time{.start = startTimestamp, .duration = duration, .step = 1, .current = startTimestamp},
+      m_blockIdx{blockIdx},
+      m_baseLogDir{baseLogDir},
       m_localAgentManager{std::make_unique<LocalAgentManager>(this)}
 {}
 
@@ -86,11 +84,12 @@ void Simulation::queueMessage(Message::Ptr msg) const
 
 void Simulation::simulate()
 {
-    if (m_state == SimulationState::STOPPED) return;
-    else if (m_state == SimulationState::INACTIVE) start();
+    if (m_state == taosim::simulation::SimulationState::STOPPED) return;
+    else if (m_state == taosim::simulation::SimulationState::INACTIVE) start();
 
     while (m_time.current < m_time.start + m_time.duration) {
         step();
+        m_exchange->L3Record().clear();
     }
 
     stop();
@@ -126,28 +125,7 @@ Timestamp Simulation::duration() const noexcept
 
 //-------------------------------------------------------------------------
 
-MultiBookExchangeAgent* Simulation::exchange() const noexcept
-{
-    return m_exchange;
-}
-
-//-------------------------------------------------------------------------
-
-const std::string& Simulation::id() const noexcept
-{
-    return m_id;
-}
-
-//-------------------------------------------------------------------------
-
-const fs::path& Simulation::logDir() const noexcept
-{
-    return m_logDir;
-}
-
-//-------------------------------------------------------------------------
-
-SimulationSignals& Simulation::signals() const noexcept
+taosim::simulation::SimulationSignals& Simulation::signals() const noexcept
 {
     return m_signals;
 }
@@ -158,13 +136,6 @@ std::mt19937& Simulation::rng() const noexcept
 {
     return m_rng;
 };
-
-//-------------------------------------------------------------------------
-
-ParameterStorage& Simulation::parameters() const noexcept
-{
-    return *m_parameters;
-}
 
 //-------------------------------------------------------------------------
 
@@ -204,38 +175,17 @@ void Simulation::configure(const pugi::xml_node& node)
         m_rng = std::mt19937{std::random_device{}()};
     }
 
-    m_testMode = node.attribute("test").as_bool();
-
     m_config = [node] -> std::string {
         std::ostringstream oss;
         node.print(oss);
         return oss.str();
     }();
 
-    if (node.attribute("traceTime").as_bool()) {
-        m_signals.step.connect([this] { 
-            uint64_t total, seconds, hours, minutes,nanos;
-            total = m_time.current/1'000'000'000;
-            minutes = total / 60;
-            seconds = total % 60;
-            hours = minutes / 60;
-            minutes = minutes % 60;
-            nanos = m_time.current % 1'000'000'000;
-            fmt::println("TIME : {:02d}:{:02d}:{:02d}.{:09d}", hours, minutes, seconds, nanos); 
-        });
-        // m_signals.step.connect([this] { fmt::println("TIME : {}", m_time.current); });
-    }
-
-    if (node.attribute("enableCheckpointing").as_bool()) {
-        m_signals.step.connect([this] { saveCheckpoint(); });
-    }
-
     if (node.attribute("debug").as_bool()) {
         m_debug = true;
     }
 
     // NOTE: Ordering important!
-    configureId(node);
     configureLogging(node);
     configureAgents(node);
 }
@@ -354,7 +304,6 @@ void Simulation::saveCheckpoint()
 
     // Misc.
     logDebug("Serializing Misc...");
-    json.AddMember("gracePeriod", rapidjson::Value{m_exchange->m_gracePeriod}, allocator);
     json.AddMember("retainRecord", rapidjson::Value{m_exchange->m_retainRecord}, allocator);
     json.AddMember(
         "checkpointWriteTime",
@@ -426,28 +375,12 @@ void Simulation::saveCheckpoint()
 
 //-------------------------------------------------------------------------
 
-std::unique_ptr<Simulation> Simulation::fromConfig(const fs::path& path)
-{
-    pugi::xml_document doc;
-
-    pugi::xml_parse_result result = doc.load_file(path.c_str());
-    fmt::println(" - '{}' loaded successfully", path.c_str());
-
-    pugi::xml_node node = doc.child("Simulation");
-    auto simulation = std::make_unique<Simulation>(std::make_shared<ParameterStorage>());
-    simulation->configure(node);
-
-    return simulation;
-}
-
-//-------------------------------------------------------------------------
-
 std::unique_ptr<Simulation> Simulation::fromCheckpoint(const fs::path& path)
 {
     fmt::println("Resuming simulation from checkpoint at {}", path.string());
     rapidjson::Document json = taosim::json::loadJson(path);
 
-    auto simulation = std::make_unique<Simulation>(std::make_shared<ParameterStorage>());
+    auto simulation = std::make_unique<Simulation>();
 
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_string(json["config"].GetString());
@@ -517,9 +450,8 @@ std::unique_ptr<Simulation> Simulation::fromCheckpoint(const fs::path& path)
 
     // Misc.
     fmt::println("Restoring Misc..");
-    simulation->exchange()->m_gracePeriod = json["gracePeriod"].GetUint64();
     simulation->exchange()->retainRecord(json["retainRecord"].GetBool());
-    simulation->m_state = SimulationState{json["state"].GetUint()};
+    simulation->m_state = taosim::simulation::SimulationState{json["state"].GetUint()};
     simulation->exchange()->m_bookProcessManager = BookProcessManager::fromCheckpoint(
         json["processManager"],
         simulation.get(),
@@ -629,133 +561,9 @@ void Simulation::configureAgents(pugi::xml_node node)
 
 //-------------------------------------------------------------------------
 
-void Simulation::configureId(pugi::xml_node node)
-{
-    struct ChildAttributeGetter
-    {
-        std::vector<std::string> searchContext;
-
-        std::string operator()(
-            pugi::xml_node node,
-            const std::string& searchPath,
-            const std::string& attrName,
-            std::function<bool(pugi::xml_node)> criterion = [](auto) { return true; })
-        {
-            const auto [current, rest] = [&searchPath] -> std::pair<std::string, std::string> {
-                auto splitPos = searchPath.find_first_of("/");
-                return {
-                    searchPath.substr(0, splitPos),
-                    splitPos != std::string::npos
-                        ? searchPath.substr(splitPos + 1, searchPath.size())
-                        : ""
-                };
-            }();
-            searchContext.push_back(current);
-
-            if (!rest.empty()) {
-                pugi::xml_node child = node.find_child([&current](pugi::xml_node child) {
-                    return std::string_view{child.name()} == current;
-                });
-                if (!child) {
-                    const auto searchContextCopy = searchContext;
-                    searchContext.clear();
-                    throw std::runtime_error(fmt::format(
-                        "{}: cannot find node '{}'",
-                        std::source_location::current().function_name(),
-                        fmt::join(searchContextCopy, "/")));
-                }
-                return operator()(child, rest, attrName);
-            }
-    
-            pugi::xml_attribute attr;
-            for (pugi::xml_node child : node.children()) {
-                if (std::string_view{child.name()} == current && criterion(child)) {
-                    attr = child.attribute(attrName.c_str());
-                    break;
-                }
-            }
-            if (!attr) {
-                const auto searchContextCopy = searchContext;
-                searchContext.clear();
-                throw std::runtime_error(fmt::format(
-                    "{}: node '{}' has no attribute '{}'",
-                    std::source_location::current().function_name(),
-                    fmt::join(searchContextCopy, "/"),
-                    attrName));
-            }
-            searchContext.clear();
-            return attr.as_string();
-        }
-    };
-
-    std::string id{node.attribute("id").as_string()};
-    if (id != "{{BG_CONFIG}}") {
-        m_id = !id.empty()
-            ? std::move(id) 
-            : boost::uuids::to_string(boost::uuids::random_generator{}());
-        return;
-    }
-    
-    pugi::xml_node agentsNode;
-    if (agentsNode = node.child("Agents"); !agentsNode) {
-        throw std::invalid_argument(fmt::format(
-            "{}: missing required child 'Agents'",
-            std::source_location::current().function_name()));
-    }
-
-    auto getAttr = ChildAttributeGetter{};
-
-    const std::string dt = date::format(
-        "%Y%m%d_%H%M",
-        date::make_zoned(date::current_zone(), std::chrono::system_clock::now()));
-    const std::string duration = node.attribute("duration").as_string();
-    const std::string books = getAttr(agentsNode, "MultiBookExchangeAgent/Books", "instanceCount");
-
-    const auto balances = [&] -> std::string {
-        try {
-            return fmt::format(
-                "{}_{}",
-                getAttr(agentsNode, "MultiBookExchangeAgent/Balances/Base", "total"),
-                getAttr(agentsNode, "MultiBookExchangeAgent/Balances/Quote", "total"));
-        }
-        catch (...) {
-            return fmt::format(
-                "{}_{}",
-                getAttr(agentsNode, "MultiBookExchangeAgent/Balances", "type"),
-                getAttr(agentsNode, "MultiBookExchangeAgent/Balances", "wealth"));
-        }
-    }();
-
-    const std::string priceDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "priceDecimals");
-    const std::string volumeDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "volumeDecimals");
-    const std::string baseDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "baseDecimals");
-    const std::string quoteDecimals = getAttr(agentsNode, "MultiBookExchangeAgent", "quoteDecimals");
-    const std::string iCount = getAttr(agentsNode, "InitializationAgent", "instanceCount");
-    const std::string iPrice = getAttr(agentsNode, "MultiBookExchangeAgent", "initialPrice");
-    const std::string fWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaF");
-    const std::string cWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaC");
-    const std::string nWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaN");
-
-    const std::string tau = getAttr(agentsNode, "StylizedTraderAgent", "tau");
-    const std::string sigmaEps = getAttr(agentsNode, "StylizedTraderAgent", "sigmaEps");
-    const std::string riskAversion = getAttr(agentsNode, "StylizedTraderAgent", "r_aversion");
-    m_id = fmt::format(
-        "{}-{}-{}-{}-i{}_p{}-f{}_c{}_n{}_t{}_s{}_r{}_d{}_v{}_b{}_q{}",
-        dt, duration, books, balances, iCount, iPrice, fWeight, cWeight, nWeight,
-        tau, sigmaEps, riskAversion, priceDecimals, volumeDecimals, baseDecimals, quoteDecimals);
-}
-
-//-------------------------------------------------------------------------
-
 void Simulation::configureLogging(pugi::xml_node node)
 {
-    if (m_id.empty()) configureId(node);
-    if (m_testMode) fs::current_path(fs::temp_directory_path());
-    m_logDir = fs::current_path() / "logs" / m_id;    
-    fs::create_directories(m_logDir);
-    pugi::xml_document doc;
-    doc.append_copy(node);
-    doc.save_file((m_logDir / "config.xml").c_str());
+    m_logDir = m_baseLogDir / std::to_string(m_blockIdx);
 }
 
 //-------------------------------------------------------------------------
@@ -805,7 +613,7 @@ void Simulation::deliverMessage(Message::Ptr msg)
                 return;
             }
             else if (it == m_localAgentManager->end()) {
-                throw SimulationException(fmt::format(
+                throw taosim::simulation::SimulationException(fmt::format(
                     "{}: unknown message target '{}'",
                     std::source_location::current().function_name(),
                     target));
@@ -831,10 +639,10 @@ void Simulation::start()
         m_time.duration - 1,
         "SIMULATION",
         "*",
-        "EVENT_SIMULATION_STOP",
+        "EVENT_SIMULATION_END",
         MessagePayload::create<EmptyPayload>());
 
-    m_state = SimulationState::STARTED;
+    m_state = taosim::simulation::SimulationState::STARTED;
     m_signals.start();
 }
 
@@ -845,7 +653,6 @@ void Simulation::step()
     const Timestamp cutoff = m_time.current + m_time.step;
 
     m_exchange->clearingManager().updateFeeTiers(cutoff);        
-
     m_exchange->checkMarginCall();
 
     auto loopCondition = [&] -> bool {
@@ -853,41 +660,13 @@ void Simulation::step()
             && m_messageQueue.top()->arrival < cutoff;
     };
 
-    loop:
     while (loopCondition()) {
         Message::Ptr msg = m_messageQueue.top();
         m_messageQueue.pop();
-        try {
-            if (msg->arrival > m_time.current) {
-                m_signals.timeAboutToProgress({.begin = m_time.current, .end = msg->arrival});
-            }
-            if (!m_messageQueue.empty() && msg->arrival > m_messageQueue.top()->arrival) {
-                m_messageQueue.push(msg);
-                continue;
-            }
-            updateTime(msg->arrival);
-            deliverMessage(msg);
-        }
-        catch (const std::exception &exc) {
-            fmt::println(
-                "step: Error processing {} Message From {} at {} to {} at {} : {}\n{}",
-                msg->type,
-                msg->source,
-                msg->occurrence,
-                fmt::join(msg->targets, ","),
-                msg->arrival,
-                exc.what(),
-                taosim::json::jsonSerializable2str(msg));
-            std::exit(1);
-        }
+        updateTime(msg->arrival);
+        deliverMessage(msg);
     }
 
-    if (m_time.current < cutoff) {
-        m_signals.timeAboutToProgress({.begin = m_time.current, .end = cutoff});
-        if (!m_messageQueue.empty() && m_messageQueue.top()->arrival < cutoff) {
-            goto loop;
-        }
-    }
     updateTime(std::max(m_time.current, cutoff));
     m_signals.step();
 }
@@ -896,23 +675,8 @@ void Simulation::step()
 
 void Simulation::stop()
 {
-    m_state = SimulationState::STOPPED;
+    m_state = taosim::simulation::SimulationState::STOPPED;
     m_signals.stop();
-}
-
-//-------------------------------------------------------------------------
-
-void Simulation::updateTime(Timestamp newTime)
-{
-    if (newTime == m_time.current) return;
-    if (newTime < m_time.current) {
-        throw SimulationException(fmt::format(
-            "{}: Attempt to update to earlier time : Current {} | New {}",
-            std::source_location::current().function_name(),
-            m_time.current, newTime));
-    }
-    Timestamp oldTime = std::exchange(m_time.current, newTime);
-    m_signals.time({.begin = oldTime + 1, .end = newTime});
 }
 
 //-------------------------------------------------------------------------

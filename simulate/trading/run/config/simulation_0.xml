@@ -1,4 +1,5 @@
-<Simulation id="{{BG_CONFIG}}" start="0" step="5000000000" duration="86400000000000" timescale="ns" enableCheckpointing="0" traceTime="1" debug="0">
+<Simulation id="{{BG_CONFIG}}" start="0" step="5000000000" duration="86400000000000" timescale="ns" enableCheckpointing="0" traceTime="1" debug="0" blockCount="8" 
+    host="localhost" port="8000" batchSize="10" bookStateEndpoint="/orderbook" generalMsgEndpoint="/account">
     <Agents>
         <MultiBookExchangeAgent name="EXCHANGE" remoteAgentCount="256" gracePeriod="600000000000"
             priceDecimals="2" volumeDecimals="4" baseDecimals="4" quoteDecimals="10"
@@ -12,9 +13,9 @@
                 <Tier volumeRequired="1600000" makerFee="0.00031" takerFee="0.00064"/>
                 <Tier volumeRequired="3200000" makerFee="0.00016" takerFee="0.00038"/>
             </FeePolicy>
-            <Books instanceCount="20" algorithm="PriceTime" maxDepth="5">
+            <Books instanceCount="3" algorithm="PriceTime" maxDepth="5">
                 <Processes updatePeriod="10000000000">
-                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.012" 
+                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.013" 
                         lambda="0.0020" muJump="0.0" sigmaJump="0.00335"/>
                     <FuturesSignal name="external" seedInterval="10000000000" />
                 </Processes>
@@ -75,7 +76,7 @@
             minOPLatency="1000000"
             maxOPLatency="50000000"
             opLatencyScaleRay="0.235"
-            tau="2"
+            tau="3"
             delta="5000000000"
             psiHFT_constant="100"
             gHFT="0.2"
@@ -83,7 +84,7 @@
             spread="0.8"
             orderMean="1.6"
             noiseRay="0.23"
-            shiftPercentage="0.05">
+            shiftPercentage="0.04">
             <Balances>
                 <Base total="500" maxLeverage="1" maxLoan="10000" />
                 <Quote total="150000.0" maxLeverage="1" maxLoan="10000" />
@@ -97,7 +98,7 @@
 			instanceCount="100"
 			exchange="EXCHANGE"
 			debug="0"
-			MFLmean="1000000000"
+			MFLmean="2000000000"
 			MFLstd="50000000"
 			minOPLatency="90000000"
 			maxOPLatency="300000000"
@@ -105,7 +106,7 @@
 			sigmaN="0.7"
 			volume="4.0"
             lambda="0.001155"
-			sigmaEps="0.5">
+			sigmaEps="0.75">
 			<Balances>
 				<Base total="500" maxLeverage="1" maxLoan="10000" />
 				<Quote total="150000.0" maxLeverage="1" maxLoan="10000" />
@@ -130,11 +131,11 @@
             sigmaN="0.7"
             sigmaC="1.8"
             sigmaF="0.01"
-            tau="175000000000"
+            tau="350000000000"
             tauHist="200"
             tauF="1"
             sigmaEps="0.001"
-            r_aversion="0.0012"
+            r_aversion="0.0009"
             regimeChangeFlag="0"
             regimeProb="0.75"
             sigmaFRegime="4"
@@ -153,7 +154,6 @@
                 <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0" />
             </FeePolicy>
         </StylizedTraderAgent>
-       <DistributedProxyAgent host="localhost" port="8000" batchSize="10"
-                            bookStateEndpoint="/orderbook" generalMsgEndpoint="/account"/>
+       <DistributedProxyAgent/>
     </Agents>
 </Simulation>

@@ -8,7 +8,7 @@
 #include "DiracDeltaDistribution.hpp"
 #include "GammaDistribution.hpp"
 #include "LognormalDistribution.hpp"
-#include "TimeConfig.hpp"
+#include "taosim/simulation/TimeConfig.hpp"
 
 #include <pugixml.hpp>
 

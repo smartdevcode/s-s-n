@@ -69,41 +69,9 @@ taosim::exchange::ClearingManager& MultiBookExchangeAgent::clearingManager() noe
 
 //-------------------------------------------------------------------------
 
-void MultiBookExchangeAgent::publishState()
-{
-    const Timestamp now = simulation()->currentTimestamp();
-    
-    if (now < m_gracePeriod) return;
-
-    simulation()->dispatchMessage(
-        now,
-        0,
-        name(),
-        "DISTRIBUTED_PROXY_AGENT",
-        "MULTIBOOK_STATE_PUBLISH",
-        MessagePayload::create<BookStateMessagePayload>([this] -> rapidjson::Document {
-            rapidjson::Document json;
-            jsonSerialize(json);
-            return json;
-        }()));
-    
-    if (!m_retainRecord) {
-        m_L3Record.clear();
-    }
-}
-
-//-------------------------------------------------------------------------
-
 void MultiBookExchangeAgent::retainRecord(bool flag) noexcept
 {
     m_retainRecord = flag;
-}
-
-//-------------------------------------------------------------------------
-
-void MultiBookExchangeAgent::setParallel(bool flag) noexcept
-{
-    m_parallel = flag;
 }
 
 //-------------------------------------------------------------------------
@@ -260,8 +228,6 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
 
     // TODO: This monstrosity should be split up somehow.
     try {
-        m_gracePeriod = node.attribute("gracePeriod").as_ullong();
-
         m_config2 = taosim::exchange::makeExchangeConfig(node);
 
         m_eps = taosim::util::double2decimal(node.attribute("eps").as_double());
@@ -271,9 +237,6 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
         const std::string bookAlgorithm = booksNode.attribute("algorithm").as_string();
         const size_t maxDepth = booksNode.attribute("maxDepth").as_ullong(1024);
         const size_t detailedDepth = booksNode.attribute("detailedDepth").as_ullong(maxDepth);
-
-        m_threadPool = std::make_unique<boost::asio::thread_pool>(
-            PARALLEL_QUEUES ? std::min(bookCount, std::thread::hardware_concurrency()) : 0u);
 
         m_bookProcessManager = BookProcessManager::fromXML(
             booksNode, const_cast<Simulation*>(simulation()), &m_config2);
@@ -328,8 +291,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             }
         }
 
-        const fs::path logDir = simulation()->logDir();
-        for (uint16_t bookId{}; bookId < bookCount; ++bookId) {
+        for (BookId bookId{}; bookId < bookCount; ++bookId) {
             auto book = BookFactory::createBook(
                 bookAlgorithm,
                 simulation(),
@@ -365,7 +327,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             if (loggingNode) {
                 if (L2Node) {
                     const fs::path logPath =
-                        logDir / fmt::format(
+                        simulation()->logDir() / fmt::format(
                             "{}L2-{}.log",
                             !L2LogTag.empty() ? L2LogTag + "-" : "",
                             bookId);
@@ -378,7 +340,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                 }
                 if (L3Node) {
                     const fs::path logPath =
-                        logDir / fmt::format(
+                        simulation()->logDir() / fmt::format(
                             "{}L3-{}.log",
                             !L3LogTag.empty() ? L3LogTag + "-" : "",
                             bookId);
@@ -390,7 +352,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                 }
                 if (feeLogNode) {
                     const fs::path logPath =
-                        logDir / fmt::format(
+                        simulation()->logDir() / fmt::format(
                             "{}fees-{}.log",
                             !feeLogTag.empty() ? feeLogTag + "-" : "",
                             bookId);
@@ -426,28 +388,11 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             }
         }
 
-        for (BookId bookId = 0; bookId < bookCount; ++bookId) {
-            m_parallelQueues.push_back(MessageQueue{});
-        }
-
-        simulation()->signals().step.connect([this] { publishState(); });
-        simulation()->signals().stop.connect([this] {
-            Simulation* simulation = const_cast<Simulation*>(this->simulation());
-            simulation->m_messageQueue.clear();
-            publishState();
-            if (simulation->m_messageQueue.empty()) return;
-            Message::Ptr publishMsg = simulation->m_messageQueue.top();
-            simulation->m_messageQueue.pop();
-            simulation->deliverMessage(publishMsg);
-        });
-        simulation()->signals().timeAboutToProgress.connect([this](Timespan timespan) {
-            timeProgressCallback(timespan);
-        });
         simulation()->signals().agentsCreated.connect([=, this] {
             if (!balancesNode.attribute("log").as_bool()) return;
             for (BookId bookId = 0; bookId < bookCount; ++bookId) {
                 auto balanceLogger = std::make_unique<taosim::accounting::BalanceLogger>(
-                    logDir / fmt::format("bals-{}.log", bookId),
+                    simulation()->logDir() / fmt::format("bals-{}.log", bookId),
                     m_signals.at(bookId)->L3,
                     &accounts());
                 m_balanceLoggers.push_back(std::move(balanceLogger));
@@ -463,86 +408,6 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
 
 void MultiBookExchangeAgent::receiveMessage(Message::Ptr msg)
 {
-    try {
-        if (msg->type == "DISTRIBUTED_AGENT_RESET") {
-            return handleDistributedMessage(msg);
-        }
-    }
-    catch (...) {
-        handleException();
-    }
-
-    if (m_parallel) {
-        try {
-            if (msg->type == "PLACE_ORDER_MARKET") {
-                auto payload = std::dynamic_pointer_cast<PlaceOrderMarketPayload>(msg->payload);
-                m_parallelQueues[payload->bookId].push(msg);
-            }
-            else if (msg->type == "DISTRIBUTED_PLACE_ORDER_MARKET") {
-                auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
-                auto subPayload = std::dynamic_pointer_cast<PlaceOrderMarketPayload>(payload->payload);
-                m_parallelQueues[subPayload->bookId].push(msg);
-            }
-            else if (msg->type == "PLACE_ORDER_LIMIT") {
-                auto payload = std::dynamic_pointer_cast<PlaceOrderLimitPayload>(msg->payload);
-                m_parallelQueues[payload->bookId].push(msg);
-            }
-            else if (msg->type == "DISTRIBUTED_PLACE_ORDER_LIMIT") {
-                auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
-                auto subPayload = std::dynamic_pointer_cast<PlaceOrderLimitPayload>(payload->payload);
-                m_parallelQueues[subPayload->bookId].push(msg);
-            }
-            else if (msg->type == "RETRIEVE_ORDERS") {
-                auto payload = std::dynamic_pointer_cast<RetrieveOrdersPayload>(msg->payload);
-                m_parallelQueues[payload->bookId].push(msg);
-            }
-            else if (msg->type == "DISTRIBUTED_RETRIEVE_ORDERS") {
-                auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
-                auto subPayload = std::dynamic_pointer_cast<RetrieveOrdersPayload>(payload->payload);
-                m_parallelQueues[subPayload->bookId].push(msg);
-            }
-            else if (msg->type == "CANCEL_ORDERS") {
-                auto payload = std::dynamic_pointer_cast<CancelOrdersPayload>(msg->payload);
-                m_parallelQueues[payload->bookId].push(msg);
-            }
-            else if (msg->type == "DISTRIBUTED_CANCEL_ORDERS") {
-                auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
-                auto subPayload = std::dynamic_pointer_cast<CancelOrdersPayload>(payload->payload);
-                m_parallelQueues[subPayload->bookId].push(msg);
-            }
-            else if (msg->type == "RETRIEVE_L1") {
-                auto payload = std::dynamic_pointer_cast<RetrieveL1Payload>(msg->payload);
-                m_parallelQueues[payload->bookId].push(msg);
-            }
-            else if (msg->type == "RETRIEVE_BOOK_ASK") {
-                auto payload = std::dynamic_pointer_cast<RetrieveBookPayload>(msg->payload);
-                m_parallelQueues[payload->bookId].push(msg);
-            }
-            else if (msg->type == "RETRIEVE_BOOK_BID") {
-                auto payload = std::dynamic_pointer_cast<RetrieveBookPayload>(msg->payload);
-                m_parallelQueues[payload->bookId].push(msg);
-            }
-            else {
-                auto it = std::min_element(
-                    m_parallelQueues.begin(),
-                    m_parallelQueues.end(),
-                    [](const auto& a, const auto& b) { return a.size() < b.size(); });
-                it->push(msg);
-            }
-        } catch (const std::exception &exc) {
-            fmt::println(
-                "receiveMessage: Error processing {} Message From {} at {} to {} at {} : {}\n{}",
-                msg->type,
-                msg->source,
-                msg->occurrence,
-                fmt::join(msg->targets, ","),
-                msg->arrival,
-                exc.what(),
-                taosim::json::jsonSerializable2str(msg));
-        }
-        // simulation()->logDebug("{}: QUEUE {} {}", simulation()->currentTimestamp(), msg->arrival, taosim::json::jsonSerializable2str(msg));
-        return;
-    }
     try {
         if (msg->type.starts_with("DISTRIBUTED")) {
             return handleDistributedMessage(msg);
@@ -798,22 +663,16 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     const std::unordered_set<AgentId> resetAgentIds{valid.begin(), valid.end()};
 
     m_clearingManager->feePolicy()->resetHistory(resetAgentIds);
-
-    const bool allQueuesEmpty =
-        ranges::all_of(m_parallelQueues, [](const auto& queue) { return queue.empty(); });
-    if (m_parallel && !allQueuesEmpty) {
-        simulation()->logDebug("{} | PARALLEL QUEUES NON-EMPTY UPON AGENT RESET", simulation()->currentTimestamp());
-    }	
 	
-    simulation()->m_messageQueue = ThreadSafeMessageQueue{MessageQueue{
-        simulation()->m_messageQueue.m_underlying.m_queue.underlying()
+    simulation()->m_messageQueue = MessageQueue{
+        simulation()->m_messageQueue.m_queue.underlying()
             | views::filter([&](const auto& prioMsgWithId) {
                 const auto distributedPayload =
                     std::dynamic_pointer_cast<DistributedAgentResponsePayload>(
                         prioMsgWithId.pmsg.msg->payload);
                 return !(distributedPayload && resetAgentIds.contains(distributedPayload->agentId));
             })
-            | ranges::to<std::vector>}};
+            | ranges::to<std::vector>};
     simulation()->logDebug("{} | MESSAGE QUEUE CLEARED", simulation()->currentTimestamp());
 
     simulation()->fastRespondToMessage(
@@ -1734,40 +1593,6 @@ void MultiBookExchangeAgent::marketOrderProcessedCallback(
             balances.freeReservation(marketOrder->id(), m_books[ctx.bookId]->bestBid(),
                 m_books[ctx.bookId]->bestBid(), m_books[ctx.bookId]->bestAsk(), marketOrder->direction());
         }
-    }
-}
-
-//-------------------------------------------------------------------------
-
-void MultiBookExchangeAgent::timeProgressCallback(Timespan timespan)
-{
-    if (m_parallel) {
-        // simulation()->logDebug(
-        //     "{}: TIME {} {}", simulation()->currentTimestamp(), timespan.begin, timespan.end);
-        std::latch queuesRemaining(m_parallelQueues.size());
-        for (MessageQueue& queue : m_parallelQueues) {
-            boost::asio::post(
-                *m_threadPool,
-                [this, q = &queue, &queuesRemaining] {
-                    while (!q->empty()) {
-                        Message::Ptr msg = q->top();
-                        q->pop();
-                        // simulation()->logDebug(
-                        //     "{}: PROCS {} {}",
-                        //     simulation()->currentTimestamp(),
-                        //     msg->arrival,
-                        //     taosim::json::jsonSerializable2str(msg));
-                        if (msg->type.starts_with("DISTRIBUTED")) {
-                            handleDistributedMessage(msg);
-                        } else {
-                            handleLocalMessage(msg);
-                        }
-                    }
-                    queuesRemaining.count_down();
-                }
-            );
-        }
-        queuesRemaining.wait();
     }
 }
 

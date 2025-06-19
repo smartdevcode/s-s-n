@@ -34,7 +34,7 @@ target_link_libraries(taosim-tests
         GTest::gmock
         GTest::gmock_main
         taosim::test::common
-        taosim::simulation
+        taosim::simulator
 )
 
 add_test(Tests taosim-tests)

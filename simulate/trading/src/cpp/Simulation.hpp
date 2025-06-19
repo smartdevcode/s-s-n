@@ -5,19 +5,21 @@
 #pragma once
 
 #include "Agent.hpp"
-#include "SimulationConfig.hpp"
+#include "taosim/simulation/SimulationConfig.hpp"
 #include "IConfigurable.hpp"
 #include "IMessageable.hpp"
 #include "LocalAgentManager.hpp"
 #include "Message.hpp"
-#include "ThreadSafeMessageQueue.hpp"
-#include "ParameterStorage.hpp"
+#include "MessageQueue.hpp"
 #include "Recoverable.hpp"
-#include "SimulationSignals.hpp"
-#include "SimulationState.hpp"
+#include "taosim/simulation/SimulationSignals.hpp"
+#include "taosim/simulation/SimulationState.hpp"
 #include "common.hpp"
+#include "taosim/simulation/ISimulation.hpp"
 
 #include <fmt/core.h>
+
+#include <barrier>
 
 //-------------------------------------------------------------------------
 
@@ -25,16 +27,14 @@ class MultiBookExchangeAgent;
 
 //-------------------------------------------------------------------------
 
-class Simulation : public IMessageable, public IConfigurable
+class Simulation
+    : public taosim::simulation::ISimulation,
+      public IMessageable,
+      public IConfigurable
 {
 public:
-    explicit Simulation(ParameterStorage::Ptr parameters);
-
-    Simulation(
-        ParameterStorage::Ptr parameters,
-        Timestamp startTimestamp,
-        Timestamp duration,
-        const std::string& directory);
+    Simulation() noexcept;
+    Simulation(uint32_t blockIdx, const fs::path& logDir);
 
     void dispatchMessage(
         Timestamp occurrence,
@@ -77,21 +77,36 @@ public:
         m_messageQueue.push(PrioritizedMessage(std::forward<Args>(args)...));
     }
 
+    template<typename Fn>
+    void simulate(std::barrier<Fn>& barrier)
+    {
+        if (m_state == taosim::simulation::SimulationState::STOPPED) return;
+        else if (m_state == taosim::simulation::SimulationState::INACTIVE) start();
+
+        while (m_time.current < m_time.start + m_time.duration) {
+            step();
+            barrier.arrive_and_wait();
+        }
+
+        stop();
+        fmt::println("end");
+    }
+
     void simulate();
 
     [[nodiscard]] taosim::accounting::Account& account(const LocalAgentId& id) const noexcept;
     [[nodiscard]] std::span<const std::unique_ptr<Agent>> agents() const noexcept;
     [[nodiscard]] Timestamp currentTimestamp() const noexcept;
     [[nodiscard]] Timestamp duration() const noexcept;
-    [[nodiscard]] MultiBookExchangeAgent* exchange() const noexcept;
-    [[nodiscard]] const std::string& id() const noexcept;
-    [[nodiscard]] const fs::path& logDir() const noexcept;
-    [[nodiscard]] SimulationSignals& signals() const noexcept;
+    [[nodiscard]] MultiBookExchangeAgent* exchange() const noexcept { return m_exchange; }
+    [[nodiscard]] DistributedProxyAgent* proxy() const noexcept { return m_proxy; }
+    [[nodiscard]] taosim::simulation::SimulationSignals& signals() const noexcept;
     [[nodiscard]] std::mt19937& rng() const noexcept;
-    [[nodiscard]] ParameterStorage& parameters() const noexcept;
     [[nodiscard]] const taosim::simulation::SimulationConfig& config() const noexcept { return m_config2; }
     [[nodiscard]] const std::unique_ptr<LocalAgentManager>& localAgentManager() const noexcept { return m_localAgentManager; }
-
+    [[nodiscard]] const auto& time() const noexcept { return m_time; }
+    
+    virtual const fs::path& logDir() const noexcept override { return m_logDir; }
     virtual void receiveMessage(Message::Ptr msg) override;
     virtual void configure(const pugi::xml_node& node) override;
 
@@ -108,39 +123,42 @@ public:
 
     void saveCheckpoint();
 
-    [[nodiscard]] static std::unique_ptr<Simulation> fromConfig(const fs::path& path);
+    [[nodiscard]] static std::unique_ptr<Simulation> fromXML(pugi::xml_node node);
     [[nodiscard]] static std::unique_ptr<Simulation> fromCheckpoint(const fs::path& path);
 
 private:
     void configureAgents(pugi::xml_node node);
-    void configureId(pugi::xml_node node);
     void configureLogging(pugi::xml_node node);
     void deliverMessage(Message::Ptr msg);
     void start();
     void step();
     void stop();
-    void updateTime(Timestamp newTime);
 
-    // TODO: Simulation* everywhere should be non-const
-    mutable ThreadSafeMessageQueue m_messageQueue;
-    SimulationState m_state{SimulationState::INACTIVE};
+    void updateTime(Timestamp newTime)
+    {
+        if (newTime == m_time.current) [[unlikely]] return;
+        Timestamp oldTime = std::exchange(m_time.current, newTime);
+        m_signals.time({.begin = oldTime + 1, .end = newTime});
+    }
+
+    mutable MessageQueue m_messageQueue;
+    taosim::simulation::SimulationState m_state{taosim::simulation::SimulationState::INACTIVE};
     struct { Timestamp start, duration, step, current; } m_time;
-    mutable SimulationSignals m_signals;
+    mutable taosim::simulation::SimulationSignals m_signals;
     std::unique_ptr<LocalAgentManager> m_localAgentManager;
     MultiBookExchangeAgent* m_exchange{};
+    DistributedProxyAgent* m_proxy;
     mutable std::mt19937 m_rng;
     std::string m_id;
     std::string m_config;
-    bool m_testMode = false;
     bool m_debug = false;
     fs::path m_logDir;
-    ParameterStorage::Ptr m_parameters{};
     taosim::simulation::SimulationConfig m_config2;
+    uint32_t m_blockIdx{};
+    fs::path m_baseLogDir;
 
     friend class LocalAgentManager;
     friend class MultiBookExchangeAgent;
 };
-
-static_assert(taosim::serialization::Recoverable<Simulation>);
 
 //-------------------------------------------------------------------------

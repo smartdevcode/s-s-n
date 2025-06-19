@@ -134,9 +134,7 @@ def report(self : Validator) -> None:
         if self.simulation.logDir:
             bt.logging.debug(f"Retrieving fundamental prices...")
             start = time.time()
-            df_fp = pd.read_csv(os.path.join(self.simulation.logDir,'fundamental.csv'))
-            df_fp.set_index('Timestamp', inplace=True)
-            self.fundamental_price = {bookId : df_fp[str(bookId)] for bookId in range(self.simulation.book_count)}
+            self.load_fundamental()
             bt.logging.debug(f"Retrieved fundamental prices ({time.time()-start:.4f}s).")
         a=0
         bt.logging.debug(f"Publishing book metrics...")
@@ -226,18 +224,17 @@ def report(self : Validator) -> None:
                 for agentId in self.last_state.accounts.keys() 
             }
             bt.logging.debug(f"Daily volumes calculated ({time.time()-start:.4f}s).")
-            initial_balance_publish_status = {f"{uid}_{bookId}" : False for bookId in range(self.simulation.book_count) for uid in range(self.subnet_info.max_uids)}
             start = time.time()
             for agentId, accounts in self.last_state.accounts.items():
-                for bookId, account in accounts.items():                    
-                    if self.initial_balances[agentId][bookId]['BASE'] == None:
-                        self.initial_balances[agentId][bookId]['BASE'] = account.base_balance.total
-                    if self.initial_balances[agentId][bookId]['QUOTE'] == None:
-                        self.initial_balances[agentId][bookId]['QUOTE'] = account.quote_balance.total
-                    if not self.initial_balances_published:
+                initial_balance_publish_status = {bookId : False for bookId in range(self.simulation.book_count)}
+                for bookId, account in accounts.items():
+                    if self.initial_balances[agentId][bookId]['BASE'] is not None and not self.initial_balances_published[agentId]:
                         self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="base_balance_initial").set( self.initial_balances[agentId][bookId]['BASE'] )                        
-                        self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_balance_initial").set( self.initial_balances[agentId][bookId]['QUOTE'] )
-                        initial_balance_publish_status[f"{agentId}_{bookId}"] = True
+                        self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_balance_initial").set( self.initial_balances[agentId][bookId]['QUOTE'] )                
+                        self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="wealth_initial").set( self.initial_balances[agentId][bookId]['WEALTH'] )
+                        initial_balance_publish_status[bookId] = True
+                if all(initial_balance_publish_status.values()):
+                    self.initial_balances_published[agentId] = True
                 if agentId < 0 or len(self.inventory_history[agentId]) < 3: continue
                 start_inv = [i for i in list(self.inventory_history[agentId].values()) if len(i) > bookId][0]
                 last_inv = list(self.inventory_history[agentId].values())[-1]
@@ -262,8 +259,6 @@ def report(self : Validator) -> None:
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="daily_self_volume").set( daily_volumes[agentId][bookId]['self'] )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="activity_factor").set( self.activity_factors[agentId][bookId] )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="sharpe").set( sharpes['books'][bookId] )
-            if all(initial_balance_publish_status):
-                self.initial_balances_published = True
             bt.logging.debug(f"Agent book metrics published ({time.time()-start:.4f}s).")
             
             bt.logging.debug(f"Publishing miner trade metrics...")
@@ -271,7 +266,7 @@ def report(self : Validator) -> None:
             for agentId, notices in self.last_state.notices.items():
                 if agentId < 0: continue
                 for notice in notices:
-                    if notice.type == "EVENT_TRADE":
+                    if notice.type in ["EVENT_TRADE", "ET"]:
                         miner_trade = notice
                         if not has_new_miner_trades:
                             has_new_miner_trades = True

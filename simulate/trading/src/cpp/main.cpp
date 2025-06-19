@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "Simulation.hpp"
+#include "taosim/simulation/SimulationManager.hpp"
 #include "common.hpp"
 
 #include <CLI/CLI.hpp>
@@ -30,10 +30,11 @@ int main(int argc, char* argv[])
 
     fmt::println("{}", app.get_description());
 
-    auto simulation = !config.empty()
-        ? Simulation::fromConfig(config)
-        : Simulation::fromCheckpoint(checkpoint);
-    simulation->simulate();
+    if (config.empty()) {
+        throw std::runtime_error{"Loading from checkpoint not supported currently!"};
+    }
+    auto mngr = taosim::simulation::SimulationManager::fromConfig(config);
+    mngr->runSimulations();
 
     fmt::println(" - all simulations finished, exiting");
 

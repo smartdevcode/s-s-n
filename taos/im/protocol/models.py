@@ -1,8 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+
 from xml.etree.ElementTree import Element
-from pydantic import BaseModel
+from pydantic import Field
 from enum import IntEnum
+from taos.common.protocol import BaseModel
 from taos.im.protocol.simulator import *
 
 """
@@ -55,12 +57,15 @@ class MarketSimulationConfig(BaseModel):
     Class to represent the configuration of a intelligent markets simulation.
     """
     logDir : str | None = None
+    
+    block_count : int
 
     time_unit : str = 'ns'
     duration : int
     grace_period : int
     publish_interval : int
 
+    books_per_block : int
     book_count : int
     book_levels : int
 
@@ -181,12 +186,15 @@ class MarketSimulationConfig(BaseModel):
         Futures_config = xml.find('Agents').find('FuturesTraderAgent')
         Futures_balances_config = Futures_config.find("Balances") if Futures_config.find("Balances") else balances_config
         return MarketSimulationConfig(
+            block_count=int(xml.attrib['blockCount']),
+            
             time_unit = str(xml.attrib['timescale']),
             duration = int(xml.attrib['duration']),
             grace_period = int(MBE_config.attrib['gracePeriod']),
             publish_interval = int(xml.attrib['step']),
 
-            book_count = int(books_config.attrib['instanceCount']),
+            books_per_block = int(books_config.attrib['instanceCount']),
+            book_count = int(xml.attrib['blockCount']) * int(books_config.attrib['instanceCount']),
             book_levels = int(books_config.attrib['maxDepth']),
 
             baseDecimals = int(MBE_config.attrib['baseDecimals']),
@@ -312,21 +320,37 @@ class Order(BaseModel):
     - order_type: String identifier for the type of the order (limit or market).
     - price: Optional field for the price of the order (None for market orders).
     """
-    id : int
-    client_id : int | None = None
-    timestamp : int
-    quantity : float
-    side : int
-    order_type : str
-    price : float | None
-
-    @classmethod
-    def from_simulator(self, sim_order : SimulatorOrder):
-        """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
-        """
-        return Order(id=sim_order.orderId,client_id=sim_order.clientOrderId,timestamp=sim_order.timestamp,quantity=sim_order.volume,side=sim_order.direction,order_type="limit" if sim_order.price else "market",price=sim_order.price)
-
+    i : int = Field(alias='id')
+    c : int | None = Field(alias='client_id', default=None)
+    t : int = Field(alias='timestamp')
+    q : float = Field(alias='quantity')
+    s : int = Field(alias='side')
+    p : float | None = Field(alias='price')
+    
+    @property
+    def id(self) -> int:
+        return self.i
+    
+    @property
+    def client_id(self) -> int | None:
+        return self.c
+    
+    @property
+    def timestamp(self) -> int:
+        return self.t
+    
+    @property
+    def quantity(self) -> float:
+        return self.q
+    
+    @property
+    def side(self) -> int:
+        return self.s
+    
+    @property
+    def price(self) -> float | None:
+        return self.p
+    
     @classmethod
     def from_event(self, event : dict):
         """
@@ -350,20 +374,21 @@ class LevelInfo(BaseModel):
     - quantity: Total quantity in base currency which exists at this price level in the book.
     - orders: List of the individual orders composing the orderbook level.
     """
-    price : float
-    quantity : float
-    orders: list[Order] | None
-
-    @classmethod
-    def from_simulator(self, sim_level : SimulatorLevel | SimulatorBroadLevel):
-        """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
-        """
-        if isinstance(sim_level, SimulatorBroadLevel):
-            orders = None
-        else:
-            orders = [Order(id=order.orderId, timestamp=order.timestamp,quantity=order.volume,side=order.direction,order_type="limit",price=sim_level.price) for order in sim_level.orders]
-        return LevelInfo(price = sim_level.price, quantity=sim_level.volume, orders=orders)
+    p : float = Field(alias='price')
+    q : float = Field(alias='quantity')
+    o: list[Order] | None = Field(alias='orders')
+    
+    @property
+    def price(self) -> float:
+        return self.p
+    
+    @property
+    def quantity(self) -> float:
+        return self.q
+    
+    @property
+    def orders(self) -> list[Order]:
+        return self.o
 
     @classmethod
     def from_json(self, json : dict):
@@ -391,25 +416,62 @@ class TradeInfo(BaseModel):
     - quantity: Quantity in base currency which was traded.
     - price: The price at which the trade occurred.
     """
-    id : int
-    side : int
-    timestamp : int
-    taker_id : int
-    taker_agent_id : int
-    maker_id : int
-    maker_agent_id : int
-    quantity : float
-    price : float
-    maker_fee : float | None = None
-    taker_fee : float | None = None
-
-    @classmethod
-    def from_simulator(self, sim_trade : SimulatorTrade):
-        """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
-        """
-        return TradeInfo(id=sim_trade.id,timestamp=sim_trade.timestamp,taker_id=sim_trade.aggressingOrderId,maker_id=sim_trade.restingOrderId,side=sim_trade.direction,quantity=sim_trade.volume,price=sim_trade.price)
-
+    i : int = Field(alias='id')
+    s : int = Field(alias='side')
+    t : int = Field(alias='timestamp')
+    q : float = Field(alias='quantity')
+    p : float = Field(alias='price')
+    Ti : int = Field(alias='taker_id')
+    Ta : int = Field(alias='taker_agent_id')
+    Tf : float | None = Field(alias='taker_fee', default=None)
+    Mi : int = Field(alias='maker_id')
+    Ma : int = Field(alias='maker_agent_id')
+    Mf : float | None = Field(alias='maker_fee', default=None)
+    
+    @property
+    def id(self) -> int:
+        return self.i
+    
+    @property
+    def side(self) -> int:
+        return self.s
+    
+    @property
+    def timestamp(self) -> int:
+        return self.t
+    
+    @property
+    def quantity(self) -> float:
+        return self.q
+    
+    @property
+    def price(self) -> float:
+        return self.p
+    
+    @property
+    def taker_id(self) -> int:
+        return self.Ti
+    
+    @property
+    def taker_agent_id(self) -> int:
+        return self.Ta
+    
+    @property
+    def taker_fee(self) -> float | None:
+        return self.Tf
+    
+    @property
+    def maker_id(self) -> int:
+        return self.Mi
+    
+    @property
+    def maker_agent_id(self) -> int:
+        return self.Ma
+    
+    @property
+    def maker_fee(self) -> float | None:
+        return self.Mf
+    
     @classmethod
     def from_event(self, event : dict):
         """
@@ -427,15 +489,16 @@ class Cancellation(BaseModel):
     - orderId: ID of the cancelled order.
     - quantity: Quantity which was cancelled (None if the entire order was cancelled).
     """
-    orderId: int
-    quantity: float | None
-
-    @classmethod
-    def from_simulator(self, sim_canc : SimulatorCancellation):
-        """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
-        """
-        return Cancellation(orderId=sim_canc.orderId,quantity=sim_canc.volume)
+    i: int = Field(alias="orderId")
+    q: float | None = Field(alias="quantity")
+    
+    @property
+    def orderId(self) -> int:
+        return self.i
+    
+    @property
+    def quantity(self) -> float | None:
+        return self.q
 
     @classmethod
     def from_event(self, event : dict):
@@ -454,30 +517,26 @@ class Book(BaseModel):
     - asks: List of LevelInfo objects representing the ASK side of the book.
     - events: List of models representing the events having occurred on the book since the last state update.
     """
-    id : int
-    bids : list[LevelInfo]
-    asks : list[LevelInfo]
-    events : list[Order | TradeInfo | Cancellation] | None
-
-    @classmethod
-    def from_simulator(self, sim_book : SimulatorBook):
-        """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
-        """
-        id = sim_book.bookId
-        bids = []
-        asks = []
-        if sim_book.bid:
-            bids = [LevelInfo.from_simulator(bid) for bid in sim_book.bid][:21]
-        if sim_book.ask:
-            asks = [LevelInfo.from_simulator(ask) for ask in sim_book.ask][:21]
-        events = []
-        if sim_book.record:
-            events = [Order.from_event(event) if event['event'] == 'place' else
-                    (TradeInfo.from_event(event)) if event['event'] == 'trade' else
-                        (Cancellation.from_event(event) if event['event'] == 'cancel' else
-                            None) for event in sim_book.record]
-        return Book(id=id,bids=bids,asks=asks,events=events)
+    i : int = Field(alias="id")
+    b : list[LevelInfo] = Field(alias="bids")
+    a : list[LevelInfo] = Field(alias="asks")
+    e : list[Order | TradeInfo | Cancellation] | None = Field(alias="events")
+    
+    @property
+    def id(self) -> int:
+        return self.i
+    
+    @property
+    def bids(self) -> list[LevelInfo]:
+        return self.b
+    
+    @property
+    def asks(self) -> list[LevelInfo]:
+        return self.a
+    
+    @property
+    def events(self) -> list[Order | TradeInfo | Cancellation] | None:
+        return self.e
 
     @classmethod
     def from_json(self, json : dict):
@@ -509,17 +568,26 @@ class Balance(BaseModel):
     - free: Free curreny balance of account (this amount is available for order placement).
     - reserved: Reserved currency balance; this represents the amount tied up in resting orders.
     """
-    currency : str
-    total : float
-    free : float
-    reserved : float
-
-    @classmethod
-    def from_simulator(self, sim_balance : SimulatorBalance):
-        """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
-        """
-        return Balance(currency=sim_balance.symbol,total=sim_balance.total,free=sim_balance.free,reserved=sim_balance.reserved)
+    c : str = Field(alias="currency")
+    t : float = Field(alias="total")
+    f : float = Field(alias="free")
+    r : float = Field(alias="reserved")
+    
+    @property
+    def currency(self) -> str:
+        return self.c
+    
+    @property
+    def total(self) -> float:
+        return self.t
+    
+    @property
+    def free(self) -> float:
+        return self.f
+    
+    @property
+    def reserved(self) -> float:
+        return self.r
 
     @classmethod
     def from_json(self, currency : str, json : dict):
@@ -537,16 +605,21 @@ class Fees(BaseModel):
     - maker_fee_rate: The current maker fee rate for the agent.
     - maker_fee_rate: The current taker fee rate for the agent.
     """
-    volume_traded : float
-    maker_fee_rate : float
-    taker_fee_rate : float
-
-    @classmethod
-    def from_simulator(self, sim_fees : SimulatorFees):
-        """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
-        """
-        return Fees(volume_traded=sim_fees.volume,maker_fee_rate=sim_fees.makerFeeRate,taker_fee_rate=sim_fees.takerFeeRate)
+    v : float = Field(alias="volume_traded")
+    m : float = Field(alias="maker_fee_rate")
+    t : float = Field(alias="taker_fee_rate")
+    
+    @property
+    def volume_traded(self) -> str:
+        return self.v
+    
+    @property
+    def maker_fee_rate(self) -> float:
+        return self.m
+    
+    @property
+    def taker_fee_rate(self) -> float:
+        return self.t
 
     @classmethod
     def from_json(self, json : dict):
@@ -567,12 +640,36 @@ class Account(BaseModel):
     - orders: List of the current open orders associated to the agent.
     - fees: The current fee structure for the account.
     """
-    agent_id : int
-    book_id : int
-    base_balance : Balance
-    quote_balance : Balance
-    orders : list[Order] = []
-    fees : Fees | None
+    i : int = Field(alias="agent_id")
+    b : int = Field(alias="book_id")
+    bb : Balance = Field(alias="base_balance")
+    qb : Balance = Field(alias="quote_balance")
+    o : list[Order] = Field(alias="orders", default=[])
+    f : Fees | None = Field(alias="fees")
+    
+    @property
+    def agent_id(self) -> int:
+        return self.i
+    
+    @property
+    def book_id(self) -> int:
+        return self.b
+    
+    @property
+    def base_balance(self) -> Balance:
+        return self.bb
+    
+    @property
+    def quote_balance(self) -> Balance:
+        return self.qb
+    
+    @property
+    def orders(self) -> list[Order]:
+        return self.o
+    
+    @property
+    def fees(self) -> Fees | None:
+        return self.f
 
 class OrderDirection(IntEnum):
     """

@@ -6,7 +6,6 @@ add_library(util STATIC
     Order.cpp
     OrderContainer.hpp
     OrderFactory.cpp
-    ParameterStorage.cpp
     SubscriptionRegistry.hpp
     TickContainer.cpp
     Timestamp.hpp
@@ -34,6 +33,7 @@ target_include_directories(util
         "${src_dir}/message"
         "${src_dir}/mp"
         "${src_dir}/serialization"
+        "${src_dir}/simulation/include"
 )
 
 target_link_libraries(util

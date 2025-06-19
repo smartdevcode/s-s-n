@@ -7,10 +7,6 @@ add_library(base STATIC
 )
 add_library(taosim::base ALIAS base)
 
-target_compile_options(base PRIVATE ${internal_compile_options})
-target_compile_definitions(base PRIVATE ${internal_compile_definitions})
-target_link_options(base PRIVATE ${internal_link_options})
-
 target_include_directories(base
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"

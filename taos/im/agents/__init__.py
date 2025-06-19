@@ -47,12 +47,12 @@ class FinanceSimulationAgent(SimulationAgent):
         update_text += f'VALIDATOR : {state.dendrite.hotkey} | TIMESTAMP : {state.timestamp}' + "\n"
         for event in self.events:
             match event.type:
-                case"RESET_AGENTS":
+                case"RESET_AGENTS" | "RA":
                     bt.logging.warning(f"Agent Balances Reset! {event}")
-                case "EVENT_SIMULATION_START":
+                case "EVENT_SIMULATION_START" | "ESS":
                     update_text += f"{event}" + "\n"
                     self.onStart(event)
-                case "EVENT_SIMULATION_STOP":
+                case "EVENT_SIMULATION_END" | "ESE":
                     update_text += f"{event}" + "\n"
                     self.onEnd(event)
                 case _:
@@ -76,17 +76,17 @@ class FinanceSimulationAgent(SimulationAgent):
                 if hasattr(event, 'bookId') and event.bookId == book_id:
                     update_text += f"{event}" + "\n"
                     match event.type:
-                        case "RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET":
+                        case "RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "RDPOL" | "RDPOM":
                             self.onOrderAccepted(event)
-                        case "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET":
+                        case "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "ERDPOL" | "ERDPOM":
                             self.onOrderRejected(event)
-                        case "RESPONSE_DISTRIBUTED_CANCEL_ORDERS":
+                        case "RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "RDCO":
                             for cancellation in event.cancellations:
                                 self.onOrderCancelled(cancellation)
-                        case "ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS":
+                        case "ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "ERDCO":
                             for cancellation in event.cancellations:
                                 self.onOrderCancellationFailed(cancellation)
-                        case "EVENT_TRADE":
+                        case "EVENT_TRADE" | "ET":
                             self.onTrade(event)
                         case _:
                             bt.logging.warning(f"Unknown event : {event}")

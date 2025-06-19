@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
 import bittensor as bt
-from pydantic import BaseModel, Field
+from pydantic import Field
 from typing import Annotated, Union, List
 from annotated_types import Len
 from taos.im.protocol.simulator import *

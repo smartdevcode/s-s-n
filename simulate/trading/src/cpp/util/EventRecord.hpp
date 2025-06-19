@@ -24,6 +24,8 @@ class EventRecord : public JsonSerializable, public CheckpointSerializable
 public:
     using Entry = std::variant<Ts...>;
 
+    [[nodiscard]] size_t size() const noexcept { return m_entries.size(); }
+
     void push(Entry entry) noexcept { m_entries.push_back(entry); }
     void clear() noexcept { m_entries.clear(); }
 

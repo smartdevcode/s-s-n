@@ -12,7 +12,7 @@
 //-------------------------------------------------------------------------
 
 FundamentalPrice::FundamentalPrice(
-    Simulation* simulation,
+    taosim::simulation::ISimulation* simulation,
     uint64_t bookId,
     uint64_t seedInterval,
     double mu,
@@ -35,7 +35,7 @@ FundamentalPrice::FundamentalPrice(
       m_dJ{0}
 {
     m_value = m_X0;
-    m_seedfile = (simulation->logDir() / "fundamental_seed.csv").generic_string();
+    m_seedfile = (simulation->logDir().parent_path() / "fundamental_seed.csv").generic_string();
 }
 
 //-------------------------------------------------------------------------
@@ -70,6 +70,7 @@ void FundamentalPrice::update(Timestamp timestamp)
                 fmt::println("WARNING : Fundamental price seed not updated - using random seed.  Last Count {} | Count {} | Last Seed {} | Seed {}", m_last_count, count, seed, m_last_seed);
             }
         } else {
+            fmt::println("FundamentalPrice::update : NO SEED FILE PRESENT AT {}.  Using random seed.", m_seedfile);
             std::random_device rd;
             std::mt19937 gen(rd());
             std::uniform_int_distribution<> distr(10800000,11200000);
@@ -121,7 +122,7 @@ void FundamentalPrice::checkpointSerialize(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
-    Simulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod)
+    taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -162,7 +163,7 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FundamentalPrice> FundamentalPrice::fromCheckpoint(
-    Simulation* simulation, const rapidjson::Value& json, double X0)
+    taosim::simulation::ISimulation* simulation, const rapidjson::Value& json, double X0)
 {
     auto fp = std::make_unique<FundamentalPrice>(
         simulation,

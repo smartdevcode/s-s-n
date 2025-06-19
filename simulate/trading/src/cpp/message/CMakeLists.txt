@@ -6,13 +6,8 @@ add_library(message STATIC
     MessageType.hpp
     MultiBookMessagePayloads.cpp
     PayloadFactory.cpp
-    ThreadSafeMessageQueue.cpp
 )
 add_library(taosim::message ALIAS message)
-
-target_compile_options(message PRIVATE ${internal_compile_options})
-target_compile_definitions(message PRIVATE ${internal_compile_definitions})
-target_link_options(message PRIVATE ${internal_link_options})
 
 target_include_directories(message
     PUBLIC

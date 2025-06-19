@@ -20,11 +20,11 @@ class FeePolicyWrapper;
 
 struct ExchangeSignals
 {
-    bs2::signal<void(OrderWithLogContext)> orderLog;
-    bs2::signal<void(TradeWithLogContext)> tradeLog;
-    bs2::signal<void(CancellationWithLogContext)> cancelLog;
-    bs2::signal<void(taosim::L3LogEvent)> L3;
-    bs2::signal<void(const FeePolicyWrapper*, taosim::FeeLogEvent)> feeLog;
+    UnsyncSignal<void(OrderWithLogContext)> orderLog;
+    UnsyncSignal<void(TradeWithLogContext)> tradeLog;
+    UnsyncSignal<void(CancellationWithLogContext)> cancelLog;
+    UnsyncSignal<void(taosim::L3LogEvent)> L3;
+    UnsyncSignal<void(const FeePolicyWrapper*, taosim::FeeLogEvent)> feeLog;
     uint32_t eventCounter{};
 
     ExchangeSignals() noexcept;

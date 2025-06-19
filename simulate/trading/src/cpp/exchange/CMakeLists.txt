@@ -9,10 +9,6 @@ add_library(exchange STATIC
 )
 add_library(taosim::exchange ALIAS exchange)
 
-target_compile_options(exchange PRIVATE ${internal_compile_options})
-target_compile_definitions(exchange PRIVATE ${internal_compile_definitions})
-target_link_options(exchange PRIVATE ${internal_link_options})
-
 target_include_directories(exchange
     PUBLIC
         include
@@ -36,6 +32,7 @@ target_link_libraries(exchange
     PUBLIC
         taosim::accounting
         taosim::book
+        taosim::simulation
         bdl
         pybind11::embed
 )

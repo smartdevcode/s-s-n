@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 import json
 import uvicorn
-import requests
 import asyncio
 import aiohttp
 import argparse
@@ -12,7 +11,6 @@ import time
 import copy
 import bittensor as bt
 from pathlib import Path
-from typing import Any, Dict
 from threading import Thread
 
 from fastapi import FastAPI, APIRouter, Request
@@ -20,10 +18,9 @@ from fastapi import FastAPI, APIRouter, Request
 from taos.common.neurons import BaseNeuron
 from taos.im.neurons.validator import Validator
 from taos.im.protocol import MarketSimulationStateUpdate, MarketSimulationConfig, FinanceAgentResponse, FinanceEventNotification
-from taos.im.protocol.simulator import SimulatorResponseBatch, SimulatorMessageBatch
+from taos.im.protocol.simulator import SimulatorResponseBatch
 from taos.im.protocol.events import SimulationStartEvent
 
-import sys
 import xml.etree.ElementTree as ET
 #--------------------------------------------------------------------------
 
@@ -127,12 +124,12 @@ class Proxy(Validator):
         return simulator_response
 
     async def account(self, request : Request):
-        data = await request.json()
-        batch = SimulatorMessageBatch.model_validate(data) # Validate the simulator message and load to class object
+        body = await request.body()
+        batch = msgspec.json.decode(body)
         bt.logging.info(f"NOTICE : {batch}")
-        for message in batch.messages:
-            if message.type == 'EVENT_SIMULATION_START':
-                self.onStart(message.timestamp, FinanceEventNotification.from_simulator(message).event)
+        for message in batch['messages']:
+            if message['type'] == 'EVENT_SIMULATION_START':
+                self.onStart(message['timestamp'], FinanceEventNotification.from_json(message).event)
 
 #--------------------------------------------------------------------------
 if __name__ == "__main__":

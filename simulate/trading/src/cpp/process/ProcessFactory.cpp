@@ -14,7 +14,7 @@
 //-------------------------------------------------------------------------
 
 ProcessFactory::ProcessFactory(
-    Simulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig) noexcept
+    taosim::simulation::ISimulation* simulation, taosim::exchange::ExchangeConfig* exchangeConfig) noexcept
     : m_simulation{simulation}, m_exchangeConfig{exchangeConfig}
 {}
 
@@ -26,8 +26,8 @@ std::unique_ptr<Process> ProcessFactory::createFromXML(pugi::xml_node node, uint
 
     if (name == "GBM") {
         return GBM::fromXML(node, seedShift);
-    } else if (name == "FundamentalPrice") {   
-            return FundamentalPrice::fromXML(
+    } else if (name == "FundamentalPrice") {
+        return FundamentalPrice::fromXML(
             m_simulation,
             node,
             seedShift,

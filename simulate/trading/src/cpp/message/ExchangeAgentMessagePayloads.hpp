@@ -625,23 +625,3 @@ struct ResetAgentsErrorResponsePayload : public MessagePayload
 };
 
 //-------------------------------------------------------------------------
-// TODO: Useless?
-
-struct WakeupForCancellationPayload : public MessagePayload
-{
-    using Ptr = std::shared_ptr<WakeupForCancellationPayload>;
-
-    OrderID orderToCancelId;
-    BookId bookId;
-
-    WakeupForCancellationPayload(OrderID orderToCancelId, BookId bookId) noexcept
-        : orderToCancelId{orderToCancelId}, bookId{bookId}
-    {}
-
-    virtual void jsonSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
-    virtual void checkpointSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
-};
-
-//-------------------------------------------------------------------------

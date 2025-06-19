@@ -7,8 +7,6 @@
 #include "AccountRegistry.hpp"
 #include "taosim/exchange/FeePolicy.hpp"
 
-#include <shared_mutex>
-
 //-------------------------------------------------------------------------
 
 namespace taosim::exchange
@@ -52,7 +50,6 @@ private:
     accounting::AccountRegistry* m_accountRegistry;
     std::map<std::string, std::unique_ptr<FeePolicy>> m_agentBaseNameFeePolicies;
     std::unique_ptr<FeePolicy> m_feePolicy;
-    std::unique_ptr<std::shared_mutex> m_mtx;
 };
 
 //-------------------------------------------------------------------------

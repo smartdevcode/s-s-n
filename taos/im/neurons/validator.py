@@ -22,7 +22,6 @@ import time
 import argparse
 import torch
 import traceback
-import json
 import xml.etree.ElementTree as ET
 import pandas as pd
 import msgpack
@@ -48,7 +47,7 @@ from pathlib import Path
 from taos.common.neurons.validator import BaseValidatorNeuron
 
 from taos.im.config import add_im_validator_args
-from taos.im.protocol.simulator import SimulatorBookMessage, SimulatorResponseBatch, SimulatorMessageBatch
+from taos.im.protocol.simulator import SimulatorResponseBatch
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceEventNotification, FinanceAgentResponse
 from taos.im.protocol.models import MarketSimulationConfig
 from taos.im.protocol.events import SimulationStartEvent
@@ -235,12 +234,14 @@ class Validator(BaseValidatorNeuron):
             self.start_timestamp = simulation_state["start_timestamp"]
             self.step_rates = simulation_state["step_rates"]
             self.pending_notices = simulation_state["pending_notices"]
-            self.initial_balances = simulation_state["initial_balances"] if 'initial_balances' in simulation_state else {uid : {bookId : {'BASE' : None, 'QUOTE' : None} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+            self.initial_balances = simulation_state["initial_balances"] if 'initial_balances' in simulation_state else {uid : {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : None} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+            for uid, initial_balances in self.initial_balances.items():
+                if not 'WEALTH' in initial_balances[0]:
+                    self.initial_balances[uid] = {bookId : initial_balance | {'WEALTH' : self.simulation.miner_wealth} for bookId, initial_balance in initial_balances.items()}
             self.recent_trades = simulation_state["recent_trades"]
             self.recent_miner_trades = simulation_state["recent_miner_trades"] if "recent_miner_trades" in simulation_state else {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.simulation.logDir = simulation_state["simulation.logDir"]
             self.fundamental_price = simulation_state["fundamental_price"]
-            # self.inventory_history = simulation_state["inventory_history"] if "inventory_history" in simulation_state else {uid : {} for uid in range(self.subnet_info.max_uids)}
             bt.logging.success(f"Loaded simulation state.")
         else:
             # If no state exists or the neuron.reset flag is set, re-initialize the simulation state
@@ -249,11 +250,10 @@ class Validator(BaseValidatorNeuron):
             else:
                 bt.logging.info(f"No previous state information at {self.simulation_state_file}, initializing new simulation state.")
             self.pending_notices = {uid : [] for uid in range(self.subnet_info.max_uids)}
-            self.initial_balances = {uid : {bookId : {'BASE' : None, 'QUOTE' : None} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+            self.initial_balances = {uid : {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : None} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.recent_trades = {bookId : [] for bookId in range(self.simulation.book_count)}
             self.recent_miner_trades = {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.fundamental_price = {bookId : None for bookId in range(self.simulation.book_count)}
-            # self.inventory_history = {uid : {} for uid in range(self.subnet_info.max_uids)}
 
         if os.path.exists(self.validator_state_file.replace('.mp', '.pt')):
             bt.logging.info("Pytorch validator state file exists - converting to msgpack...")
@@ -382,7 +382,7 @@ class Validator(BaseValidatorNeuron):
         self.reporting = False
         self.saving = False
         self.compressing = False
-        self.initial_balances_published = False
+        self.initial_balances_published = {uid : False for uid in range(self.subnet_info.max_uids)}
 
         self.load_simulation_config()
 
@@ -398,6 +398,19 @@ class Validator(BaseValidatorNeuron):
         self.miner_stats = {uid : {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []} for uid in range(self.subnet_info.max_uids)}
         init_metrics(self)
         publish_info(self)
+        
+    def load_fundamental(self):
+        df_fp = pd.DataFrame()
+        for block in range(self.simulation.block_count):
+            block_file = os.path.join(self.simulation.logDir, str(block), 'fundamental.csv')
+            block_fp = pd.read_csv(block_file) 
+            block_fp.set_index('Timestamp', inplace=True)
+            block_fp.columns = [int(col) + block * self.simulation.books_per_block for col in block_fp.columns]
+            if block == 0:
+                df_fp = block_fp
+            else:
+                df_fp = pd.merge(df_fp, block_fp, left_index=True, right_index=True, how='inner')
+        self.fundamental_price = {bookId : df_fp[bookId] for bookId in range(self.simulation.book_count)}
 
     def onStart(self, timestamp, event : SimulationStartEvent) -> None:
         """
@@ -427,10 +440,8 @@ class Validator(BaseValidatorNeuron):
         bt.logging.info(f"TIMESTAMP : {self.start_timestamp}")
         bt.logging.info(f"OUT DIR   : {self.simulation.logDir}")
         bt.logging.info("-"*40)
-        df_fp = pd.read_csv(os.path.join(self.simulation.logDir,'fundamental.csv'))
-        df_fp.set_index('Timestamp')
-        self.fundamental_price = {bookId : df_fp[str(bookId)].to_dict() for bookId in range(self.simulation.book_count)}
-        self.initial_balances = {uid : {bookId : {'BASE' : None, 'QUOTE' : None} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+        self.load_fundamental()
+        self.initial_balances = {uid : {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : self.simulation.miner_wealth} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
         self.recent_trades = {bookId : [] for bookId in range(self.simulation.book_count)}
         self.recent_miner_trades = {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
         self.save_state()
@@ -468,6 +479,7 @@ class Validator(BaseValidatorNeuron):
         self.inventory_history[uid] = {}
         self.deregistered_uids.append(uid)
         self.trade_volumes[uid] = {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)}
+        self.initial_balances[uid] = {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : None} for bookId in range(self.simulation.book_count)}
         bt.logging.debug(f"UID {uid} Deregistered - Scheduled for reset.")
 
     def report(self) -> None:
@@ -518,7 +530,7 @@ class Validator(BaseValidatorNeuron):
         start = time.time()
         state = MarketSimulationStateUpdate.from_json(message) # Populate synapse class from request data
         bt.logging.debug(f"Synapse populated ({time.time()-start:.4f}s).")
-
+        
         # Update variables
         if not self.start_time:
             self.start_time = time.time()
@@ -577,7 +589,7 @@ class Validator(BaseValidatorNeuron):
         self.save_state()
         self.report()
         for notice in state.notices[0]:
-            if notice.type == 'EVENT_SIMULATION_STOP':
+            if notice.type == 'EVENT_SIMULATION_END':
                 self.onEnd()
         bt.logging.info(f"State update processed ({time.time()-global_start}s)")
         return response
@@ -588,17 +600,17 @@ class Validator(BaseValidatorNeuron):
         This method is currently used only to enable the simulation start message to be immediately propagated to the validator.
         Other events are instead recorded to the simulation state object.
         """
-        data = await request.json()
-        batch = SimulatorMessageBatch.model_validate(data) # Validate the simulator message and load to class object
+        body = await request.body()
+        batch = msgspec.json.decode(body)
         bt.logging.info(f"NOTICE : {batch}")
         notices = []
-        for message in batch.messages:
-            if message.type == 'EVENT_SIMULATION_START':
-                self.onStart(message.timestamp, FinanceEventNotification.from_simulator(message).event)
-            elif message.type == 'EVENT_SIMULATION_STOP':
+        for message in batch['messages']:
+            if message['type'] == 'EVENT_SIMULATION_START':
+                self.onStart(message['timestamp'], FinanceEventNotification.from_json(message).event)
+            elif message['type'] == 'EVENT_SIMULATION_END':
                 self.onEnd()
             else:
-                notice = FinanceEventNotification.from_simulator(message)
+                notice = FinanceEventNotification.from_json(message)
                 if not notice:
                     bt.logging.error(f"Unrecognized notification : {message}")
                 else:

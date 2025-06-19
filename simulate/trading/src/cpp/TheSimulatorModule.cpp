@@ -24,7 +24,6 @@ using namespace taosim;
 PYBIND11_EMBEDDED_MODULE(thesimulator, m)
 {
     py::class_<Simulation>(m, "Simulation")
-        .def("id", &Simulation::id)
         .def("logDir", [](Simulation& self) { return self.logDir().string(); })
         .def("duration", &Simulation::duration)
         .def("currentTimestamp", &Simulation::currentTimestamp)
@@ -295,12 +294,6 @@ PYBIND11_EMBEDDED_MODULE(thesimulator, m)
         .def_readonly("context", &EventTradePayload::context)
         .def_readonly("bookId", &EventTradePayload::bookId)
         .def_readonly("clientOrderId", &EventTradePayload::clientOrderId)
-        ;
-
-    py::class_<WakeupForCancellationPayload, MessagePayload, WakeupForCancellationPayload::Ptr>(
-        m, "WakeupForCancellationPayload")
-        .def_readwrite("orderToCancelId", &WakeupForCancellationPayload::orderToCancelId)
-        .def_readwrite("bookID", &WakeupForCancellationPayload::bookId)
         ;
 
     py::class_<TradeLogContext, TradeLogContext::Ptr>(m, "TradeLogContext")

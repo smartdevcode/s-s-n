@@ -9,10 +9,6 @@ add_library(process STATIC
 )
 add_library(taosim::process ALIAS process)
 
-target_compile_options(process PRIVATE ${internal_compile_options})
-target_compile_definitions(process PRIVATE ${internal_compile_definitions})
-target_link_options(process PRIVATE ${internal_link_options})
-
 target_include_directories(process
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -33,5 +29,6 @@ target_include_directories(process
 target_link_libraries(process
     PRIVATE
         taosim::exchange
+        taosim::simulation
         pybind11::embed
 )

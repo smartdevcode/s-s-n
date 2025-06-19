@@ -5,7 +5,7 @@
 #include "Book.hpp"
 
 #include "Simulation.hpp"
-#include "SimulationException.hpp"
+#include "taosim/simulation/SimulationException.hpp"
 
 
 //-------------------------------------------------------------------------

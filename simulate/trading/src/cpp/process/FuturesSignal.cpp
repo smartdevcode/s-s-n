@@ -12,7 +12,7 @@
 //-------------------------------------------------------------------------
 
 FuturesSignal::FuturesSignal(
-    Simulation* simulation,
+    taosim::simulation::ISimulation* simulation,
     uint64_t bookId,
     uint64_t seedInterval,
     double X0) noexcept
@@ -22,7 +22,7 @@ FuturesSignal::FuturesSignal(
       m_value{X0}
 {
     m_value = m_X0;
-    m_seedfile = (simulation->logDir() / "external_seed_sampled.csv").generic_string();
+    m_seedfile = (simulation->logDir().parent_path() / "external_seed_sampled.csv").generic_string();
 }
 
 //-------------------------------------------------------------------------
@@ -40,7 +40,9 @@ void FuturesSignal::update(Timestamp timestamp)
                     if (line.size() >= 2) {
                         count = std::stoi(line[0]);
                         seed = std::stof(line[1]);
-                        m_simulation->logDebug("FuturesSignal::update : READ {}", lines[lines.size() - 2]);
+                        if (auto simulation = dynamic_cast<Simulation*>(m_simulation)) {
+                            simulation->logDebug("FuturesSignal::update : READ {}", lines[lines.size() - 2]);
+                        }
                     } else {
                         fmt::println("FuturesSignal::update : FAILED TO GET SEED FROM LINE - {}", lines[lines.size() - 2]);
                     }
@@ -58,7 +60,9 @@ void FuturesSignal::update(Timestamp timestamp)
                 m_last_count = count;
                 m_last_seed = seed;
                 m_last_seed_time = timestamp;
-                m_simulation->logDebug("FuturesSignal::update : PUBLISH {}", m_value);
+                if (auto simulation = dynamic_cast<Simulation*>(m_simulation)) {
+                    simulation->logDebug("FuturesSignal::update : PUBLISH {}", m_value);
+                }
             }
         } else {
             if (m_last_count > 0) {
@@ -101,7 +105,7 @@ void FuturesSignal::checkpointSerialize(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FuturesSignal> FuturesSignal::fromXML(
-    Simulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod)
+    taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -136,7 +140,7 @@ std::unique_ptr<FuturesSignal> FuturesSignal::fromXML(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FuturesSignal> FuturesSignal::fromCheckpoint(
-    Simulation* simulation, const rapidjson::Value& json, double X0)
+    taosim::simulation::ISimulation* simulation, const rapidjson::Value& json, double X0)
 {
     auto fp = std::make_unique<FuturesSignal>(
         simulation,

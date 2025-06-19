@@ -111,6 +111,7 @@ void LocalAgentManager::createAgentInstanced<DistributedProxyAgent>(pugi::xml_no
     m_agents.push_back([this, node] {
         auto agent = std::make_unique<DistributedProxyAgent>(m_simulation);
         agent->configure(node);
+        m_simulation->m_proxy = agent.get();
         return agent;
     }());
 }

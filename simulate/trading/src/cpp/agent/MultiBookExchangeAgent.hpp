@@ -42,7 +42,6 @@ class MultiBookExchangeAgent
 public:
 
     MultiBookExchangeAgent(Simulation* simulation) noexcept;
-    ~MultiBookExchangeAgent() noexcept { m_threadPool->join(); }
 
     [[nodiscard]] auto&& accounts(this auto&& self) noexcept { return self.m_accounts; }
 
@@ -55,10 +54,9 @@ public:
     [[nodiscard]] taosim::decimal_t getMaxLeverage() const noexcept { return m_config2.maxLeverage; }
     [[nodiscard]] taosim::decimal_t getMaxLoan() const noexcept { return m_config2.maxLoan; }
     [[nodiscard]] const taosim::exchange::ExchangeConfig& config2() const noexcept { return m_config2; }
+    [[nodiscard]] auto&& L3Record(this auto&& self) noexcept { return self.m_L3Record; }
 
-    void publishState();
     void retainRecord(bool flag) noexcept;
-    void setParallel(bool flag) noexcept;
     void checkMarginCall() noexcept;
 
     virtual void configure(const pugi::xml_node& node) override;
@@ -105,7 +103,6 @@ private:
     void tradeCallback(Trade::Ptr trade, BookId bookId);
     void unregisterLimitOrderCallback(LimitOrder::Ptr limitOrder, BookId bookId);
     void marketOrderProcessedCallback(MarketOrder::Ptr marketOrder, OrderContext ctx);
-    void timeProgressCallback([[maybe_unused]] Timespan timespan);
     
     taosim::decimal_t m_eps;
     taosim::config::ExchangeAgentConfig m_config;
@@ -116,16 +113,12 @@ private:
     std::map<BookId, std::unique_ptr<L2Logger>> m_L2Loggers;
     std::map<BookId, std::unique_ptr<L3EventLogger>> m_L3EventLoggers;
     std::map<BookId, std::unique_ptr<FeeLogger>> m_feeLoggers;
-    Timestamp m_gracePeriod{};
     std::unique_ptr<BookProcessManager> m_bookProcessManager;
-    std::vector<MessageQueue> m_parallelQueues;
-    bool m_parallel = PARALLEL_QUEUES;
     std::vector<std::unique_ptr<taosim::accounting::BalanceLogger>> m_balanceLoggers;
     std::unique_ptr<taosim::exchange::ClearingManager> m_clearingManager;
     uint64_t m_marginCallCounter{};
     taosim::exchange::ExchangeConfig m_config2;
     taosim::accounting::AccountRegistry m_accounts;
-    std::unique_ptr<boost::asio::thread_pool> m_threadPool;
 
     SubscriptionRegistry<LocalAgentId> m_localMarketOrderSubscribers;
     SubscriptionRegistry<LocalAgentId> m_localLimitOrderSubscribers;

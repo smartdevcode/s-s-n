@@ -21,10 +21,14 @@
 import typing
 from typing import Optional
 import bittensor as bt
-from pydantic import BaseModel
+import pydantic
+from pydantic import Field, ConfigDict
 from abc import abstractmethod
 
 # This class contains common classes representing the protcol for miners and validators in the simulation subnet.
+
+class BaseModel(pydantic.BaseModel):    
+    model_config = ConfigDict(populate_by_name=True, validate_by_name=True, validate_by_alias=True)
 
 class AgentInstruction(BaseModel):    
     """
@@ -88,9 +92,21 @@ class SimulationEvent(BaseModel):
     """
     Base class representing an event that has occurred within the simulator which is to be published by validator to miners.
     """
-    type : str
-    timestamp : int
-    agentId : int | None
+    y : str = Field(alias="type")
+    t : int = Field(alias="timestamp")
+    a : int | None = Field(alias="agentId")
+    
+    @property
+    def type(self) -> str:
+        return self.y
+    
+    @property
+    def timestamp(self) -> int:
+        return self.t
+    
+    @property
+    def agentId(self) -> int | None:
+        return self.a
     
 class EventNotification(bt.Synapse):
     """

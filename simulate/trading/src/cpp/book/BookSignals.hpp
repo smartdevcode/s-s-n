@@ -14,15 +14,15 @@ class Book;
 
 struct BookSignals
 {
-    bs2::signal<void(Order::Ptr, OrderContext)> orderCreated;
-    bs2::signal<void(Order::Ptr, OrderContext)> orderLog;
-    bs2::signal<void(LimitOrder::Ptr, OrderContext)> limitOrderProcessed;
-    bs2::signal<void(MarketOrder::Ptr, OrderContext)> marketOrderProcessed;
-    bs2::signal<void(Trade::Ptr, BookId)> trade;
-    bs2::signal<void(OrderID, taosim::decimal_t)> cancel;
-    bs2::signal<void(LimitOrder::Ptr, taosim::decimal_t, BookId)> cancelOrderDetails;
-    bs2::signal<void(LimitOrder::Ptr, BookId)> unregister;
-    bs2::signal<void(const Book*)> L2;
+    UnsyncSignal<void(Order::Ptr, OrderContext)> orderCreated;
+    UnsyncSignal<void(Order::Ptr, OrderContext)> orderLog;
+    UnsyncSignal<void(LimitOrder::Ptr, OrderContext)> limitOrderProcessed;
+    UnsyncSignal<void(MarketOrder::Ptr, OrderContext)> marketOrderProcessed;
+    UnsyncSignal<void(Trade::Ptr, BookId)> trade;
+    UnsyncSignal<void(OrderID, taosim::decimal_t)> cancel;
+    UnsyncSignal<void(LimitOrder::Ptr, taosim::decimal_t, BookId)> cancelOrderDetails;
+    UnsyncSignal<void(LimitOrder::Ptr, BookId)> unregister;
+    UnsyncSignal<void(const Book*)> L2;
 };
 
 //-------------------------------------------------------------------------

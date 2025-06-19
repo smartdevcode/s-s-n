@@ -33,7 +33,7 @@ void PythonAgent::configure(const pugi::xml_node& node)
     for (const pugi::xml_attribute& attr : node.attributes()) {
         const std::string name{attr.name()};
         if (name != "file") {
-            m_parameters[name] = simulation()->parameters().processString(attr.as_string());
+            m_parameters[name] = attr.as_string();
         }
     }
 

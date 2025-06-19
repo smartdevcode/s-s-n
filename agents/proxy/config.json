@@ -2,7 +2,7 @@
     "proxy" : {
         "port" : 8000,
         "simulation_xml" : "../../simulate/trading/run/config/simulation_0.xml",
-        "timeout" : 10
+        "timeout" : 5
     },
     "agents" : {
         "path" : "..",

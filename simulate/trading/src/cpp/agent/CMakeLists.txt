@@ -18,10 +18,6 @@ add_library(agent STATIC
 )
 add_library(taosim::agent ALIAS agent)
 
-target_compile_options(agent PRIVATE ${internal_compile_options})
-target_compile_definitions(agent PRIVATE ${internal_compile_definitions})
-target_link_options(agent PRIVATE ${internal_link_options})
-
 target_include_directories(agent
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"

@@ -8,7 +8,7 @@
 #include "CheckpointSerializable.hpp"
 #include "Process.hpp"
 #include "ProcessFactory.hpp"
-#include "SimulationSignals.hpp"
+#include "taosim/simulation/SimulationSignals.hpp"
 #include "UpdateCounter.hpp"
 #include "common.hpp"
 
@@ -38,7 +38,7 @@ public:
         ProcessContainer container,
         LoggerContainer loggers,
         std::unique_ptr<ProcessFactory> processFactory,
-        decltype(SimulationSignals::time)& timeSignal,
+        decltype(taosim::simulation::SimulationSignals::time)& timeSignal,
         Timestamp updatePeriod);
 
     [[nodiscard]] auto&& operator[](this auto&& self, const std::string& name)

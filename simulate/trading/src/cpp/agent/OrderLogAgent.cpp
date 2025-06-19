@@ -61,14 +61,12 @@ void OrderLogAgent::receiveMessage(Message::Ptr messagePtr)
     }
 }
 
-#include "ParameterStorage.hpp"
-
 void OrderLogAgent::configure(const pugi::xml_node& node)
 {
     Agent::configure(node);
 
     pugi::xml_attribute att;
     if (!(att = node.attribute("exchange")).empty()) {
-        m_exchange = simulation()->parameters().processString(att.as_string());
+        m_exchange = "EXCHANGE";
     }
 }

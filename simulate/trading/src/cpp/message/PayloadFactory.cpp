@@ -87,7 +87,7 @@ MessagePayload::Ptr PayloadFactory::createFromJsonMessage(const rapidjson::Value
     else if (type == "ERROR_RESPONSE_RESET_AGENT") {
         return ResetAgentsErrorResponsePayload::fromJson(payloadJson);
     }
-    else if (type == "EVENT_SIMULATION_START" || type == "EVENT_SIMULATION_STOP") {
+    else if (type == "EVENT_SIMULATION_START" || type == "EVENT_SIMULATION_END") {
         return MessagePayload::create<EmptyPayload>();
     }
     

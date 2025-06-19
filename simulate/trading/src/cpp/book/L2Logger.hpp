@@ -5,7 +5,7 @@
 #pragma once
 
 #include "BookSignals.hpp"
-#include "TimeConfig.hpp"
+#include "taosim/simulation/TimeConfig.hpp"
 #include "util.hpp"
 
 #include <spdlog/spdlog.h>

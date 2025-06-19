@@ -9,25 +9,16 @@ add_subdirectory(mp)
 add_subdirectory(net)
 add_subdirectory(process)
 add_subdirectory(serialization)
+add_subdirectory(simulation)
 add_subdirectory(stats)
 add_subdirectory(util)
 
 #-------------------------------------------------------------------------
 
-add_library(simulation STATIC
-    SimulationConfig.cpp
-    Simulation.cpp
-    SimulationSignals.hpp
-    SimulationState.hpp
-    TimeConfig.cpp
-)
-add_library(taosim::simulation ALIAS simulation)
+add_library(simulator STATIC Simulation.cpp)
+add_library(taosim::simulator ALIAS simulator)
 
-target_compile_options(simulation PRIVATE ${internal_compile_options})
-target_compile_definitions(simulation PRIVATE ${internal_compile_definitions})
-target_link_options(simulation PRIVATE ${internal_link_options})
-
-target_include_directories(simulation
+target_include_directories(simulator
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"
         accounting
@@ -45,7 +36,7 @@ target_include_directories(simulation
         util
 )
 
-target_link_libraries(simulation
+target_link_libraries(simulator
     PUBLIC
         taosim::accounting
         taosim::agent
@@ -57,6 +48,7 @@ target_link_libraries(simulation
         taosim::mp
         taosim::net
         taosim::serialization
+        taosim::simulation
         taosim::stats
         taosim::util
         Boost::boost
@@ -75,18 +67,14 @@ add_executable(${PROJECT_NAME}
     main.cpp
 )
 
-target_compile_options(${PROJECT_NAME} PRIVATE ${internal_compile_options})
-target_compile_definitions(${PROJECT_NAME} PRIVATE ${internal_compile_definitions})
-target_link_options(${PROJECT_NAME} PRIVATE ${internal_link_options})
-
 target_include_directories(${PROJECT_NAME}
     PRIVATE
-        $<TARGET_PROPERTY:taosim::simulation,INCLUDE_DIRECTORIES>
+        $<TARGET_PROPERTY:taosim::simulator,INCLUDE_DIRECTORIES>
 )
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
-        taosim::simulation
+        taosim::simulator
 )
 
 #-------------------------------------------------------------------------

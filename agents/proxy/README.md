@@ -14,7 +14,7 @@ pip install -e .
 ## Config
 The distributed agent/proxy setup is configured by means of a JSON configuration file in this directory; an example configuration (loaded by default if running proxy or launcher without args) is given in `config.json`.  The structure is:
 - `proxy` : Proxy configuration options.
-  - `port` : Port number on which proxy will listen for state updates from simulator (must match `DistributedProxyAgent.port` in simulation XML config). \[default=`8000`\]
+  - `port` : Port number on which proxy will listen for state updates from simulator (must match `Simulation.port` in simulation XML config). \[default=`8000`\]
   - `simulation_xml` : Path to the XML config used to launch the simulation. \[default=`"../../simulate/trading/run/config/simulation_0.xml"` (the current active simulation config in live)\]
   - `timeout` : The number of seconds that proxy will await response from agent before moving on. \[default=`5`\]
 - `agents` : Configuration for distributed agents.
@@ -26,9 +26,14 @@ The distributed agent/proxy setup is configured by means of a JSON configuration
 
 ## Proxy
 
-The file `proxy.py` contains an implementation of a handler for processing messages published by the simulator via a `DistributedProxyAgent`.  In order to instruct the simulator to publish messages, you must include a node specifying to include the `DistributedProxyAgent` in the simulation XML config under `<Simulation><Agents>` (the `port` field must match the `proxy.port` set in `config.json`; if using the current active `simulation_0.xml` this is already present):
+The file `proxy.py` contains an implementation of a handler for processing messages published by the simulator via a `DistributedProxyAgent`.  In order to instruct the simulator to publish messages, you must include a node specifying to include the `<DistributedProxyAgent/>` in the simulation XML config under `<Simulation><Agents>`, and 1the `port` field in the `Simulation` node must match the `proxy.port` set in `config.json`.  If using the current active `simulation_0.xml` this is already present:
 ```
-<DistributedProxyAgent host="localhost" port="{proxy.port}" bookStateEndpoint="/orderbook" generalMsgEndpoint="/account"/>
+<Simulation ... host="localhost" port="{proxy.port}" bookStateEndpoint="/orderbook" generalMsgEndpoint="/account">
+	<Agents>
+		...
+		<DistributedProxyAgent/>
+	</Agents>
+</Simulation>
 ```
 This agent publishes the full state of the simulation to the configured port on localhost at an interval defined in simulation time via the `Simulation.step` field in the XML.  The Python proxy receives messages published from the simulator by this agent, parses them to a `MarketSimulationStateUpdate` synapse format, and forwards to the configured list of (locally hosted) distributed trading agents.  The proxy then awaits responses from the distributed agents, and when received will validate, parse to the correct format and return the instructions to the simulator for processing. 
 

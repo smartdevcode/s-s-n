@@ -23,7 +23,7 @@ import math
 import traceback
 import bittensor as bt
 import numpy as np
-from typing import List, Dict
+from typing import Dict
 from taos.im.neurons.validator import Validator
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 from taos.im.protocol.models import Account, Book
@@ -79,22 +79,22 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
     try:
         if len(inventory_values) <= 1: return self.sharpe_values[uid]
         # Calculate the per-book Sharpe ratio values
-        book_inventory_values = {bookId : np.array([inventory_value[bookId] for inventory_value in inventory_values.values() if bookId in inventory_value]) for bookId in list(inventory_values.values())[-1]}
+        np_inventory_values = np.array([list(iv.values()) for iv in inventory_values.values()]).T
         timestamps = list(inventory_values.keys())
         changeover = [i for i in range(len(timestamps)-1) if timestamps[i+1] < timestamps[i]]
-        for bookId, book_inventory_value in book_inventory_values.items():
-            if len(book_inventory_value) > 1:
-                returns = (book_inventory_value[1:] - book_inventory_value[:-1])
+        bookId = 0
+        for book_inventory_values in np_inventory_values:
+            if len(book_inventory_values) > 1:
+                returns = (book_inventory_values[1:] - book_inventory_values[:-1])
                 if len(changeover) > 0:
                     returns = np.delete(returns, changeover)
                 returns = returns[-self.config.scoring.sharpe.lookback:]
-                mean = sum(returns) / len(returns) if len(returns) > 0 else 0.0
-                variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) if len(returns) > 0 else 0.0
-                std = variance ** 0.5
-                sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0
+                std = returns.std()
+                sharpe = np.sqrt(len(returns)) * (returns.mean() / std) if std != 0.0 else 0.0
                 self.sharpe_values[uid]['books'][bookId] = sharpe
             else:
                 self.sharpe_values[uid]['books'][bookId] = sharpe
+            bookId += 1
         # Calculate the total Sharpe ratio value using inventories summed over all books
         total_inventory_values = np.array([sum(list(inventory_value.values())) for inventory_value in inventory_values.values()])
         if len(total_inventory_values) > 1:
@@ -102,10 +102,8 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
             if len(changeover) > 0:
                 returns = np.delete(returns, changeover)
             returns = returns[-self.config.scoring.sharpe.lookback:]
-            mean = sum(returns) / len(returns) if len(returns) > 0 else 0.0
-            variance = sum([((x - mean) ** 2) for x in returns]) / len(returns) if len(returns) > 0 else 0.0
-            std = variance ** 0.5
-            total_sharpe = math.sqrt(len(returns)) * (mean / std) if std != 0.0 else 0.0   
+            std = returns.std()
+            total_sharpe = np.sqrt(len(returns)) * (returns.mean() / std) if std != 0.0 else 0.0
         else:
             total_sharpe = 0.0
         self.sharpe_values[uid]['total'] = total_sharpe
@@ -147,7 +145,13 @@ def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[
     # The maximum volume to be traded by a miner in a `trade_volume_assessment_period` (24H) is `capital_turnover_cap` (10) times the initial miner capital
     volume_cap =  round(self.config.scoring.activity.capital_turnover_cap * (self.simulation.miner_wealth), self.simulation.volumeDecimals)
     # Calculate the volume traded by miners on each book in the period over which Sharpe values were calculated
-    miner_volumes = {book_id : round(sum([volume for time, volume in book_volume['total'].items() if time >= self.simulation_timestamp - self.config.scoring.sharpe.lookback * self.simulation.publish_interval]), self.simulation.volumeDecimals) for book_id, book_volume in self.trade_volumes[uid].items()}
+    miner_volumes = {book_id : 0 for book_id in self.trade_volumes[uid]}
+    for book_id, book_volume in self.trade_volumes[uid].items():
+        for t, volume in sorted(book_volume['total'].items(), reverse=True):
+            if t >= self.simulation_timestamp - self.config.scoring.sharpe.lookback * self.simulation.publish_interval:
+                miner_volumes[book_id] += volume
+            else:
+                break
     # Calculate the factor to be multiplied on the Sharpes when there has been no trading activity in the previous Sharpe assessment window
     # This factor is designed to reduce the activity multiplier by half after each `sharpe.lookback` steps of inactivity
     inactivity_decay_factor = (2 ** (-1 / self.config.scoring.sharpe.lookback))
@@ -171,7 +175,7 @@ def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[
     # Outliers detected here are activity-weighted Sharpes which are significantly lower than those achieved on other books
     outliers = detect_outliers(activity_weighted_normalized_sharpes)
     # A penalty equal to the difference between the lowest outlier value and the value at the centre of the possible activity weighted Sharpe values is calculated
-    outlier_penalty = np.min(outliers) if len(outliers) > 0 and np.min(outliers) < 0.0 else 0
+    outlier_penalty = 0.5 - np.min(outliers) if len(outliers) > 0 and np.min(outliers) < 0.5 else 0
     # The median of the activity weighted Sharpes provides the base score for the miner
     activity_weighted_normalized_median = np.median(activity_weighted_normalized_sharpes)
     # The penalty factor is subtracted from the base score to punish particularly poor performance on any particular book
@@ -207,7 +211,7 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
         # Update trade volume history with new trades since the previous step
         
         for notice in synapse.notices[uid]:
-            if notice.type == 'EVENT_TRADE':
+            if notice.type in ['EVENT_TRADE',"ET"]:
                 self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
                 if notice.makerAgentId == notice.takerAgentId:                
                     self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
@@ -216,9 +220,17 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
                 elif notice.takerAgentId == uid:
                     self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
         
+        for bookId, account in synapse.accounts[uid].items():                    
+            if self.initial_balances[uid][bookId]['BASE'] == None:
+                self.initial_balances[uid][bookId]['BASE'] = account.base_balance.total
+            if self.initial_balances[uid][bookId]['QUOTE'] == None:
+                self.initial_balances[uid][bookId]['QUOTE'] = account.quote_balance.total
+            if self.initial_balances[uid][bookId]['WEALTH'] == None:
+                self.initial_balances[uid][bookId]['WEALTH'] = get_inventory_value(synapse.accounts[uid][book_id], synapse.books[bookId])
+        
         # Calculate the current value of the agent's inventory and append to the history array
         if uid in synapse.accounts:
-            self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.simulation.miner_wealth for book_id, book in synapse.books.items()}
+            self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.initial_balances[uid][bookId]['WEALTH'] for book_id, book in synapse.books.items()}
         else:
             self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
         # Prune the inventory history

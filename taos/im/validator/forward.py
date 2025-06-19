@@ -20,13 +20,38 @@
 
 import time
 import bittensor as bt
+import uvloop
 import asyncio
+import aiohttp
 from typing import List
 
 from taos.im.neurons.validator import Validator
 from taos.im.protocol import FinanceAgentResponse, FinanceEventNotification, MarketSimulationStateUpdate
 from taos.im.protocol.instructions import *
 from taos.im.validator.reward import set_delays
+
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+class DendriteManager:
+    async def configure_session(self):
+        if not self.dendrite._session:
+            connector = aiohttp.TCPConnector(
+                ssl=False,
+                limit=256,
+                limit_per_host=1,
+                keepalive_timeout=60,
+                happy_eyeballs_delay=None
+            )
+
+            timeout = aiohttp.ClientTimeout(
+                total=self.config.neuron.timeout
+            )
+
+            self.dendrite._session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                skip_auto_headers={'User-Agent'}
+            )
 
 def validate_responses(self : Validator, synapses : dict[int, MarketSimulationStateUpdate]) -> None:
     """
@@ -140,23 +165,30 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     # Forward the simulation state update to all miners in the network
     bt.logging.info(f"Querying Miners...")
     start = time.time()
-    if not self.dendrite._session:
-        await self.dendrite.session
-        self.dendrite._session._connector._limit = 256
+    # if not self.dendrite._session:
+    #     await self.dendrite.session
+    #     self.dendrite._session._connector._limit = 256
         
+    await DendriteManager.configure_session(self)
+    
+    def create_axon_synapse(synapse : MarketSimulationStateUpdate, uid):
+        return synapse.model_copy(update={
+            "accounts" : {account_uid : account if account_uid == uid else {} for account_uid, account in synapse.accounts.items()},
+            "notices" : {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in synapse.notices.items()}
+        }).compress(level=self.config.compression.level, engine=self.config.compression.engine)
+    axon_synapses = {uid : create_axon_synapse(synapse, uid) for uid in range(len(self.metagraph.axons))}
+    bt.logging.info(f"Compressed synapses ({time.time()-start:.4f}s).")
+    start = time.time()
+    
     async def query_uid(uid):
-        axon_synapse = synapse.model_copy()
-        axon_synapse.accounts = {account_uid : account if account_uid == uid else {} for account_uid, account in axon_synapse.accounts.items()}
-        axon_synapse.notices = {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in axon_synapse.notices.items()}
-        axon_synapse = axon_synapse.compress(level=self.config.compression.level, engine=self.config.compression.engine)
         return await self.dendrite(
             axons=self.metagraph.axons[uid],
-            synapse=axon_synapse,
+            synapse=axon_synapses[uid],
             timeout=self.config.neuron.timeout,
             deserialize=False
         )
     synapse_responses = await asyncio.gather(
-            *(query_uid(uid) for uid in range(self.subnet_info.max_uids))
+            *(query_uid(uid) for uid in range(len(self.metagraph.axons)))
         )
     synapse_responses = {self.metagraph.hotkeys.index(synapse_response.axon.hotkey) : synapse_response for synapse_response in synapse_responses}
     

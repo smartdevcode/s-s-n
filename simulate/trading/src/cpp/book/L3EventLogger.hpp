@@ -6,7 +6,7 @@
 
 #include "ExchangeSignals.hpp"
 #include "JsonSerializable.hpp"
-#include "TimeConfig.hpp"
+#include "taosim/simulation/TimeConfig.hpp"
 
 #include <spdlog/spdlog.h>
 

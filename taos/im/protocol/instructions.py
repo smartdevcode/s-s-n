@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
-from pydantic import BaseModel, PositiveFloat, NonNegativeInt, PositiveInt
+from pydantic import PositiveFloat, NonNegativeInt, PositiveInt
 from typing import Literal
 from taos.im.protocol.simulator import *
-from taos.common.protocol import AgentInstruction
+from taos.common.protocol import AgentInstruction, BaseModel
 from taos.im.protocol.models import OrderDirection, STP, TimeInForce, OrderCurrency
 
 """

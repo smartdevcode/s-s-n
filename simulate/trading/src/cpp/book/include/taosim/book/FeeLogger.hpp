@@ -5,7 +5,7 @@
 #pragma once
 
 #include "JsonSerializable.hpp"
-#include "TimeConfig.hpp"
+#include "taosim/simulation/TimeConfig.hpp"
 #include "ExchangeSignals.hpp"
 #include "FeeLogEvent.hpp"
 #include "taosim/exchange/FeePolicyWrapper.hpp"

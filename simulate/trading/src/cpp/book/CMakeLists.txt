@@ -12,10 +12,6 @@ add_library(book STATIC
 )
 add_library(taosim::book ALIAS book)
 
-target_compile_options(book PRIVATE ${internal_compile_options})
-target_compile_definitions(book PRIVATE ${internal_compile_definitions})
-target_link_options(book PRIVATE ${internal_link_options})
-
 target_include_directories(book
     PUBLIC
         include

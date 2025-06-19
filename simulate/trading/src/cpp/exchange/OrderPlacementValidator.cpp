@@ -400,8 +400,6 @@ OrderPlacementValidator::ExpectedResult
                 takerTotalPrice * util::dec1p(feeRates.taker) + makerTotalPrice * util::dec1p(feeRates.maker), m_params.quoteIncrementDecimals);
             orderSize = util::round(
                 (takerVolume + makerVolume) / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
-            // orderSize = util::round(
-            //     (takerVolume * util::dec1p(feeRates.taker) + makerVolume * util::dec1p(feeRates.maker)) / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
         }
 
         if (payload->leverage == 0_dec){
@@ -410,17 +408,19 @@ OrderPlacementValidator::ExpectedResult
             }
         } else {
             volumeWeightedPrice = util::round(volumeWeightedPrice / util::dec1p(payload->leverage), m_params.quoteIncrementDecimals);
-            const decimal_t price = payload->price; //book->bestAsk();
+            const decimal_t price = payload->price;
             if (!balances.canBorrow(volumeWeightedPrice, price, payload->direction)||
                 volumeWeightedPrice * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
                 return std::unexpected{OrderErrorCode::EXCEEDING_LOAN};
             }
         }
-        return Result{
-            .direction = payload->direction,
-            .amount = volumeWeightedPrice,
-            .leverage = payload->leverage,
-            .orderSize = orderSize
+        return OrderPlacementValidator::ExpectedResult{
+            Result{
+                .direction = payload->direction,
+                .amount = volumeWeightedPrice,
+                .leverage = payload->leverage,
+                .orderSize = orderSize
+            }
         };
 
     }
@@ -492,11 +492,13 @@ OrderPlacementValidator::ExpectedResult
                 return std::unexpected{OrderErrorCode::EXCEEDING_LOAN};
             }
         }
-        return Result{
-            .direction = payload->direction,
-            .amount = volume,
-            .leverage = payload->leverage,
-            .orderSize = orderSize
+        return OrderPlacementValidator::ExpectedResult{
+            Result{
+                .direction = payload->direction,
+                .amount = volume,
+                .leverage = payload->leverage,
+                .orderSize = orderSize
+            }
         };
 
     }
@@ -530,81 +532,65 @@ bool OrderPlacementValidator::checkIOC(
         payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);
 
     const auto takerVolume = [&] -> decimal_t {
-        decimal_t volume{};
+        decimal_t collectedVolume{};
         if (payload->stpFlag == STPFlag::CO) {
-            const auto& agentActiveOrders =
+            const auto& activeOrders =
                 m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
             if (payload->direction == OrderDirection::BUY) {
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
-                        auto tickIt = ranges::find_if(
-                            agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                        if (tickIt != agentActiveOrders.end()) continue;
+                        auto it = ranges::find_if(
+                            activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                        if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
                             tick->totalVolume(), m_params.volumeIncrementDecimals);
-                        if (volume + tickVolume > totalVolume) {
-                            const decimal_t partialVolume = totalVolume - volume;
-                            volume += partialVolume;
-                            return volume;
-                        }
-                        volume += tickVolume;
+                        collectedVolume += tickVolume;
+                        if (collectedVolume >= totalVolume) return totalVolume;
                     }
                 }
             } else {
                 for (const auto& level : book->buyQueue() | views::reverse) {
                     if (payload->price > level.price()) break;
                     for (const auto tick : level) {
-                        auto tickIt = ranges::find_if(
-                            agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                        if (tickIt != agentActiveOrders.end()) continue;
+                        auto it = ranges::find_if(
+                            activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                        if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
                             tick->totalVolume(), m_params.volumeIncrementDecimals);
-                        if (volume + tickVolume > totalVolume) {
-                            const decimal_t partialVolume = totalVolume - volume;
-                            volume += partialVolume;
-                            return volume;
-                        }
-                        volume += tickVolume;
+                        collectedVolume += tickVolume;
+                        if (collectedVolume >= totalVolume) return totalVolume;
                     }
                 }
             }
         }
         else if (payload->stpFlag == STPFlag::CN || payload->stpFlag == STPFlag::CB) {
-            const auto& agentActiveOrders =
+            const auto& activeOrders =
                 m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
             if (payload->direction == OrderDirection::BUY) {
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
-                        auto tickIt = ranges::find_if(
-                            agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                        if (tickIt != agentActiveOrders.end()) return {};
+                        auto it = ranges::find_if(
+                            activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                        if (it != activeOrders.end()) return {};
                         const auto tickVolume = util::round(
                             tick->totalVolume(), m_params.volumeIncrementDecimals);
-                        if (volume + tickVolume > totalVolume) {
-                            const decimal_t partialVolume = totalVolume - volume;
-                            volume += partialVolume;
-                            return volume;
-                        }
-                        volume += tickVolume;
+                        collectedVolume += tickVolume;
+                        if (collectedVolume >= totalVolume) return totalVolume;
                     }
                 }
             } else {
                 for (const auto& level : book->buyQueue() | views::reverse) {
                     if (payload->price > level.price()) break;
                     for (const auto tick : level) {
-                        auto tickIt = ranges::find_if(
-                            agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                        if (tickIt != agentActiveOrders.end()) return {};
+                        auto it = ranges::find_if(
+                            activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                        if (it != activeOrders.end()) return {};
                         const auto tickVolume = util::round(
                             tick->totalVolume(), m_params.volumeIncrementDecimals);
-                        if (volume + tickVolume > totalVolume) {
-                            const decimal_t partialVolume = totalVolume - volume;
-                            volume += partialVolume;
-                            return volume;
-                        }
-                        volume += tickVolume;
+                        collectedVolume += tickVolume;
+                        if (collectedVolume >= totalVolume) return totalVolume;
                     }
                 }
             }
@@ -616,12 +602,8 @@ bool OrderPlacementValidator::checkIOC(
                     for (const auto tick : level) {
                         const auto tickVolume = util::round(
                             tick->totalVolume(), m_params.volumeIncrementDecimals);
-                        if (volume + tickVolume > totalVolume) {
-                            const decimal_t partialVolume = totalVolume - volume;
-                            volume += partialVolume;
-                            return volume;
-                        }
-                        volume += tickVolume;
+                        collectedVolume += tickVolume;
+                        if (collectedVolume >= totalVolume) return totalVolume;
                     }
                 }
             } else {
@@ -630,17 +612,13 @@ bool OrderPlacementValidator::checkIOC(
                     for (const auto tick : level) {
                         const auto tickVolume = util::round(
                             tick->totalVolume(), m_params.volumeIncrementDecimals);
-                        if (volume + tickVolume > totalVolume) {
-                            const decimal_t partialVolume = totalVolume - volume;
-                            volume += partialVolume;
-                            return volume;
-                        }
-                        volume += tickVolume;
+                        collectedVolume += tickVolume;
+                        if (collectedVolume >= totalVolume) return totalVolume;
                     }
                 }
             }
         }
-        return volume;
+        return collectedVolume;
     }();
 
     if (takerVolume == 0_dec) {
@@ -664,7 +642,7 @@ bool OrderPlacementValidator::checkFOK(
     
     const auto totalVolume = util::round(
         payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);
-    const auto& agentActiveOrders =
+    const auto& activeOrders =
             m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
 
     decimal_t collectedVolume{};
@@ -674,9 +652,9 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->sellQueue()) {
                 if (level.price() > payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt != agentActiveOrders.end()) continue;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it != activeOrders.end()) continue;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     collectedVolume += tickVolume;
@@ -687,9 +665,9 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->buyQueue() | views::reverse) {
                 if (level.price() < payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt != agentActiveOrders.end()) continue;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it != activeOrders.end()) continue;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     collectedVolume += tickVolume;
@@ -703,9 +681,9 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->sellQueue()) {
                 if (level.price() > payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt != agentActiveOrders.end()) return false;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it != activeOrders.end()) return false;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     collectedVolume += tickVolume;
@@ -716,9 +694,9 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->buyQueue() | views::reverse) {
                 if (level.price() < payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt != agentActiveOrders.end()) return false;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it != activeOrders.end()) return false;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     collectedVolume += tickVolume;
@@ -732,9 +710,9 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->sellQueue()) {
                 if (level.price() > payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt != agentActiveOrders.end()) return true;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it != activeOrders.end()) return true;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     collectedVolume += tickVolume;
@@ -745,9 +723,9 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->buyQueue() | views::reverse) {
                 if (level.price() < payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt != agentActiveOrders.end()) return true;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it != activeOrders.end()) return true;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     collectedVolume += tickVolume;
@@ -762,11 +740,11 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->sellQueue()) {
                 if (level.price() > payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
-                    if (tickIt != agentActiveOrders.end()) {
+                    if (it != activeOrders.end()) {
                         dynamicTotalVolume -= tickVolume;
                         if (dynamicTotalVolume <= 0_dec) return true;
                     } else {
@@ -779,11 +757,11 @@ bool OrderPlacementValidator::checkFOK(
             for (const auto& level : book->buyQueue() | views::reverse) {
                 if (level.price() < payload->price) return false;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
-                    if (tickIt != agentActiveOrders.end()) {
+                    if (it != activeOrders.end()) {
                         dynamicTotalVolume -= tickVolume;
                         if (dynamicTotalVolume <= 0_dec) return true;
                     } else {
@@ -812,61 +790,61 @@ bool OrderPlacementValidator::checkPostOnly(
     }
 
     if (payload->stpFlag == STPFlag::CO) {
-        const auto& agentActiveOrders =
+        const auto& activeOrders =
             m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
         if (payload->direction == OrderDirection::BUY) {
             for (const auto& level : book->sellQueue()) {
                 if (level.price() > payload->price) break;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt == agentActiveOrders.end()) return false;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it == activeOrders.end()) return false;
                 }
             }
         } else {
             for (const auto& level : book->buyQueue() | views::reverse) {
                 if (level.price() < payload->price) break;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt == agentActiveOrders.end()) return false;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it == activeOrders.end()) return false;
                 }
             }
         }
         return true;
     }
     else if (payload->stpFlag == STPFlag::CB) {
-        const auto& agentActiveOrders =
+        const auto& activeOrders =
             m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
         if (payload->direction == OrderDirection::BUY) {
             const auto& level = book->sellQueue().front();
             if (level.price() > payload->price) return true;
             const auto tick = level.front();
-            auto tickIt = ranges::find_if(
-                agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-            return tickIt != agentActiveOrders.end();
+            auto it = ranges::find_if(
+                activeOrders, [&](auto order) { return order->id() == tick->id(); });
+            return it != activeOrders.end();
         } else {
             const auto& level = book->buyQueue().back();
             if (level.price() < payload->price) return true;
             const auto tick = level.front();
-            auto tickIt = ranges::find_if(
-                agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-            return tickIt != agentActiveOrders.end();
+            auto it = ranges::find_if(
+                activeOrders, [&](auto order) { return order->id() == tick->id(); });
+            return it != activeOrders.end();
         }
     }
     else if (payload->stpFlag == STPFlag::DC) {
         const auto totalVolume = util::round(
             payload->volume * util::dec1p(payload->leverage), m_params.volumeIncrementDecimals);
-        const auto& agentActiveOrders =
+        const auto& activeOrders =
             m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
         decimal_t dynamicTotalVolume = totalVolume;
         if (payload->direction == OrderDirection::BUY) {
             for (const auto& level : book->sellQueue()) {
                 if (level.price() > payload->price) break;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt == agentActiveOrders.end()) return false;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it == activeOrders.end()) return false;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     dynamicTotalVolume -= tickVolume;
@@ -877,9 +855,9 @@ bool OrderPlacementValidator::checkPostOnly(
             for (const auto& level : book->buyQueue() | views::reverse) {
                 if (level.price() < payload->price) break;
                 for (const auto tick : level) {
-                    auto tickIt = ranges::find_if(
-                        agentActiveOrders, [&](auto order) { return order->id() == tick->id(); });
-                    if (tickIt == agentActiveOrders.end()) return false;
+                    auto it = ranges::find_if(
+                        activeOrders, [&](auto order) { return order->id() == tick->id(); });
+                    if (it == activeOrders.end()) return false;
                     const auto tickVolume = util::round(
                         tick->totalVolume(), m_params.volumeIncrementDecimals);
                     dynamicTotalVolume -= tickVolume;
