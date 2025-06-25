@@ -1,21 +1,17 @@
-<Simulation id="{{BG_CONFIG}}" start="0" step="5000000000" duration="86400000000000" timescale="ns" enableCheckpointing="0" traceTime="1" debug="0" blockCount="8" 
+<Simulation id="{{BG_CONFIG}}" start="0" step="5000000000" duration="86400000000000" logWindow="10800000000000" timescale="ns" 
+    enableCheckpointing="0" traceTime="1" debug="0" blockCount="8" 
     host="localhost" port="8000" batchSize="10" bookStateEndpoint="/orderbook" generalMsgEndpoint="/account">
     <Agents>
         <MultiBookExchangeAgent name="EXCHANGE" remoteAgentCount="256" gracePeriod="600000000000"
             priceDecimals="2" volumeDecimals="4" baseDecimals="4" quoteDecimals="10"
-            maxLeverage="4" maxLoan="10000" maintenanceMargin="0.10"
+            maxLeverage="4" maxLoan="10000" maintenanceMargin="0.10" maxOpenOrders="100"
             initialPrice="300.0">
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
-                <Tier volumeRequired="0" makerFee="0.005" takerFee="0.005"/>
-                <Tier volumeRequired="200000" makerFee="0.0025" takerFee="0.003"/>
-                <Tier volumeRequired="400000" makerFee="0.00125" takerFee="0.0018"/>
-                <Tier volumeRequired="800000" makerFee="0.00063" takerFee="0.00108"/>
-                <Tier volumeRequired="1600000" makerFee="0.00031" takerFee="0.00064"/>
-                <Tier volumeRequired="3200000" makerFee="0.00016" takerFee="0.00038"/>
+                <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0"/>
             </FeePolicy>
-            <Books instanceCount="3" algorithm="PriceTime" maxDepth="5">
+            <Books instanceCount="4" algorithm="PriceTime" maxDepth="5">
                 <Processes updatePeriod="10000000000">
-                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.013" 
+                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.014"
                         lambda="0.0020" muJump="0.0" sigmaJump="0.00335"/>
                     <FuturesSignal name="external" seedInterval="10000000000" />
                 </Processes>
@@ -51,14 +47,14 @@
             name="ALGO_TRADER_AGENT"
             instanceCount="5"
             exchange="EXCHANGE"
-            wakeupProb="0.15"
+            wakeupProb="0.30"
             buyProb="0.5"
-            volumeProp="0.0125"
+            volumeProp="0.05"
             volumeStatsPeriod="120000000000"
             period="3600000000000"
             MFLmean="1500000000"
             MFLstd="250000000"
-            VBS="20000.0"
+            VBS="15000.0"
             minOPLatency="1000000"
             maxOPLatency="50000000">
             <VolumeDistribution type="lognormal" mu="1" sigma="1.0"/>
@@ -66,6 +62,9 @@
                 <Base total="500.0" maxLeverage="1" maxLoan="10000"/>
                 <Quote total="150000.0" maxLeverage="1" maxLoan="10000"/>
             </Balances>
+            <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
+                <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0"/>
+            </FeePolicy>
         </ALGOTraderAgent>
         <HighFrequencyTraderAgent
             name="HIGH_FREQUENCY_TRADER_AGENT"
@@ -104,9 +103,9 @@
 			maxOPLatency="300000000"
 			scaleR="0.2"
 			sigmaN="0.7"
-			volume="4.0"
+			volume="8.0"
             lambda="0.001155"
-			sigmaEps="0.75">
+			sigmaEps="0.5">
 			<Balances>
 				<Base total="500" maxLeverage="1" maxLoan="10000" />
 				<Quote total="150000.0" maxLeverage="1" maxLoan="10000" />
@@ -129,13 +128,13 @@
             delaySTD="2000000000"
             scaleR="0.2"
             sigmaN="0.7"
-            sigmaC="1.8"
-            sigmaF="0.01"
-            tau="350000000000"
-            tauHist="200"
+            sigmaC="1.2"
+            sigmaF="0.1"
+            tau="175000000000"
+            tauHist="100"
             tauF="1"
             sigmaEps="0.001"
-            r_aversion="0.0009"
+            r_aversion="0.001"
             regimeChangeFlag="0"
             regimeProb="0.75"
             sigmaFRegime="4"

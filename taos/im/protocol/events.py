@@ -4,6 +4,7 @@ from taos.common.protocol import BaseModel
 from pydantic import Field
 from taos.im.protocol.simulator import *
 from taos.common.protocol import SimulationEvent
+from taos.im.utils import duration_from_timestamp
 
 """
 Classes representing events occurring in the simulation are defined here.
@@ -164,7 +165,7 @@ class LimitOrderPlacementEvent(OrderPlacementEvent):
             )
         
     def __str__(self):
-        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} LIMIT ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+self.clientOrderId+')' if self.clientOrderId else ''} FOR {self.quantity}@{self.price} AT T={self.timestamp}{' : ' + self.message if not self.success else ''}"
+        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} LIMIT ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+self.clientOrderId+')' if self.clientOrderId else ''} FOR {self.quantity}@{self.price} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
         
 class MarketOrderPlacementEvent(OrderPlacementEvent):
     """
@@ -193,7 +194,7 @@ class MarketOrderPlacementEvent(OrderPlacementEvent):
             )
         
     def __str__(self):
-        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} MARKET ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+self.clientOrderId+')' if self.clientOrderId else ''} FOR {self.quantity} AT T={self.timestamp}{' : ' + self.message if not self.success else ''}"
+        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} MARKET ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+self.clientOrderId+')' if self.clientOrderId else ''} FOR {self.quantity} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
         
 class OrderCancellationEvent(BaseModel):
     """
@@ -239,7 +240,7 @@ class OrderCancellationEvent(BaseModel):
         return self.m
 
     def __str__(self):
-        return f"{'CANCELLED' if self.success else 'FAILED TO CANCEL'} ORDER #{self.orderId}{' FOR ' + str(self.quantity) if self.quantity else ''} AT T={self.timestamp}{' : ' + self.message if not self.success else ''}"
+        return f"{'CANCELLED' if self.success else 'FAILED TO CANCEL'} ORDER #{self.orderId}{' FOR ' + str(self.quantity) if self.quantity else ''} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
         
 class OrderCancellationsEvent(FinanceEvent):
     """
@@ -380,7 +381,7 @@ class TradeEvent(FinanceEvent):
         )
     
     def __str__(self):
-        return f"{'BUY ' if self.side == 0 else 'SELL'} TRADE #{self.tradeId} : RESTING ORDER #{self.makerOrderId} (AGENT {self.makerAgentId}) MATCHED AGAINST #{self.takerOrderId} (AGENT {self.takerAgentId}) FOR {self.quantity}@{self.price} AT T={self.timestamp}"
+        return f"{'BUY ' if self.side == 0 else 'SELL'} TRADE #{self.tradeId} : RESTING ORDER #{self.makerOrderId} (AGENT {self.makerAgentId}) MATCHED AGAINST #{self.takerOrderId} (AGENT {self.takerAgentId}) FOR {self.quantity}@{self.price} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp})"
     
 
 class ResetAgentEvent(FinanceEvent):
@@ -404,7 +405,7 @@ class ResetAgentEvent(FinanceEvent):
         return self.m
     
     def __str__(self):
-        return f"{'RESET' if self.success else 'FAILED TO RESET'} AGENT #{self.agentId} AT T={self.timestamp}{' : ' + self.message if not self.success else ''}"
+        return f"{'RESET' if self.success else 'FAILED TO RESET'} AGENT #{self.agentId} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
 
 class ResetAgentsEvent(FinanceEvent):
     """

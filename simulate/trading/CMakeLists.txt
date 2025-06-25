@@ -21,14 +21,15 @@ set(src_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/cpp" CACHE STRING "C++ source direc
 #-------------------------------------------------------------------------
 
 find_package(Boost REQUIRED)
-find_package(CLI11 CONFIG REQUIRED)
-find_package(Eigen3 CONFIG REQUIRED)
-find_package(bdl CONFIG REQUIRED)
-find_package(date CONFIG REQUIRED)
-find_package(fmt CONFIG REQUIRED)
-find_package(pugixml CONFIG REQUIRED)
-find_package(pybind11 CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
+find_package(CLI11 REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(bdl REQUIRED)
+find_package(date REQUIRED)
+find_package(fmt REQUIRED)
+find_package(pugixml REQUIRED)
+find_package(pybind11 REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Development)
 
 #-------------------------------------------------------------------------
 
@@ -43,9 +44,10 @@ if(BUILD_BENCHMARKS)
     add_subdirectory(benchmark)
 endif()
 
-add_custom_target(check_compiler
+add_custom_target(check-compiler
     COMMAND ${CMAKE_COMMAND} -E echo
         "C++ Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+        "at ${CMAKE_CXX_COMPILER}"
 )
 
 #-------------------------------------------------------------------------

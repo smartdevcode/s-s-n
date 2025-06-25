@@ -17,8 +17,6 @@
 #include <chrono>
 #include <memory>
 
-// using namespace taosim::exchange;
-
 //-------------------------------------------------------------------------
 
 class Simulation;
@@ -36,15 +34,21 @@ public:
 
     [[nodiscard]] const fs::path& filepath() const noexcept { return m_filepath; }
 
-private:
-    void log(const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEvent event);
+    static constexpr std::string_view s_header = "Date,Time,AgentId,Role,Fee,FeeRate,Price,Volume";
 
+private:
+    void log(const FeePolicyWrapper* feePolicyWrapper, const taosim::FeeLogEvent& event);
+    void updateSink();
+
+    [[nodiscard]] std::unique_ptr<spdlog::sinks::basic_file_sink_st> makeFileSink() const;
+    
     std::unique_ptr<spdlog::logger> m_logger;
     fs::path m_filepath;
     std::chrono::system_clock::time_point m_startTimePoint;
     bs2::scoped_connection m_feed;
     const Simulation* m_simulation;
     taosim::simulation::TimestampConversionFn m_timeConverter{};
+    Timestamp m_currentWindowBegin{};
 };
 
 //-------------------------------------------------------------------------

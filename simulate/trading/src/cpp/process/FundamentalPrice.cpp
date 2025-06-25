@@ -35,7 +35,7 @@ FundamentalPrice::FundamentalPrice(
       m_dJ{0}
 {
     m_value = m_X0;
-    m_seedfile = (simulation->logDir().parent_path() / "fundamental_seed.csv").generic_string();
+    m_seedfile = (simulation->logDir() / "fundamental_seed.csv").generic_string();
 }
 
 //-------------------------------------------------------------------------

@@ -11,7 +11,8 @@
 
 //-------------------------------------------------------------------------
 
-FeeLogger::FeeLogger(const fs::path &filepath, 
+FeeLogger::FeeLogger(
+    const fs::path &filepath, 
     std::chrono::system_clock::time_point startTimePoint,
     decltype(ExchangeSignals::feeLog) &signal,
     const Simulation *simulation) noexcept
@@ -19,26 +20,29 @@ FeeLogger::FeeLogger(const fs::path &filepath,
       m_startTimePoint{startTimePoint},
       m_simulation{simulation}
 {
-    m_logger = std::make_unique<spdlog::logger>(
-        "FeeLogger", std::make_unique<spdlog::sinks::basic_file_sink_st>(filepath));
+    m_timeConverter = taosim::simulation::timescaleToConverter(m_simulation->config().time().scale);
+
+    m_logger = std::make_unique<spdlog::logger>("FeeLogger", makeFileSink());
     m_logger->set_level(spdlog::level::trace);
     m_logger->set_pattern("%v");
-    std::string headers = "Date,Time,AgentId,Role,Fee,FeeRate,Price,Volume";
-    m_logger->trace(headers);
+    m_logger->trace(s_header);
     m_logger->flush();
-    m_timeConverter = taosim::simulation::timescaleToConverter(m_simulation->config().time().scale);
-    m_feed = signal.connect([this](const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEvent event) {
-         log(feePolicyWrapper, event); 
+
+    m_feed = signal.connect(
+        [this](const FeePolicyWrapper* feePolicyWrapper, const taosim::FeeLogEvent& event) {
+            log(feePolicyWrapper, event); 
         });
 }
 
 //-------------------------------------------------------------------------
 
-void FeeLogger::log(const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEvent event)
+void FeeLogger::log(const FeePolicyWrapper* feePolicyWrapper, const taosim::FeeLogEvent& event)
 {
+    updateSink();
+
     const auto time = m_startTimePoint + m_timeConverter(m_simulation->currentTimestamp());
 
-    std::string aggressingEntry = fmt::format(
+    const auto aggressingEntry = fmt::format(
         "{:%Y-%m-%d,%H:%M:%S},{},{},{},{},{},{}",
         time,
         event.aggressingAgentId,
@@ -46,10 +50,8 @@ void FeeLogger::log(const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEven
         event.fees.taker,
         feePolicyWrapper->getRates(event.bookId, event.aggressingAgentId).taker,
         event.price,
-        event.volume
-    );
-
-    std::string restingEntry = fmt::format(
+        event.volume);
+    const auto restingEntry = fmt::format(
         "{:%Y-%m-%d,%H:%M:%S},{},{},{},{},{},{}",
         time,
         event.restingAgentId,
@@ -57,12 +59,44 @@ void FeeLogger::log(const FeePolicyWrapper* feePolicyWrapper, taosim::FeeLogEven
         event.fees.maker,
         feePolicyWrapper->getRates(event.bookId, event.restingAgentId).maker,
         event.price,
-        event.volume
-    );
+        event.volume);
 
     m_logger->trace(aggressingEntry);
     m_logger->trace(restingEntry);
     m_logger->flush();
+}
+
+//-------------------------------------------------------------------------
+
+void FeeLogger::updateSink()
+{
+    if (!m_simulation->logWindow()) [[unlikely]] return;
+    const bool withinWindow =
+        m_simulation->time().current < m_currentWindowBegin + m_simulation->logWindow();
+    if (withinWindow) [[likely]] return;
+    m_currentWindowBegin += m_simulation->logWindow();
+    m_logger->sinks().clear();
+    m_logger->sinks().push_back(makeFileSink());
+    m_logger->set_pattern("%v");
+    m_logger->trace(s_header);
+    m_logger->flush();
+}
+
+//-------------------------------------------------------------------------
+
+std::unique_ptr<spdlog::sinks::basic_file_sink_st> FeeLogger::makeFileSink() const
+{
+    return std::make_unique<spdlog::sinks::basic_file_sink_st>(
+        [this] {
+            if (!m_simulation->logWindow()) return m_filepath;
+            return fs::path{std::format(
+                "{}.{:%H%M%S}-{:%H%M%S}.log",
+                (m_filepath.parent_path() / m_filepath.stem()).generic_string(),
+                std::chrono::hh_mm_ss{
+                    std::chrono::duration_cast<std::chrono::seconds>(m_timeConverter(m_currentWindowBegin))},
+                std::chrono::hh_mm_ss{std::chrono::duration_cast<std::chrono::seconds>(
+                    m_timeConverter(m_currentWindowBegin + m_simulation->logWindow()))})};
+        }());
 }
 
 //-------------------------------------------------------------------------

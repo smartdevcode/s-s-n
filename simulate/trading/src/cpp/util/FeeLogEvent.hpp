@@ -12,8 +12,6 @@
 namespace taosim
 {
 
-//-------------------------------------------------------------------------
-
 struct FeeLogEvent
 {
     BookId bookId;
@@ -23,8 +21,6 @@ struct FeeLogEvent
     decimal_t price;
     decimal_t volume;
 };
-
-//-------------------------------------------------------------------------
 
 }  // namespace taosim
 

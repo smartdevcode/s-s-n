@@ -16,5 +16,6 @@
                 <Quote total="500000.0" maxLeverage = "5" maxLoan = "10000"/>
             </Balances>
         </MultiBookExchangeAgent>
+        <DistributedProxyAgent/>
     </Agents>
 </Simulation>

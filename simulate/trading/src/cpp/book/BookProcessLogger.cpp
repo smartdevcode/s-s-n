@@ -11,19 +11,26 @@
 
 //-------------------------------------------------------------------------
 
-BookProcessLogger::BookProcessLogger(const fs::path& filepath, const std::vector<double>& X0s)
+BookProcessLogger::BookProcessLogger(
+    const fs::path& filepath, std::span<const double> X0s, Simulation* simulation)
     : m_filepath{filepath}
 {
     fs::remove(filepath);
+
     m_logger = std::make_unique<spdlog::logger>(
         fmt::format("BookProcessLogger-{}", filepath.stem().c_str()),
         std::make_unique<spdlog::sinks::basic_file_sink_st>(filepath));
     m_logger->set_level(spdlog::level::trace);
     m_logger->set_pattern("%v");
+
     m_logger->trace(fmt::format(
         "{},Timestamp\n"
         "{},0",
-        fmt::join(views::iota(0u, X0s.size()), ","),
+        fmt::join(
+            views::iota(
+                simulation->blockIdx() * X0s.size(),
+                simulation->blockIdx() * X0s.size() + X0s.size()),
+            ","),
         fmt::join(X0s, ",")));
     m_logger->flush();
 }

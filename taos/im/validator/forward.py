@@ -188,7 +188,7 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
             deserialize=False
         )
     synapse_responses = await asyncio.gather(
-            *(query_uid(uid) for uid in range(len(self.metagraph.axons)))
+            *(query_uid(uid) for uid in range(len(self.metagraph.axons)) if uid not in self.deregistered_uids)
         )
     synapse_responses = {self.metagraph.hotkeys.index(synapse_response.axon.hotkey) : synapse_response for synapse_response in synapse_responses}
     

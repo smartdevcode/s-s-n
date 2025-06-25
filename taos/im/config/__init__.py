@@ -146,7 +146,7 @@ def add_im_validator_args(cls, parser):
         "--scoring.activity.capital_turnover_cap",
         type=float,
         help="The number of times within each `trade_volume_assessment_period` that miner agents are able to trade the equivalent in volume to their initial capital allocation value before they are restricted from further activity.",
-        default=10.0,
+        default=20.0,
     )
 
     parser.add_argument(
@@ -161,6 +161,27 @@ def add_im_validator_args(cls, parser):
         type=int,
         help="Minimum simulation timestamp delay that may be applied to miner responses.",
         default=10_000_000,
+    )
+
+    parser.add_argument(
+        "--rewarding.seed",
+        type=int,
+        help="Seed to use in generating distribution for rewards.",
+        default=898746039182,
+    )
+
+    parser.add_argument(
+        "--rewarding.pareto.scale",
+        type=float,
+        help="Scale parameter for Pareto distribution used in allocating rewards.",
+        default=1.0,
+    )
+
+    parser.add_argument(
+        "--rewarding.pareto.shape",
+        type=float,
+        help="Shape parameter for Pareto distribution used in allocating rewards.",
+        default=1.16,
     )
     
     parser.add_argument(

@@ -46,7 +46,9 @@ ExchangeConfig makeExchangeConfig(pugi::xml_node node)
         .maxLoan = decimal_t{node.attribute("maxLoan").as_double()},
         .maintenanceMargin = maintenanceMargin,
         // TODO: Validation for price.
-        .initialPrice = decimal_t{node.attribute("initialPrice").as_double()}
+        .initialPrice = decimal_t{node.attribute("initialPrice").as_double()},
+        .maxOpenOrders = node.attribute("maxOpenOrders")
+            .as_ullong(std::numeric_limits<decltype(ExchangeConfig::maxOpenOrders)>::max())
     };
 }
 

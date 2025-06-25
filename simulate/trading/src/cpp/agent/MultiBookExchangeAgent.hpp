@@ -49,7 +49,7 @@ public:
     [[nodiscard]] taosim::accounting::Account& account(const LocalAgentId& agentId);
     [[nodiscard]] ExchangeSignals* signals(BookId bookId);
     [[nodiscard]] Process* process(const std::string& name, BookId bookId);
-    [[nodiscard]] taosim::exchange::ClearingManager& clearingManager() noexcept;
+    [[nodiscard]] taosim::exchange::ClearingManager& clearingManager() noexcept { return *m_clearingManager; }
     [[nodiscard]] taosim::decimal_t getMaintenanceMargin() const noexcept { return m_config2.maintenanceMargin; }
     [[nodiscard]] taosim::decimal_t getMaxLeverage() const noexcept { return m_config2.maxLeverage; }
     [[nodiscard]] taosim::decimal_t getMaxLoan() const noexcept { return m_config2.maxLoan; }

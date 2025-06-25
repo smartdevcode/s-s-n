@@ -9,6 +9,7 @@
 #include "util.hpp"
 
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/basic_file_sink.h>
 
 #include <chrono>
 #include <memory>
@@ -22,8 +23,6 @@ class Simulation;
 class L2Logger
 {
 public:
-    using Entry = decltype(BookSignals::L2)::argument_type;
-
     L2Logger(
         const fs::path& filepath,
         uint32_t depth,
@@ -31,10 +30,17 @@ public:
         BookSignals& signals,
         const Simulation* simulation) noexcept;
 
-    [[nodiscard]] const fs::path& filepath() const noexcept;
+    [[nodiscard]] const fs::path& filepath() const noexcept { return m_filepath; }
+
+    static constexpr std::string_view s_header =
+        "Date,Time,Symbol,Market,BidVol,BidPrice,AskVol,AskPrice,"
+        "QuoteCondition,Time,EndTime,BidLevels,AskLevels";
 
 private:
     void log(const Book* book);
+    void updateSink();
+
+    [[nodiscard]] std::unique_ptr<spdlog::sinks::basic_file_sink_st> makeFileSink() const;
     [[nodiscard]] std::string createEntryAS(const Book* book) const noexcept;
 
     std::unique_ptr<spdlog::logger> m_logger;
@@ -45,6 +51,7 @@ private:
     std::string m_lastLog;
     const Simulation* m_simulation;
     taosim::simulation::TimestampConversionFn m_timeConverter{};
+    Timestamp m_currentWindowBegin{};
 };
 
 //-------------------------------------------------------------------------

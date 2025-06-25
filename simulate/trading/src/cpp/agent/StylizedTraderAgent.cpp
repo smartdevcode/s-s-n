@@ -529,7 +529,7 @@ StylizedTraderAgent::ForecastResult StylizedTraderAgent::forecast(BookId bookId)
 
     // const double compF = m_regimeState.at(bookId) == RegimeState::NORMAL ? 1.0 / m_tauF.at(bookId) * std::log(pf/ m_price) : 1.0 / m_tauF.at(bookId) * m_logReturnsExternal.at(bookId).back();
     const double compF =  1.0 / m_tauF.at(bookId) * std::log(pf/ m_price);
-    const double compC = 1.0 / m_tau * ranges::accumulate(logReturns, 0.0);
+    const double compC = 1.0 / m_historySize * ranges::accumulate(logReturns, 0.0);
     const double compN = std::normal_distribution{0.0, m_sigmaEps}(*m_rng);
     const double tauFNormalizer = m_regimeState.at(bookId) == RegimeState::REGIME_A ?  m_tauF.at(bookId) / m_weightNormalizer *0.01 : 1;
     // const double compExt = 1.0 /m_tau * ranges::accumulate(logReturnsExternal,0.0);

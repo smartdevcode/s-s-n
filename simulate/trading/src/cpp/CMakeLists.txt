@@ -75,6 +75,7 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         taosim::simulator
+        ${Python3_LIBRARIES}
 )
 
 #-------------------------------------------------------------------------

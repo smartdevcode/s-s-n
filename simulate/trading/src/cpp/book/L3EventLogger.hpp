@@ -9,6 +9,7 @@
 #include "taosim/simulation/TimeConfig.hpp"
 
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/basic_file_sink.h>
 
 #include <chrono>
 #include <memory>
@@ -32,8 +33,13 @@ public:
 
     [[nodiscard]] const fs::path& filepath() const noexcept { return m_filepath; }
 
+    static constexpr std::string_view s_header = "date,time,event";
+
 private:
     void log(taosim::L3LogEvent event);
+    void updateSink();
+
+    [[nodiscard]] std::unique_ptr<spdlog::sinks::basic_file_sink_st> makeFileSink() const;
 
     std::unique_ptr<spdlog::logger> m_logger;
     fs::path m_filepath;
@@ -41,6 +47,7 @@ private:
     bs2::scoped_connection m_feed;
     const Simulation* m_simulation;
     taosim::simulation::TimestampConversionFn m_timeConverter{};
+    Timestamp m_currentWindowBegin{};
 };
 
 //-------------------------------------------------------------------------

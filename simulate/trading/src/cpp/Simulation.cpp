@@ -185,6 +185,8 @@ void Simulation::configure(const pugi::xml_node& node)
         m_debug = true;
     }
 
+    m_logWindow = node.attribute("logWindow").as_ullong();
+
     // NOTE: Ordering important!
     configureLogging(node);
     configureAgents(node);
@@ -542,13 +544,17 @@ void Simulation::configureAgents(pugi::xml_node node)
             }();
         });
 
-    auto it = std::find_if(
-        m_localAgentManager->begin(),
-        m_localAgentManager->end(),
-        [](const auto& agent) { return agent->name() == "EXCHANGE"; });
-    if (it == m_localAgentManager->end()) {
-        throw std::invalid_argument{fmt::format(
-            "{}: missing required agent named 'EXCHANGE'", ctx)};
+    static constexpr std::array<std::pair<std::string_view, std::string_view>, 2> kSpecialAgents{{
+        {"EXCHANGE", "MultiBookExchangeAgent"},
+        {"DISTRIBUTED_PROXY_AGENT", "DistributedProxyAgent"}
+    }};
+    for (const auto& [name, nodeName] : kSpecialAgents) {
+        auto it = ranges::find_if(
+            *m_localAgentManager, [&](const auto& agent) { return agent->name() == name; });
+        if (it == m_localAgentManager->end()) {
+            throw std::invalid_argument{fmt::format(
+                "{}: missing required agent node '{}'", ctx, nodeName)};
+        }
     }
 
     for (const auto& agent : m_localAgentManager->agents()) {
@@ -563,7 +569,7 @@ void Simulation::configureAgents(pugi::xml_node node)
 
 void Simulation::configureLogging(pugi::xml_node node)
 {
-    m_logDir = m_baseLogDir / std::to_string(m_blockIdx);
+    m_logDir = m_baseLogDir;
 }
 
 //-------------------------------------------------------------------------

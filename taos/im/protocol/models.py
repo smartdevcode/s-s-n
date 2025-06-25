@@ -64,6 +64,7 @@ class MarketSimulationConfig(BaseModel):
     duration : int
     grace_period : int
     publish_interval : int
+    log_window : int | None = None
 
     books_per_block : int
     book_count : int
@@ -75,6 +76,8 @@ class MarketSimulationConfig(BaseModel):
     volumeDecimals : int
     
     fee_policy : FeePolicy | None = None
+    
+    max_open_orders : int | None = None
 
     max_leverage : float
     max_loan : float
@@ -192,6 +195,7 @@ class MarketSimulationConfig(BaseModel):
             duration = int(xml.attrib['duration']),
             grace_period = int(MBE_config.attrib['gracePeriod']),
             publish_interval = int(xml.attrib['step']),
+            log_window = int(xml.attrib['logWindow']),
 
             books_per_block = int(books_config.attrib['instanceCount']),
             book_count = int(xml.attrib['blockCount']) * int(books_config.attrib['instanceCount']),
@@ -203,6 +207,8 @@ class MarketSimulationConfig(BaseModel):
             volumeDecimals = int(MBE_config.attrib['volumeDecimals']),
             
             fee_policy=FeePolicy.from_xml(fees_config),
+            
+            max_open_orders=int(MBE_config.attrib['maxOpenOrders']),
 
             max_leverage = float(MBE_config.attrib['maxLeverage']),
             max_loan = float(MBE_config.attrib['maxLoan']),

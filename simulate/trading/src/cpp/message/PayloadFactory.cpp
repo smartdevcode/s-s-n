@@ -74,10 +74,6 @@ MessagePayload::Ptr PayloadFactory::createFromJsonMessage(const rapidjson::Value
     else if (type == "SUBSCRIBE_EVENT_ORDER_TRADE") {
         return SubscribeEventTradeByOrderPayload::fromJson(payloadJson);
     }
-    // TODO: Is this of use?
-    else if (type == "REGISTER_ACCOUNT") {
-        
-    }
     else if (type == "RESET_AGENT") {
         return ResetAgentsPayload::fromJson(payloadJson);
     }

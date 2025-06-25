@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
+# SPDX-License-Identifier: MIT
 from taos.common.agents import launch
 from taos.im.agents import FinanceSimulationAgent
 from taos.im.protocol.models import *
@@ -34,12 +36,6 @@ class RandomMakerAgent(FinanceSimulationAgent):
         response = FinanceAgentResponse(agent_id=self.uid)
         # Iterate over all the book realizations in the state message
         for book_id, book in state.books.items():
-            # Iterate over all open orders belonging to the current agent in the current book
-            for order in self.accounts[book_id].orders:
-                # If the simulation timestamp of the latest state is after the time at which the agent wants to expire the order
-                if state.timestamp > order.timestamp + self.expiry_period:
-                    # Add a cancellation instruction for the order to response
-                    response.cancel_order(book_id=book_id, order_id=order.id)
             # If the book is populated (it of course always should be)
             if len(book.bids) > 0 and len(book.asks) > 0:
                 # Calculate placement prices for new orders to be a random distance between the current best bid and best ask
@@ -56,13 +52,13 @@ class RandomMakerAgent(FinanceSimulationAgent):
                 # If the agent can afford to place the buy order
                 if self.accounts[book_id].quote_balance.free >= quantity * bidprice:
                     # Attach a buy limit order placement instruction to the response
-                    response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bidprice, stp=STP.CANCEL_BOTH)
+                    response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bidprice, stp=STP.CANCEL_BOTH, timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period)
                 else:
                     print(f"Cannot place BUY order for {quantity}@{bidprice} : Insufficient quote balance!")
                 # If the agent can afford to place the sell order
                 if self.accounts[book_id].base_balance.free >= quantity:
                     # Attach a sell limit order placement instruction to the response
-                    response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askprice, stp=STP.CANCEL_NEWEST)
+                    response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askprice, stp=STP.CANCEL_NEWEST, timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period)
                 else:
                     print(f"Cannot place SELL order for {quantity}@{askprice} : Insufficient base balance!")
         # Return the response with instructions appended

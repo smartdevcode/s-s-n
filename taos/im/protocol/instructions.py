@@ -43,6 +43,9 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
     - bookId: The ID of the book on which the order is to be placed.
     - direction: Indicates whether the order is to buy or sell.
     - quantity : The size of the order to be placed in base currency.
+    - clientOrderId : User-assigned client id associated to the order.
+    - stp : Self-trade prevention strategy to be applied for the order.
+    - currency : Currency in which the `quantity` is specified (BASE or QUOTE).
     """
     bookId: NonNegativeInt
     direction : Literal[OrderDirection.BUY, OrderDirection.SELL]
@@ -78,6 +81,9 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
 
     Attributes:
     - price: The price level at which the order is to be placed.    
+    - postOnly: Boolean flag specifying if the order should be placed with Post-Only enforcement    
+    - timeInForce: Enum option specifying the Time-In_Force option to be appled for the order.    
+    - expiryPeriod: The period in simulation time after which the order should be cancelled (valid only with `timeInForce = TimeInForce.GTT`).    
     """
     type : Literal['PLACE_ORDER_LIMIT'] = 'PLACE_ORDER_LIMIT'
     price : PositiveFloat
@@ -127,8 +133,8 @@ class CancelOrdersInstruction(FinanceAgentInstruction):
     - bookId : The ID of the book on which cancellations are to be performed.
     - cancellations: A list of CancelOrderInstruction objects.    
     """
-    bookId: NonNegativeInt
     type : Literal['CANCEL_ORDERS'] = 'CANCEL_ORDERS'
+    bookId: NonNegativeInt
     cancellations : list[CancelOrderInstruction]
     def payload(self) -> dict:
         return {

@@ -62,13 +62,6 @@ Process* MultiBookExchangeAgent::process(const std::string& name, BookId bookId)
 
 //-------------------------------------------------------------------------
 
-taosim::exchange::ClearingManager& MultiBookExchangeAgent::clearingManager() noexcept
-{
-    return *m_clearingManager;
-}
-
-//-------------------------------------------------------------------------
-
 void MultiBookExchangeAgent::retainRecord(bool flag) noexcept
 {
     m_retainRecord = flag;
@@ -324,13 +317,14 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             m_books.push_back(book);
             m_signals[bookId] = std::make_unique<ExchangeSignals>();
             m_L3Record[bookId] = {};
+            const BookId bookIdCanon = simulation()->m_blockIdx * bookCount + bookId;
             if (loggingNode) {
                 if (L2Node) {
                     const fs::path logPath =
                         simulation()->logDir() / fmt::format(
                             "{}L2-{}.log",
                             !L2LogTag.empty() ? L2LogTag + "-" : "",
-                            bookId);
+                            bookIdCanon);
                     m_L2Loggers[bookId] = std::make_unique<L2Logger>(
                         logPath,
                         L2Depth,
@@ -343,7 +337,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                         simulation()->logDir() / fmt::format(
                             "{}L3-{}.log",
                             !L3LogTag.empty() ? L3LogTag + "-" : "",
-                            bookId);
+                            bookIdCanon);
                     m_L3EventLoggers[bookId] = std::make_unique<L3EventLogger>(
                         logPath,
                         startTimePoint,
@@ -355,7 +349,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                         simulation()->logDir() / fmt::format(
                             "{}fees-{}.log",
                             !feeLogTag.empty() ? feeLogTag + "-" : "",
-                            bookId);
+                            bookIdCanon);
                     m_feeLoggers[bookId] = std::make_unique<FeeLogger>(
                         logPath,
                         startTimePoint,

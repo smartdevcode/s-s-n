@@ -262,7 +262,6 @@ OrderPlacementValidator::ExpectedResult
     // AND
     //   - the price and volume of the order are in accord with their respective minimum increments
 
-
     if (payload->leverage < 0_dec || payload->leverage > maxLeverage) {
         return std::unexpected{OrderErrorCode::INVALID_LEVERAGE};
     }
@@ -271,6 +270,9 @@ OrderPlacementValidator::ExpectedResult
     }
     if (payload->price <= 0_dec) {
         return std::unexpected{OrderErrorCode::INVALID_PRICE};
+    }
+    if (account.activeOrders().at(book->id()).size() >= m_exchange->config2().maxOpenOrders) {
+        return std::unexpected{OrderErrorCode::EXCEEDING_MAX_ORDERS};
     }
 
     payload->price = util::round(payload->price, m_params.priceIncrementDecimals);

@@ -32,16 +32,6 @@ public:
 
     void updateVolume(taosim::decimal_t deltaVolume) noexcept;
 
-    // TODO: Remove.
-    [[nodiscard]] taosim::decimal_t totalVolume() const noexcept
-    {
-        taosim::decimal_t volume{};
-        for (const auto tick : *this) {
-            volume += tick->totalVolume();
-        }
-        return volume;
-    };
-
     bool operator<(const TickContainer& rhs) const noexcept { return m_price < rhs.price(); }
     bool operator<(taosim::decimal_t price) const noexcept { return m_price < price; }
 

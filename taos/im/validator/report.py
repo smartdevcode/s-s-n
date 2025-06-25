@@ -12,6 +12,7 @@ from taos.im.neurons.validator import Validator
 from taos.im.protocol.models import TradeInfo
 
 from taos.common.utils.prometheus import prometheus
+from taos.im.utils import duration_from_timestamp
 from prometheus_client import Counter, Gauge, Info
 
 def init_metrics(self : Validator) -> None:
@@ -97,13 +98,6 @@ def publish_info(self : Validator) -> None:
     } | self.simulation.fee_policy.to_prom_info()
     self.prometheus_info.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid ).info (prometheus_info)    
     publish_validator_gauges(self)
-    
-def duration_from_timestamp(timestamp : int) -> str:
-    seconds, nanoseconds = divmod(timestamp, 1_000_000_000)
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    days, hours = divmod(hours, 24)
-    return (f"{days}d " if days > 0 else "") + f"{hours:02}:{minutes:02}:{seconds:02}.{nanoseconds:09d}"
 
 def report(self : Validator) -> None:
     """

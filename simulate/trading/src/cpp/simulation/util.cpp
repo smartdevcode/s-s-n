@@ -46,6 +46,9 @@ Message::Ptr canonize(Message::Ptr msg, uint32_t blockIdx, uint32_t blockDim)
     else if (const auto pld = std::dynamic_pointer_cast<RetrieveOrdersPayload>(payload->payload)) {
         canonizeBookId(pld->bookId);
     }
+    else if (const auto pld = std::dynamic_pointer_cast<RetrieveOrdersResponsePayload>(payload->payload)) {
+        canonizeBookId(pld->bookId);
+    }
     else if (const auto pld = std::dynamic_pointer_cast<CancelOrdersPayload>(payload->payload)) {
         canonizeBookId(pld->bookId);
     }
@@ -104,6 +107,9 @@ DecanonizeResult decanonize(Message::Ptr msg, uint32_t blockDim)
             return decanonizeBookId(pld->requestPayload->bookId);
         }
         if (const auto pld = std::dynamic_pointer_cast<RetrieveOrdersPayload>(payload->payload)) {
+            return decanonizeBookId(pld->bookId);
+        }
+        if (const auto pld = std::dynamic_pointer_cast<RetrieveOrdersResponsePayload>(payload->payload)) {
             return decanonizeBookId(pld->bookId);
         }
         if (const auto pld = std::dynamic_pointer_cast<CancelOrdersPayload>(payload->payload)) {

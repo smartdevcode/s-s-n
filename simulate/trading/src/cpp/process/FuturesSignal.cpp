@@ -21,8 +21,8 @@ FuturesSignal::FuturesSignal(
       m_seedInterval{seedInterval},
       m_value{X0}
 {
-    m_value = m_X0;
-    m_seedfile = (simulation->logDir().parent_path() / "external_seed_sampled.csv").generic_string();
+    m_value = std::round(m_X0);
+    m_seedfile = (simulation->logDir() / "external_seed_sampled.csv").generic_string();
 }
 
 //-------------------------------------------------------------------------

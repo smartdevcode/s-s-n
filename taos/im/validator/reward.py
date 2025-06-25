@@ -78,51 +78,39 @@ def sharpe(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,fl
     """
     try:
         if len(inventory_values) <= 1: return self.sharpe_values[uid]
+        
         # Calculate the per-book Sharpe ratio values
         np_inventory_values = np.array([list(iv.values()) for iv in inventory_values.values()]).T
         timestamps = list(inventory_values.keys())
         changeover = [i for i in range(len(timestamps)-1) if timestamps[i+1] < timestamps[i]]
         bookId = 0
         for book_inventory_values in np_inventory_values:
-            if len(book_inventory_values) > 1:
-                returns = (book_inventory_values[1:] - book_inventory_values[:-1])
-                if len(changeover) > 0:
-                    returns = np.delete(returns, changeover)
-                returns = returns[-self.config.scoring.sharpe.lookback:]
-                std = returns.std()
-                sharpe = np.sqrt(len(returns)) * (returns.mean() / std) if std != 0.0 else 0.0
-                self.sharpe_values[uid]['books'][bookId] = sharpe
-            else:
-                self.sharpe_values[uid]['books'][bookId] = sharpe
-            bookId += 1
-        # Calculate the total Sharpe ratio value using inventories summed over all books
-        total_inventory_values = np.array([sum(list(inventory_value.values())) for inventory_value in inventory_values.values()])
-        if len(total_inventory_values) > 1:
-            returns = (total_inventory_values[1:] - total_inventory_values[:-1])
+            returns = (book_inventory_values[1:] - book_inventory_values[:-1])
             if len(changeover) > 0:
                 returns = np.delete(returns, changeover)
-            returns = returns[-self.config.scoring.sharpe.lookback:]
             std = returns.std()
-            total_sharpe = np.sqrt(len(returns)) * (returns.mean() / std) if std != 0.0 else 0.0
-        else:
-            total_sharpe = 0.0
-        self.sharpe_values[uid]['total'] = total_sharpe
+            self.sharpe_values[uid]['books'][bookId] = np.sqrt(len(returns)) * (returns.mean() / std) if std != 0.0 else 0.0
+            bookId += 1
+        
         # Calculate the average Sharpe ratio value over all books
-        all_sharpes = [sharpe for bookId, sharpe in self.sharpe_values[uid]['books'].items()]
-        avg_sharpe = sum(all_sharpes) / len(all_sharpes)
-        self.sharpe_values[uid]['average'] = avg_sharpe
-        median_sharpe = np.median(all_sharpes)
-        self.sharpe_values[uid]['median'] = median_sharpe
+        all_sharpes = np.array(list(self.sharpe_values[uid]['books'].values()))
+        self.sharpe_values[uid]['average'] = all_sharpes.mean()
+        self.sharpe_values[uid]['median'] = np.median(all_sharpes)            
+            
+        # Calculate the total Sharpe ratio value using inventories summed over all books
+        total_inventory_values = np.array([sum(list(inventory_value.values())) for inventory_value in inventory_values.values()])
+        returns = (total_inventory_values[1:] - total_inventory_values[:-1])
+        if len(changeover) > 0:
+            returns = np.delete(returns, changeover)
+        std = returns.std()
+        self.sharpe_values[uid]['total'] = np.sqrt(len(returns)) * (returns.mean() / std) if std != 0.0 else 0.0
         
         # In order to produce non-zero values for Sharpe ratio of the agent, the result of the usual calculation is normalized to fall within a configured range.
         # This allows to simply multiply scaling factors onto the resulting score, enabling straighforward zeroing of weights for agents behaving undesirably by other assessments.
         # This also enforces a cap which eliminates extreme Sharpe values which would be considered unrealistic.
-        normalized_avg_sharpe = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, avg_sharpe)
-        normalized_total_sharpe = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, total_sharpe)
-        normalized_median_sharpe = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, median_sharpe)
-        self.sharpe_values[uid]['normalized_average'] = normalized_avg_sharpe
-        self.sharpe_values[uid]['normalized_total'] = normalized_total_sharpe
-        self.sharpe_values[uid]['normalized_median'] = normalized_median_sharpe
+        self.sharpe_values[uid]['normalized_average'] = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.sharpe_values[uid]['average'])
+        self.sharpe_values[uid]['normalized_median'] = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.sharpe_values[uid]['median'])
+        self.sharpe_values[uid]['normalized_total'] = normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.sharpe_values[uid]['total'])
         return self.sharpe_values[uid]
     except Exception as ex:
         bt.logging.error(f"Failed to calculate Sharpe for UID {uid} : {traceback.format_exc()}")
@@ -174,12 +162,12 @@ def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[
         return outliers
     # Outliers detected here are activity-weighted Sharpes which are significantly lower than those achieved on other books
     outliers = detect_outliers(activity_weighted_normalized_sharpes)
-    # A penalty equal to the difference between the lowest outlier value and the value at the centre of the possible activity weighted Sharpe values is calculated
-    outlier_penalty = 0.5 - np.min(outliers) if len(outliers) > 0 and np.min(outliers) < 0.5 else 0
+    # A penalty equal to 67% of the difference between the mean outlier value and the value at the centre of the possible activity weighted Sharpe values is calculated
+    outlier_penalty = (0.5 - np.mean(outliers))/1.5 if len(outliers) > 0 and np.mean(outliers) < 0.5 else 0
     # The median of the activity weighted Sharpes provides the base score for the miner
     activity_weighted_normalized_median = np.median(activity_weighted_normalized_sharpes)
     # The penalty factor is subtracted from the base score to punish particularly poor performance on any particular book
-    sharpe_score = activity_weighted_normalized_median - abs(outlier_penalty)
+    sharpe_score = max(activity_weighted_normalized_median - abs(outlier_penalty), 0.0)
     
     return self.reward_weights['sharpe'] * sharpe_score
 
@@ -196,29 +184,32 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
         float: The new score value for the miner.
     """
     try:
+        if uid in self.deregistered_uids: return 0.0 
         sampled_timestamp = math.ceil(synapse.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
         # Prune the trading volume history of the miner to exclude values prior to the latest `trade_volume_assessment_period`
         for book_id, role_trades in self.trade_volumes[uid].items():
             for role, trades in role_trades.items():
-                if trades != {}:
-                    if min(trades.keys()) < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:
-                        self.trade_volumes[uid][book_id][role] = {time : volume for time, volume in trades.items() if time > synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period}
-                if not sampled_timestamp in self.trade_volumes[uid][book_id]['total']:
-                    self.trade_volumes[uid][book_id]['total'][sampled_timestamp] = 0.0
-                    self.trade_volumes[uid][book_id]['maker'][sampled_timestamp] = 0.0
-                    self.trade_volumes[uid][book_id]['taker'][sampled_timestamp] = 0.0
-                    self.trade_volumes[uid][book_id]['self'][sampled_timestamp] = 0.0
+                for time in sorted(trades.keys()):
+                    if time < synapse.timestamp - self.config.scoring.activity.trade_volume_assessment_period:                                
+                        del self.trade_volumes[uid][book_id][role][time]
+                    else:
+                        break
+            if not sampled_timestamp in self.trade_volumes[uid][book_id]['total']:
+                self.trade_volumes[uid][book_id]['total'][sampled_timestamp] = 0.0
+                self.trade_volumes[uid][book_id]['maker'][sampled_timestamp] = 0.0
+                self.trade_volumes[uid][book_id]['taker'][sampled_timestamp] = 0.0
+                self.trade_volumes[uid][book_id]['self'][sampled_timestamp] = 0.0
         # Update trade volume history with new trades since the previous step
         
-        for notice in synapse.notices[uid]:
-            if notice.type in ['EVENT_TRADE',"ET"]:
-                self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['total'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-                if notice.makerAgentId == notice.takerAgentId:                
-                    self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['self'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-                elif notice.makerAgentId == uid:
-                    self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['maker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
-                elif notice.takerAgentId == uid:
-                    self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] = round(self.trade_volumes[uid][notice.bookId]['taker'][sampled_timestamp] + notice.quantity * notice.price, self.simulation.volumeDecimals)
+        trades = [notice for notice in synapse.notices[uid] if notice.type in ['EVENT_TRADE',"ET"]]
+        for trade in trades:
+            self.trade_volumes[uid][trade.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][trade.bookId]['total'][sampled_timestamp] + trade.quantity * trade.price, self.simulation.volumeDecimals)
+            if trade.makerAgentId == trade.takerAgentId:                
+                self.trade_volumes[uid][trade.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][trade.bookId]['self'][sampled_timestamp] + trade.quantity * trade.price, self.simulation.volumeDecimals)
+            elif trade.makerAgentId == uid:
+                self.trade_volumes[uid][trade.bookId]['maker'][sampled_timestamp] = round(self.trade_volumes[uid][trade.bookId]['maker'][sampled_timestamp] + trade.quantity * trade.price, self.simulation.volumeDecimals)
+            elif trade.takerAgentId == uid:
+                self.trade_volumes[uid][trade.bookId]['taker'][sampled_timestamp] = round(self.trade_volumes[uid][trade.bookId]['taker'][sampled_timestamp] + trade.quantity * trade.price, self.simulation.volumeDecimals)
         
         for bookId, account in synapse.accounts[uid].items():                    
             if self.initial_balances[uid][bookId]['BASE'] == None:
@@ -226,22 +217,29 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate, uid : int) -
             if self.initial_balances[uid][bookId]['QUOTE'] == None:
                 self.initial_balances[uid][bookId]['QUOTE'] = account.quote_balance.total
             if self.initial_balances[uid][bookId]['WEALTH'] == None:
-                self.initial_balances[uid][bookId]['WEALTH'] = get_inventory_value(synapse.accounts[uid][book_id], synapse.books[bookId])
+                self.initial_balances[uid][bookId]['WEALTH'] = get_inventory_value(synapse.accounts[uid][bookId], synapse.books[bookId])
         
         # Calculate the current value of the agent's inventory and append to the history array
         if uid in synapse.accounts:
-            self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.initial_balances[uid][bookId]['WEALTH'] for book_id, book in synapse.books.items()}
+            self.inventory_history[uid][synapse.timestamp] = {book_id : get_inventory_value(synapse.accounts[uid][book_id], book) - self.initial_balances[uid][book_id]['WEALTH'] for book_id, book in synapse.books.items()}
         else:
             self.inventory_history[uid][synapse.timestamp] = {book_id : 0.0 for book_id in synapse.books}
         # Prune the inventory history
-        self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])        
+        self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])
         
         inventory_score = score_inventory_values(self, uid, self.inventory_history[uid])        
         return inventory_score
     except Exception as ex:
         bt.logging.error(f"Failed to calculate reward for UID {uid} at step {self.step} : {traceback.format_exc()}")
         return self.scores[uid]
-
+    
+def distribute_rewards(self : Validator, rewards : torch.FloatTensor):
+    rng = np.random.default_rng(self.config.rewarding.seed)    
+    distribution = torch.FloatTensor(sorted(self.config.rewarding.pareto.scale * rng.pareto(self.config.rewarding.pareto.shape, len(self.metagraph.uids))))
+    sorted_rewards, sorted_indices = rewards.sort()
+    distributed_rewards = distribution * sorted_rewards
+    return torch.gather(distributed_rewards, 0, sorted_indices.argsort())
+    
 def get_rewards(
     self : Validator, synapse : MarketSimulationStateUpdate
 ) -> torch.FloatTensor:
@@ -255,14 +253,13 @@ def get_rewards(
     Returns:
         torch.FloatTensor: A tensor of rewards for the given query and responses.
     """
-    # Get all the reward results by iteratively calling your reward() function.
-    return torch.FloatTensor(
-        [reward(self, synapse, uid.item()) for uid in self.metagraph.uids]
-    ).to(self.device)
+    # Get all the reward results by iteratively calling the reward() function.
+    rewards = [reward(self, synapse, uid.item()) for uid in self.metagraph.uids]
+    return distribute_rewards(self, torch.FloatTensor(rewards).to(self.device))
 
 def set_delays(self : Validator, synapse_responses : dict[int, MarketSimulationStateUpdate]) -> list[FinanceAgentResponse]:
     """
-    Calculates and applies the simulation time delay to be applied to each instruction received by the validator
+    Calculates and applies the appropriate simulation time delay to each instruction received by the validator
 
     Args:
         self (taos.im.neurons.validator.Validator) : Validator instance

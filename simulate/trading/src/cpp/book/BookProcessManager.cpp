@@ -122,11 +122,15 @@ std::unique_ptr<BookProcessManager> BookProcessManager::fromXML(
         const std::string name = attr.as_string();
         container[name] = std::move(bookId2Process);
         loggers[name] = std::make_unique<BookProcessLogger>(
-            // Simulation to get logDir from the manager, then this code doesn't even have to change.
-            simulation->logDir() / fmt::format("{}.csv", name),
+            simulation->logDir() /
+                fmt::format("{}.{}-{}.csv",
+                    name,
+                    simulation->blockIdx() * bookCount,
+                    simulation->blockIdx() * bookCount + bookCount - 1),
             container.at(name)
                 | views::transform([](const auto& p) { return p->value(); })
-                | ranges::to<std::vector>());
+                | ranges::to<std::vector>,
+            simulation);
     }
 
     return std::make_unique<BookProcessManager>(

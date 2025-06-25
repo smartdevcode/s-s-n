@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from taos.common.agents import SimulationAgent
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 from taos.im.protocol.events import *
+from taos.im.utils import duration_from_timestamp
 
 # Base class for agents operating in intelligent market simulations
 class FinanceSimulationAgent(SimulationAgent):    
@@ -42,39 +43,48 @@ class FinanceSimulationAgent(SimulationAgent):
         self.events = state.notices[self.uid]
         self.simulation_config = state.config
         state.config = None
+        simulation_ended = False
         update_text = ''
+        debug_text = ''
         update_text += "\n" + '-' * 50 + "\n"
-        update_text += f'VALIDATOR : {state.dendrite.hotkey} | TIMESTAMP : {state.timestamp}' + "\n"
-        for event in self.events:
-            match event.type:
-                case"RESET_AGENTS" | "RA":
-                    bt.logging.warning(f"Agent Balances Reset! {event}")
-                case "EVENT_SIMULATION_START" | "ESS":
-                    update_text += f"{event}" + "\n"
-                    self.onStart(event)
-                case "EVENT_SIMULATION_END" | "ESE":
-                    update_text += f"{event}" + "\n"
-                    self.onEnd(event)
-                case _:
-                    pass
-        for book_id, account in self.accounts.items():
-            update_text += '-' * 50 + "\n"
-            update_text += f"BOOK {book_id}" + "\n"
-            update_text += '-' * 50 + "\n"
-            update_text += f"TOP LEVELS" + "\n"
-            update_text += '-' * 50 + "\n"
-            update_text += ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in reversed(state.books[book_id].bids[:5])]) + '||' + ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in state.books[book_id].asks[:5]]) + "\n"
-            update_text += '-' * 50 + "\n"
-            update_text += 'BALANCES' + "\n"
-            update_text += '-' * 50 + "\n"
-            update_text += f"BASE  : TOTAL={account.base_balance.total:.8f} FREE={account.base_balance.free:.8f} RESERVED={account.base_balance.reserved:.8f}" + "\n"
-            update_text += f"QUOTE : TOTAL={account.quote_balance.total:.8f} FREE={account.quote_balance.free:.8f} RESERVED={account.quote_balance.reserved:.8f}" + "\n"
-            update_text += '-' * 50 + "\n"
+        update_text += f'VALIDATOR : {state.dendrite.hotkey} | SIMULATION TIME : {duration_from_timestamp(state.timestamp)} (T={state.timestamp})' + "\n"
+        update_text += '-' * 50 + "\n"
+        if len(self.events) > 0:
             update_text += 'EVENTS' + "\n"
             update_text += '-' * 50 + "\n"
-            for event in self.events:    
+            for event in self.events:
+                match event.type:
+                    case"RESET_AGENTS" | "RA":
+                        update_text += f"{event}" + "\n"
+                    case "EVENT_SIMULATION_START" | "ESS":
+                        update_text += f"{event}" + "\n"
+                        self.onStart(event)
+                    case "EVENT_SIMULATION_END" | "ESE":
+                        simulation_ended = True
+                    case _:
+                        pass
+        else:
+            update_text += 'NO EVENTS' + "\n"
+            update_text += '-' * 50 + "\n"
+        for book_id, account in self.accounts.items():
+            debug_text += '-' * 50 + "\n"
+            debug_text += f"BOOK {book_id}" + "\n"
+            debug_text += '-' * 50 + "\n"
+            debug_text += f"TOP LEVELS" + "\n"
+            debug_text += '-' * 50 + "\n"
+            debug_text += ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in reversed(state.books[book_id].bids[:5])]) + '||' + ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in state.books[book_id].asks[:5]]) + "\n"
+            debug_text += '-' * 50 + "\n"
+            debug_text += 'BALANCES' + "\n"
+            debug_text += '-' * 50 + "\n"
+            debug_text += f"BASE  : TOTAL={account.base_balance.total:.8f} FREE={account.base_balance.free:.8f} RESERVED={account.base_balance.reserved:.8f}" + "\n"
+            debug_text += f"QUOTE : TOTAL={account.quote_balance.total:.8f} FREE={account.quote_balance.free:.8f} RESERVED={account.quote_balance.reserved:.8f}" + "\n"
+            debug_text += '-' * 50 + "\n"
+            debug_text += 'EVENTS' + "\n"
+            debug_text += '-' * 50 + "\n"
+            for event in self.events:
                 if hasattr(event, 'bookId') and event.bookId == book_id:
-                    update_text += f"{event}" + "\n"
+                    debug_text += f"{event}" + "\n"
+                    update_text += f"BOOK {book_id} : {event}" + "\n"
                     match event.type:
                         case "RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "RDPOL" | "RDPOM":
                             self.onOrderAccepted(event)
@@ -91,19 +101,24 @@ class FinanceSimulationAgent(SimulationAgent):
                         case _:
                             bt.logging.warning(f"Unknown event : {event}")
             if len(account.orders) > 0:
-                update_text += '-' * 50 + "\n"
-                update_text += 'ORDERS' + "\n"
-                update_text += '-' * 50 + "\n"
+                debug_text += '-' * 50 + "\n"
+                debug_text += 'ORDERS' + "\n"
+                debug_text += '-' * 50 + "\n"
                 for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    update_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"
+                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"
             if account.fees:
-                update_text += '-' * 50 + "\n"
-                update_text += f'FEES : TRADED {account.fees.volume_traded} | MAKER {account.fees.maker_fee_rate * 100}% | TAKER {account.fees.taker_fee_rate * 100}%' + "\n"
-                update_text += '-' * 50 + "\n"
+                debug_text += '-' * 50 + "\n"
+                debug_text += f'FEES : TRADED {account.fees.volume_traded} | MAKER {account.fees.maker_fee_rate * 100}% | TAKER {account.fees.taker_fee_rate * 100}%' + "\n"
+                debug_text += '-' * 50 + "\n"
                 for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    update_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"
+                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"
+            debug_text += '-' * 50 + "\n"
+        if simulation_ended:
+            update_text += f"{event}" + "\n"
             update_text += '-' * 50 + "\n"
-        bt.logging.info("\n" + update_text)
+            self.onEnd(event)
+        bt.logging.debug("." + debug_text)        
+        bt.logging.info("." + update_text)
     
     # Handler functions for various simulation events, to be overridden in agent implementations.
     def onStart(self, event : SimulationStartEvent) -> None:
@@ -140,7 +155,11 @@ class FinanceSimulationAgent(SimulationAgent):
         Returns:
             None
         """
-        pass
+        match event.message:
+            case 'EXCEEDING_MAX_ORDERS':
+                bt.logging.warning(f"FAILED TO PLACE {'BUY' if event.side == 0 else 'SELL'} ORDER FOR {event.quantity}@{event.price} ON BOOK {event.bookId} : You already have the maximum allowed number of open orders ({self.simulation_config.max_open_orders}) on this book.  You will not be able to place any more orders until you either cancel existing orders, or they are traded.")
+            case _:
+                pass
 
     def onOrderCancelled(self, event : OrderCancellationEvent) -> None:
         """
@@ -213,9 +232,13 @@ class FinanceSimulationAgent(SimulationAgent):
         Returns:
             None
         """
-        update_text = 'INSTRUCTIONS' + "\n"
-        update_text += '-' * 50 + "\n"
-        for instruction in response.instructions:
-            update_text += f"{instruction}" + "\n"
+        update_text = '-' * 50 + "\n"
+        if len(response.instructions) > 0:
+            update_text += 'INSTRUCTIONS' + "\n"
+            update_text += '-' * 50 + "\n"
+            for instruction in response.instructions:
+                update_text += f"{instruction}" + "\n"
+        else:
+            update_text += 'NO INSTRUCTIONS TO SUBMIT' + "\n"
         update_text += '-' * 50
-        bt.logging.info("\n" + update_text)
+        bt.logging.info(".\n" + update_text)

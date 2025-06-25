@@ -9,5 +9,6 @@
         </MultiBookExchangeAgent>
         <DistributedProxyAgent host="127.0.0.1" port="8193" batchSize="1"
             bookStateEndpoint="/book-state" generalMsgEndpoint="/general-msg"/>
+        <DistributedProxyAgent/>
     </Agents>
 </Simulation>

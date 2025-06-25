@@ -29,7 +29,7 @@ public:
 
     [[nodiscard]] const fs::path& filepath() const noexcept { return m_filepath; }
 
-    void log([[maybe_unused]] L3LogEvent event) const;
+    void log(L3LogEvent event) const;
 
 private:
     std::unique_ptr<spdlog::logger> m_logger;

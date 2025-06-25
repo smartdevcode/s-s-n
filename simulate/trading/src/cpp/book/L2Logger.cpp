@@ -9,7 +9,6 @@
 #include "common.hpp"
 
 #include <fmt/chrono.h>
-#include <spdlog/sinks/basic_file_sink.h>
 
 //-------------------------------------------------------------------------
 
@@ -25,36 +24,61 @@ L2Logger::L2Logger(
       m_feed{signals.L2.connect([this](const Book* book) { log(book); })},
       m_simulation{simulation}
 {
-    m_logger = std::make_unique<spdlog::logger>(
-        "L2Logger", std::make_unique<spdlog::sinks::basic_file_sink_st>(filepath));
+    m_timeConverter = taosim::simulation::timescaleToConverter(m_simulation->config().time().scale);
+
+    m_logger = std::make_unique<spdlog::logger>("L2Logger", makeFileSink());
     m_logger->set_level(spdlog::level::trace);
     m_logger->set_pattern("%v");
 
-    m_timeConverter = taosim::simulation::timescaleToConverter(m_simulation->config().time().scale);
-
-    m_logger->trace(
-        "Date,Time,Symbol,Market,BidVol,BidPrice,AskVol,AskPrice,"
-        "QuoteCondition,Time,EndTime,BidLevels,AskLevels");
+    m_logger->trace(s_header);
     m_logger->flush();
-}
-
-//-------------------------------------------------------------------------
-
-const fs::path& L2Logger::filepath() const noexcept
-{
-    return m_filepath;
 }
 
 //-------------------------------------------------------------------------
 
 void L2Logger::log(const Book* book)
 {
-    std::string newLog = createEntryAS(book);
+    updateSink();
+
+    const std::string newLog = createEntryAS(book);
     if (newLog != "" && newLog != m_lastLog) {
         m_logger->trace(newLog);
         m_logger->flush();
     }
     m_lastLog = newLog;
+}
+
+//-------------------------------------------------------------------------
+
+void L2Logger::updateSink()
+{
+    if (!m_simulation->logWindow()) [[unlikely]] return;
+    const bool withinWindow =
+        m_simulation->time().current < m_currentWindowBegin + m_simulation->logWindow();
+    if (withinWindow) [[likely]] return;
+    m_currentWindowBegin += m_simulation->logWindow();
+    m_logger->sinks().clear();
+    m_logger->sinks().push_back(makeFileSink());
+    m_logger->set_pattern("%v");
+    m_logger->trace(s_header);
+    m_logger->flush();
+}
+
+//-------------------------------------------------------------------------
+
+std::unique_ptr<spdlog::sinks::basic_file_sink_st> L2Logger::makeFileSink() const
+{
+    return std::make_unique<spdlog::sinks::basic_file_sink_st>(
+        [this] {
+            if (!m_simulation->logWindow()) return m_filepath;
+            return fs::path{std::format(
+                "{}.{:%H%M%S}-{:%H%M%S}.log",
+                (m_filepath.parent_path() / m_filepath.stem()).generic_string(),
+                std::chrono::hh_mm_ss{
+                    std::chrono::duration_cast<std::chrono::seconds>(m_timeConverter(m_currentWindowBegin))},
+                std::chrono::hh_mm_ss{std::chrono::duration_cast<std::chrono::seconds>(
+                    m_timeConverter(m_currentWindowBegin + m_simulation->logWindow()))})};
+        }());
 }
 
 //-------------------------------------------------------------------------

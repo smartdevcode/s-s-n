@@ -327,7 +327,6 @@ class BaseValidatorNeuron(BaseNeuron):
         # Zero out all hotkeys that have been replaced.
         for uid, hotkey in enumerate(self.hotkeys):
             if hotkey != self.metagraph.hotkeys[uid]:
-                self.scores[uid] = 0  # hotkey has been replaced
                 self.handle_deregistration(uid)
 
         # Check to see if the metagraph has changed size.

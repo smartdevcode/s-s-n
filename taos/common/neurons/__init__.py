@@ -24,6 +24,7 @@ import typing
 import bittensor as bt
 
 from abc import ABC, abstractmethod
+from threading import Thread
 
 # Sync calls set weights and also resyncs the metagraph.
 from taos.common.config import check_config, add_args, config
@@ -138,7 +139,7 @@ class BaseNeuron(ABC):
             self.resync_metagraph()
 
         if self.should_set_weights():
-            self.set_weights()
+            Thread(target=self.set_weights, args=(), daemon=True, name=f'weights_{self.step}').start()
 
         if save_state:
             self.save_state()

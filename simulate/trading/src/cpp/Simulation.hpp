@@ -105,6 +105,8 @@ public:
     [[nodiscard]] const taosim::simulation::SimulationConfig& config() const noexcept { return m_config2; }
     [[nodiscard]] const std::unique_ptr<LocalAgentManager>& localAgentManager() const noexcept { return m_localAgentManager; }
     [[nodiscard]] const auto& time() const noexcept { return m_time; }
+    [[nodiscard]] uint32_t blockIdx() const noexcept { return m_blockIdx; }
+    [[nodiscard]] Timestamp logWindow() const noexcept { return m_logWindow; }
     
     virtual const fs::path& logDir() const noexcept override { return m_logDir; }
     virtual void receiveMessage(Message::Ptr msg) override;
@@ -156,6 +158,7 @@ private:
     taosim::simulation::SimulationConfig m_config2;
     uint32_t m_blockIdx{};
     fs::path m_baseLogDir;
+    Timestamp m_logWindow{};
 
     friend class LocalAgentManager;
     friend class MultiBookExchangeAgent;

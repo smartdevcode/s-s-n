@@ -139,8 +139,28 @@ rapidjson::Document SimulationManager::makeStateJson() const
         "notices",
         [&] {
             rapidjson::Document noticesJson{rapidjson::kArrayType, &allocator};
+            std::unordered_map<decltype(Message::type), uint32_t> msgTypeToCount{
+                { "RESPONSE_DISTRIBUTED_RESET_AGENT", 0 },
+                { "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT", 0 }
+            };
+            auto checkGlobalDuplicate = [&](Message::Ptr msg) -> bool {
+                const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
+                if (payload == nullptr) return false;
+                auto relevantPayload = [&] {
+                    const auto pld = payload->payload;
+                    return std::dynamic_pointer_cast<ResetAgentsResponsePayload>(pld) != nullptr
+                        || std::dynamic_pointer_cast<ResetAgentsErrorResponsePayload>(pld) != nullptr;
+                };
+                if (!relevantPayload()) return true;
+                auto it = msgTypeToCount.find(msg->type);
+                if (it == msgTypeToCount.end()) return true;
+                if (it->second > 0) return false;
+                it->second++;
+                return true;
+            };
             for (const auto& [blockIdx, simulation] : views::enumerate(m_simulations)) {
                 for (const auto msg : simulation->proxy()->messages()) {
+                    if (!checkGlobalDuplicate(msg)) continue;
                     canonize(msg, blockIdx, m_blockInfo.dimension);
                     rapidjson::Document msgJson{&allocator};
                     msg->jsonSerialize(msgJson);
@@ -509,10 +529,10 @@ void SimulationManager::setupLogDir(pugi::xml_node node)
     const std::string fWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaF");
     const std::string cWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaC");
     const std::string nWeight = getAttr(agentsNode, "StylizedTraderAgent", "sigmaN");
-
     const std::string tau = getAttr(agentsNode, "StylizedTraderAgent", "tau");
     const std::string sigmaEps = getAttr(agentsNode, "StylizedTraderAgent", "sigmaEps");
     const std::string riskAversion = getAttr(agentsNode, "StylizedTraderAgent", "r_aversion");
+
     m_logDir = fmt::format(
         "{}-{}-{}-{}-i{}_p{}-f{}_c{}_n{}_t{}_s{}_r{}_d{}_v{}_b{}_q{}",
         dt, duration, books, balances, iCount, iPrice, fWeight, cWeight, nWeight,

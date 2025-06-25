@@ -28,6 +28,8 @@ import msgpack
 import msgspec
 import math
 import shutil
+import zipfile
+import asyncio
 from datetime import datetime
 
 # Bittensor
@@ -48,7 +50,7 @@ from taos.common.neurons.validator import BaseValidatorNeuron
 
 from taos.im.config import add_im_validator_args
 from taos.im.protocol.simulator import SimulatorResponseBatch
-from taos.im.protocol import MarketSimulationStateUpdate, FinanceEventNotification, FinanceAgentResponse
+from taos.im.protocol import MarketSimulationStateUpdate, FinanceEventNotification
 from taos.im.protocol.models import MarketSimulationConfig
 from taos.im.protocol.events import SimulationStartEvent
 
@@ -68,20 +70,27 @@ class Validator(BaseValidatorNeuron):
         """
         add_im_validator_args(cls, parser)
 
-    def maintain(self) -> None:
+    def _maintain(self) -> None:
+        try:
+            self.maintaining = True
+            bt.logging.info(f"Synchronizing at Step {self.step}...")
+            start=time.time()
+            self.sync(save_state=False)
+            if not check_simulator(self):
+                restart_simulator(self)
+            bt.logging.info(f"Synchronized ({time.time()-start:.4f}s)")
+        except Exception as ex:
+            bt.logging.error(f"Failed to sync : {traceback.format_exc()}")
+        finally:
+            self.maintaining = False
+    
+    def maintain(self) -> None:        
         """
         Maintains the metagraph and sets weights.
-        This method is run in a separate thread parallel to the FastAPI server.
+        This method is run in a separate thread to speed up processing.
         """
-        while True:
-            try:
-                bt.logging.debug("Synchronizing...")
-                self.sync(save_state=False)
-                if not check_simulator(self):
-                    restart_simulator(self)
-                time.sleep(bt.settings.BLOCKTIME * 10)
-            except Exception as ex:
-                bt.logging.error(f"Failed to sync : {traceback.format_exc()}")
+        if not self.maintaining:
+            Thread(target=self._maintain, args=(), daemon=True, name=f'maintain_{self.step}').start()
 
     def seed(self) -> None:
         from taos.im.validator.seed import seed
@@ -118,26 +127,50 @@ class Validator(BaseValidatorNeuron):
             self.pagerduty_alert(f"Failed to update repo : {ex}", details={"traceback" : traceback.format_exc()})
             return False
 
-    def _compress_outputs(self):
+    def _compress_outputs(self,  start=False):
         self.compressing = True
         try:
             if self.simulation.logDir:
                 log_root = Path(self.simulation.logDir).parent
                 for output_dir in log_root.iterdir():
-                    if output_dir.is_dir() and str(output_dir.resolve()) != self.simulation.logDir:
-                        size = sum(file.stat().st_size for file in output_dir.rglob('*'))
-                        bt.logging.info(f"Compressing output directory {output_dir.name} ({int(size / 1024 / 1024)}MB)...")
-                        try:
-                            shutil.make_archive(output_dir, 'zip', output_dir)
-                            bt.logging.success(f"Compressed {output_dir.name} to {output_dir.name + '.zip'}.")
-                        except Exception as ex:
-                            self.pagerduty_alert(f"Failed to compress folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
-                            continue
-                        try:
-                            shutil.rmtree(output_dir)
-                            bt.logging.success(f"Deleted {output_dir.name}.")
-                        except Exception as ex:
-                            self.pagerduty_alert(f"Failed to remove compressed folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
+                    if output_dir.is_dir():
+                        log_archives = {}
+                        log_path = Path(output_dir)
+                        for log_file in log_path.iterdir():
+                            if log_file.is_file() and log_file.suffix == '.log':
+                                log_period = log_file.name.split('.')[1]
+                                log_end = (int(log_period.split('-')[1][:2]) * 3600 + int(log_period.split('-')[1][2:4]) * 60 + int(log_period.split('-')[1][5:])) * 1_000_000_000
+                                if log_end < self.simulation_timestamp or (start and str(output_dir.resolve()) != self.simulation.logDir):
+                                    log_type = log_file.name.split('-')[0]
+                                    label = f"{log_type}_{log_period}"
+                                    if not label in log_archives:
+                                        log_archives[label] = []
+                                    log_archives[label].append(log_file)
+                        for label, log_files in log_archives.items():
+                            archive = log_path / f"{label}.zip"
+                            bt.logging.info(f"Compressing {label} files to {archive.name}...")
+                            with zipfile.ZipFile(archive, "w" if not archive.exists() else "a") as zipf:
+                                for log_file in log_files:
+                                    try:
+                                        zipf.write(log_file, arcname=Path(log_file).name)
+                                        os.remove(log_file)
+                                        bt.logging.debug(f"Added {log_file.name} to {archive.name}")
+                                    except Exception as ex:
+                                        bt.logging.error(f"Failed to add {log_file.name} to {archive.name} : {ex}")
+                        if start and str(output_dir.resolve()) != self.simulation.logDir:
+                            size = sum(file.stat().st_size for file in output_dir.rglob('*'))
+                            bt.logging.info(f"Compressing output directory {output_dir.name} ({int(size / 1024 / 1024)}MB)...")
+                            try:
+                                shutil.make_archive(output_dir, 'zip', output_dir)
+                                bt.logging.success(f"Compressed {output_dir.name} to {output_dir.name + '.zip'}.")
+                            except Exception as ex:
+                                self.pagerduty_alert(f"Failed to compress folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
+                                continue
+                            try:
+                                shutil.rmtree(output_dir)
+                                bt.logging.success(f"Deleted {output_dir.name}.")
+                            except Exception as ex:
+                                self.pagerduty_alert(f"Failed to remove compressed folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
                 if psutil.disk_usage('/').percent > 90:
                     first_day_of_month = int(datetime.today().replace(day=1).strftime("%Y%m%d"))
                     bt.logging.warning(f"Disk usage > 90% - cleaning up old archives...")
@@ -155,14 +188,16 @@ class Validator(BaseValidatorNeuron):
                                     break
                             except Exception as ex:
                                 self.pagerduty_alert(f"Failed to remove archive {output_archive.name} : {ex}", details={"trace" : traceback.format_exc()})
+                        
+                            
         except Exception as ex:
             self.pagerduty_alert(f"Failure during output compression : {ex}", details={"trace" : traceback.format_exc()})
         finally:
             self.compressing = False
 
-    def compress_outputs(self):
+    def compress_outputs(self, start=False):
         if not self.compressing:
-            Thread(target=self._compress_outputs, args=(), daemon=True, name=f'compress_{self.step}').start()
+            Thread(target=self._compress_outputs, args=(start,), daemon=True, name=f'compress_{self.step}').start()
 
     def _save_state(self) -> None:
         """Saves the state of the validator to a file."""
@@ -378,6 +413,7 @@ class Validator(BaseValidatorNeuron):
         self.start_timestamp = None
         self.last_state_time = None
         self.step_rates = []
+        self.maintaining = False
         self.rewarding = False
         self.reporting = False
         self.saving = False
@@ -402,10 +438,10 @@ class Validator(BaseValidatorNeuron):
     def load_fundamental(self):
         df_fp = pd.DataFrame()
         for block in range(self.simulation.block_count):
-            block_file = os.path.join(self.simulation.logDir, str(block), 'fundamental.csv')
+            block_file = os.path.join(self.simulation.logDir, f'fundamental.{block * self.simulation.books_per_block}-{self.simulation.books_per_block * (block + 1) - 1}.csv')
             block_fp = pd.read_csv(block_file) 
             block_fp.set_index('Timestamp', inplace=True)
-            block_fp.columns = [int(col) + block * self.simulation.books_per_block for col in block_fp.columns]
+            block_fp.columns = [int(col) for col in block_fp.columns]
             if block == 0:
                 df_fp = block_fp
             else:
@@ -435,7 +471,7 @@ class Validator(BaseValidatorNeuron):
         self.last_state_time = None
         self.step_rates = []
         self.simulation.logDir = event.logDir
-        self.compress_outputs()
+        self.compress_outputs(start=True)
         bt.logging.info(f"START TIME: {self.start_time}")
         bt.logging.info(f"TIMESTAMP : {self.start_timestamp}")
         bt.logging.info(f"OUT DIR   : {self.simulation.logDir}")
@@ -461,26 +497,44 @@ class Validator(BaseValidatorNeuron):
     def handle_deregistration(self, uid) -> None:
         """
         Triggered on deregistration of a UID.
-        Zeroes scores and flags the UID for resetting of account state in simulator.
+        Flags the UID as marked for balance reset.
         """
-        self.sharpe_values[uid] = {
-            'books' : {
-                bookId : 0.0 for bookId in range(self.simulation.book_count)
-            },
-            'total' : 0.0,
-            'average' : 0.0,
-            'median' : 0.0,
-            'normalized_average' : 0.0,
-            'normalized_total' : 0.0,
-            'normalized_median' : 0.0
-        }
-        self.activity_factors[uid] = {bookId : 0.0 for bookId in range(self.simulation.book_count)}
-        self.unnormalized_scores[uid] = 0.0
-        self.inventory_history[uid] = {}
         self.deregistered_uids.append(uid)
-        self.trade_volumes[uid] = {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)}
-        self.initial_balances[uid] = {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : None} for bookId in range(self.simulation.book_count)}
+        self.scores[uid] = 0.0
         bt.logging.debug(f"UID {uid} Deregistered - Scheduled for reset.")
+
+    def process_resets(self, state : MarketSimulationStateUpdate) -> None:
+        """
+        Checks for and handles agent reset notices (due to deregistration).
+        Zeroes scores and clears relevant internal variables.
+        """        
+        for notice in state.notices[self.uid]:
+            if notice.type in ["RESPONSE_DISTRIBUTED_RESET_AGENT", "RDRA"] or notice.type in ["ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT", "ERDRA"]:
+                for reset in notice.resets:
+                    if reset.success:
+                        bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")
+                        if reset.agentId in self.deregistered_uids:            
+                            self.sharpe_values[reset.agentId] = {
+                                'books' : {
+                                    bookId : 0.0 for bookId in range(self.simulation.book_count)
+                                },
+                                'total' : 0.0,
+                                'average' : 0.0,
+                                'median' : 0.0,
+                                'normalized_average' : 0.0,
+                                'normalized_total' : 0.0,
+                                'normalized_median' : 0.0
+                            }
+                            self.unnormalized_scores[reset.agentId] = 0.0
+                            self.activity_factors[reset.agentId] = {bookId : 0.0 for bookId in range(self.simulation.book_count)}
+                            self.inventory_history[reset.agentId] = {}
+                            self.trade_volumes[reset.agentId] = {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)}
+                            self.initial_balances[reset.agentId] = {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : None} for bookId in range(self.simulation.book_count)}
+                            self.initial_balances_published[reset.agentId] = False
+                            self.deregistered_uids.remove(reset.agentId)
+                            self.miner_stats[reset.agentId] = {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []}
+                    else:
+                        self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")        
 
     def report(self) -> None:
         """
@@ -516,7 +570,7 @@ class Validator(BaseValidatorNeuron):
         The route method which receives and processes simulation state updates received from the simulator.
         """
         # Every 1H of simulation time, check if there are any changes to the validator - if updates exist, pull them and restart.
-        if self.simulation_timestamp % 3600_000_000_000 == 0:
+        if self.simulation_timestamp % 3600_000_000_000 == 0 and self.simulation_timestamp != 0:
             bt.logging.info("Checking for validator updates...")
             self.update_repo()
         bt.logging.debug("Received state update from simulator")
@@ -545,6 +599,9 @@ class Validator(BaseValidatorNeuron):
             state.config = self.simulation.model_copy()
             state.config.logDir = None
         self.step += 1
+        
+        if self.simulation_timestamp % self.simulation.log_window == self.simulation.publish_interval:
+            self.compress_outputs()
 
         # Log received state data
         bt.logging.info(f"STATE UPDATE RECEIVED | VALIDATOR STEP : {self.step} | TIMESTAMP : {state.timestamp}")
@@ -560,26 +617,19 @@ class Validator(BaseValidatorNeuron):
             bt.logging.debug("\n" + debug_text.strip("\n"))
 
         # Process deregistration notices
-        for notice in state.notices[self.uid]:
-            if notice.type in ["RESPONSE_DISTRIBUTED_RESET_AGENT", "RDRA"] or notice.type in ["ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT", "ERDRA"]:
-                for reset in notice.resets:
-                    if reset.success:
-                        bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")
-                        if reset.agentId in self.deregistered_uids:
-                            self.deregistered_uids.remove(reset.agentId)
-                    else:
-                        self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
+        self.process_resets(state)
 
         # Await reporting and state saving to complete before proceeding with next step
-        while self.reporting or self.saving or self.rewarding:
-            bt.logging.info(f"Waiting for {'reporting' if self.reporting else ''}{', ' if self.reporting and self.saving else ''}{'state saving' if self.saving else ''}{', ' if (self.reporting or self.saving) and self.rewarding else ''}{'rewarding' if self.rewarding else ''} to complete...")
-            time.sleep(1)
+        while self.reporting or self.saving or self.rewarding or self.maintaining:
+            bt.logging.info(f"Waiting for {'reporting' if self.reporting else ''}{', ' if self.reporting and self.saving else ''}{'state saving' if self.saving else ''}{', ' if (self.reporting or self.saving) and self.rewarding else ''}{'rewarding' if self.rewarding else ''}{', ' if (self.reporting or self.saving or self.rewarding) and self.maintaining else ''}{'maintaining' if self.maintaining else ''} to complete...")
+            time.sleep(0.5)
 
         # Calculate latest rewards and update miner scores
+        self.maintain()
         self.reward(state)
         # Forward state synapse to miners, populate response data to simulator object and serialize for returning to simulator.
         response = SimulatorResponseBatch(await forward(self, state)).serialize()
-
+        
         # Log response data, start state serialization and reporting threads, and return miner instructions to the simulator
         if len(response['responses']) > 0:
             bt.logging.trace(f"RESPONSE : {response}")
@@ -589,7 +639,7 @@ class Validator(BaseValidatorNeuron):
         self.save_state()
         self.report()
         for notice in state.notices[0]:
-            if notice.type == 'EVENT_SIMULATION_END':
+            if notice.type in ['EVENT_SIMULATION_END', 'ESE']:
                 self.onEnd()
         bt.logging.info(f"State update processed ({time.time()-global_start}s)")
         return response
@@ -629,8 +679,6 @@ if __name__ == "__main__":
     app = FastAPI()
     validator = Validator()
     app.include_router(validator.router)
-    # Start validator maintenance loop in new thread
-    Thread(target=validator.maintain, daemon=True, name='Sync').start()
     # Start simulator price seeding data process in new thread
     Thread(target=validator.seed, daemon=True, name='Seed').start()
     # Run the validator as a FastAPI client via uvicorn on the configured port

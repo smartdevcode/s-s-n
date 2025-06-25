@@ -19,7 +19,8 @@ class Simulation;
 class BookProcessLogger : public CheckpointSerializable
 {
 public:
-    BookProcessLogger(const fs::path& filepath, const std::vector<double>& X0s);
+    BookProcessLogger(
+        const fs::path& filepath, std::span<const double> X0s, Simulation* simulation);
 
     [[nodiscard]] const fs::path& filepath() const noexcept { return m_filepath; }
 

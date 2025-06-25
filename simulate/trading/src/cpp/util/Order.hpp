@@ -58,7 +58,8 @@ enum class OrderErrorCode : uint32_t
     CONTRACT_VIOLATION,
     INVALID_LEVERAGE,
     INVALID_VOLUME,
-    INVALID_PRICE
+    INVALID_PRICE,
+    EXCEEDING_MAX_ORDERS
 };
 
 [[nodiscard]] constexpr std::string_view OrderErrorCode2StrView(OrderErrorCode ec) noexcept
