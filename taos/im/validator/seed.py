@@ -42,7 +42,7 @@ def seed(self) -> None:
                     case self.config.simulation.seeding.fundamental.symbol.coinbase:
                         record_seed(trade)
                     case self.config.simulation.seeding.external.symbol.coinbase:
-                        if self.next_external_sampling_time and self.next_external_sampling_time and trade['received'] <= self.next_external_sampling_time:
+                        if self.next_external_sampling_time and trade['received'] <= self.next_external_sampling_time:
                             self.next_sampled_external = trade
                         record_external(trade)
 
@@ -57,8 +57,8 @@ def seed(self) -> None:
                 try:
                     seed = trade['price']
                     if not self.last_seed or self.last_seed['price'] != seed:
-                        self.seed_count += 1
                         if not self.simulation.logDir:
+                            self.seed_count += 1
                             self.pending_seed_data += f"{self.seed_count},{seed}\n"
                         else:
                             if self.seed_filename != os.path.join(self.simulation.logDir,"fundamental_seed.csv"):
@@ -70,11 +70,11 @@ def seed(self) -> None:
                                 if os.path.exists(self.seed_filename) and os.stat(self.seed_filename).st_size > 0:
                                     with open(self.seed_filename) as f:
                                         for line in f:
-                                            pass
-                                        self.seed_count = self.seed_count + int(line.split(',')[0])
+                                            self.seed_count += 1
                                 self.seed_file = open(self.seed_filename,'a')
                                 self.seed_file.write(self.pending_seed_data)
                                 self.pending_seed_data = ''
+                            self.seed_count += 1
                             self.seed_file.write(f"{self.seed_count},{seed}\n")
                             self.seed_file.flush()
                             self.last_seed = trade
@@ -84,8 +84,8 @@ def seed(self) -> None:
             def record_external(trade : dict) -> None:
                 try:
                     if not self.last_external or self.last_external != trade:
-                        self.external_count += 1
                         if not self.simulation.logDir:
+                            self.external_count += 1
                             self.pending_external_data += f"{self.external_count},{trade['price']},{trade['time']}\n"
                         else:
                             if self.external_filename != os.path.join(self.simulation.logDir,"external_seed.csv"):
@@ -97,8 +97,7 @@ def seed(self) -> None:
                                 if os.path.exists(self.external_filename) and os.stat(self.external_filename).st_size > 0:
                                     with open(self.external_filename) as f:
                                         for line in f:
-                                            pass
-                                        self.external_count = self.external_count + int(line.split(',')[0])
+                                            self.external_count += 1
                                 self.external_file = open(self.external_filename,'a')
                                 self.external_file.write(self.pending_external_data)
                                 self.pending_external_data = ''
@@ -107,9 +106,9 @@ def seed(self) -> None:
                                 if os.path.exists(self.sampled_external_filename) and os.stat(self.sampled_external_filename).st_size > 0:
                                     with open(self.sampled_external_filename) as f:
                                         for line in f:
-                                            pass
-                                        self.sampled_external_count = self.sampled_external_count + int(line.split(',')[0])
+                                            self.sampled_external_count += 1
                                 self.sampled_external_file = open(self.sampled_external_filename,'a')
+                            self.external_count += 1
                             self.external_file.write(f"{self.external_count},{trade['price']},{trade['time']}\n")
                             self.external_file.flush()
                             self.last_external = trade
@@ -145,6 +144,7 @@ def seed(self) -> None:
                             self.seed_client.close()
                         reconnect = True
                         self.last_seed = None
+                        self.seed_count = 0
                     self.last_seed_count = self.seed_count
                 if self.last_external:
                     self.external_file.flush()
@@ -154,20 +154,21 @@ def seed(self) -> None:
                             self.seed_client.close()
                         reconnect = True
                         self.last_external = None
+                        self.external_count = 0
                     sampling_period = self.config.simulation.seeding.external.sampling_seconds
                     current_time = time.time()
-                    if not self.next_external_sampling_time:
+                    if not self.next_external_sampling_time or not self.next_sampled_external:
                         seconds_since_start_of_day = current_time % 86400
                         start_of_day = current_time - seconds_since_start_of_day
                         self.next_external_sampling_time = start_of_day + seconds_since_start_of_day + (sampling_period - (seconds_since_start_of_day % sampling_period))
                     if current_time >= self.next_external_sampling_time and self.next_sampled_external:
+                        self.sampled_external_count += 1
                         self.next_sampled_external['received'] = self.next_external_sampling_time
                         self.sampled_external_file.write(f"{self.sampled_external_count},{self.next_sampled_external['price']}\n")
                         self.sampled_external_file.flush()
                         self.last_sampled_external = self.next_sampled_external
                         self.last_sampled_external['received'] = self.next_external_sampling_time
                         self.next_external_sampling_time = self.next_external_sampling_time + sampling_period
-                        self.sampled_external_count += 1
                 return not reconnect
 
             connect()
