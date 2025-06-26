@@ -107,42 +107,42 @@ def subscribe_coinbase_trades(
         last_sampled = trade
         on_sampled(trade)
 
-    def connect():
-        return connect_coinbase([symbol], _on_trade)
-
-    client = connect()
-
-    def check():
-        """
-        Validates stream activity and triggers sampling callback if needed.
-        """
-        global last_trade, last_sampled, next_external_sampling_time
-        if 'last_trade' in globals() and last_trade['received'] < time.time() - inactivity_threshold_secs:
-            bt.logging.warning(f"No new trades from Coinbase {symbol} stream in last {inactivity_threshold_secs} seconds!  Restarting connection.")
-            if client._is_websocket_open():
-                client.close()
-            return False
-
-        current_time = time.time()
-
-        if not 'next_external_sampling_time' in globals():
-            # Calculate the next sampling time aligned to the nearest interval.
-            seconds_since_start_of_day = current_time % 86400
-            start_of_day = current_time - seconds_since_start_of_day
-            next_external_sampling_time = start_of_day + seconds_since_start_of_day + (sampling_period - (seconds_since_start_of_day % sampling_period))
-
-        if current_time >= next_external_sampling_time:
-            if 'next_sampled' in globals():
-                sampled = next_sampled
-                sampled['received'] = next_external_sampling_time
-                next_external_sampling_time += sampling_period
-                _on_sampled(sampled)
-            else:
-                return True
-
-        return True
-
     def monitor_stream():
+        def check():
+            """
+            Validates stream activity and triggers sampling callback if needed.
+            """
+            global last_trade, last_sampled, next_external_sampling_time
+            if 'last_trade' in globals() and last_trade['received'] < time.time() - inactivity_threshold_secs:
+                bt.logging.warning(f"No new trades from Coinbase {symbol} stream in last {inactivity_threshold_secs} seconds!  Restarting connection.")
+                if client._is_websocket_open():
+                    client.close()
+                return False
+
+            current_time = time.time()
+
+            if not 'next_external_sampling_time' in globals() or not 'next_sampled' in globals():
+                # Calculate the next sampling time aligned to the nearest interval.
+                seconds_since_start_of_day = current_time % 86400
+                start_of_day = current_time - seconds_since_start_of_day
+                next_external_sampling_time = start_of_day + seconds_since_start_of_day + (sampling_period - (seconds_since_start_of_day % sampling_period))
+
+            if current_time >= next_external_sampling_time:
+                if 'next_sampled' in globals():
+                    sampled = next_sampled
+                    sampled['received'] = next_external_sampling_time
+                    next_external_sampling_time += sampling_period
+                    _on_sampled(sampled)
+                else:
+                    return True
+
+            return True
+
+        def connect():
+            global client
+            client = connect_coinbase([symbol], _on_trade)
+
+        connect()
         # Continuously monitor the stream in a background thread.
         while True:
             try:

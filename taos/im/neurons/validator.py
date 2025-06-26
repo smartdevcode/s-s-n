@@ -149,7 +149,7 @@ class Validator(BaseValidatorNeuron):
                         for label, log_files in log_archives.items():
                             archive = log_path / f"{label}.zip"
                             bt.logging.info(f"Compressing {label} files to {archive.name}...")
-                            with zipfile.ZipFile(archive, "w" if not archive.exists() else "a") as zipf:
+                            with zipfile.ZipFile(archive, "w" if not archive.exists() else "a", compression=zipfile.ZIP_DEFLATED) as zipf:
                                 for log_file in log_files:
                                     try:
                                         zipf.write(log_file, arcname=Path(log_file).name)
