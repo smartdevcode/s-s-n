@@ -127,6 +127,7 @@ def score_inventory_values(self : Validator, uid : int, inventory_values : Dict[
     Returns: 
         float: The new score value for the given UID.
     """
+    if len(inventory_values) < self.config.scoring.sharpe.lookback * 0.8: return 0.0
     sharpe_data = sharpe(self, uid, inventory_values)
     sharpes = sharpe_data['books']
     normalized_sharpes = {book_id : normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, sharpe) for book_id, sharpe in sharpes.items()}
