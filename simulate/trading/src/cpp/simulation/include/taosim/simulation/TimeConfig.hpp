@@ -86,6 +86,21 @@ inline constexpr std::array<TimestampConversionFn, kTimescaleCount> timescaleCon
     return timescaleConverter[std::to_underlying(ts)];
 }
 
+inline constexpr Timestamp kLogWindowMin =
+    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1)).count();
+
+inline constexpr Timestamp kLogWindowMax =
+    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::days(99)).count();
+
+[[nodiscard]] std::string logFormatTime(auto t)
+{
+    const auto days = std::chrono::duration_cast<std::chrono::days>(t);
+    const std::chrono::hh_mm_ss rem{t - days};
+    return fmt::format(
+        "{:02}{:02}{:02}{:02}",
+        days.count(), rem.hours().count(), rem.minutes().count(), rem.seconds().count());
+}
+
 //-------------------------------------------------------------------------
 
 struct TimeConfig

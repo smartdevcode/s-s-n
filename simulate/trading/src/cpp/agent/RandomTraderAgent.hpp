@@ -6,7 +6,6 @@
 
 #include "Agent.hpp"
 #include "GBMValuationModel.hpp"
-#include "LimitedDeque.hpp"
 #include "Order.hpp"
 
 #include <cmath>

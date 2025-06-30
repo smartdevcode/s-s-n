@@ -6,9 +6,9 @@
 
 #include "Agent.hpp"
 #include "GBMValuationModel.hpp"
-#include "LimitedDeque.hpp"
 #include "Order.hpp"
 
+#include <boost/circular_buffer.hpp>
 #include <boost/random/beta_distribution.hpp>
 #include <boost/math/distributions/rayleigh.hpp>
 
@@ -71,8 +71,8 @@ private:
 
     DelayBounds m_opl;
     std::vector<bool> m_orderFlag;
-    std::vector<LimitedDeque<double>> m_priceHist;
-    std::vector<LimitedDeque<double>> m_logReturns;
+    std::vector<boost::circular_buffer<double>> m_priceHist;
+    std::vector<boost::circular_buffer<double>> m_logReturns;
     
     bool m_debug;
 

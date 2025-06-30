@@ -47,6 +47,8 @@ void SimulationManager::runSimulations()
     }
 
     latch.wait();
+
+    publishEndInfo();
 }
 
 //-------------------------------------------------------------------------
@@ -64,6 +66,43 @@ void SimulationManager::publishStartInfo()
             "*",
             "EVENT_SIMULATION_START",
             MessagePayload::create<StartSimulationPayload>(m_logDir.generic_string()));
+        rapidjson::Document json{rapidjson::kObjectType};
+        auto& allocator = json.GetAllocator();
+        json.AddMember(
+            "messages",
+            [&] {
+                rapidjson::Document messagesJson{rapidjson::kArrayType, &allocator};
+                rapidjson::Document msgJson{&allocator};
+                msg->jsonSerialize(msgJson);
+                messagesJson.PushBack(msgJson, allocator);
+                return messagesJson;
+            }().Move(),
+            allocator);
+        return json;
+    }();
+    rapidjson::Document res;
+
+    net::io_context ctx;
+    net::co_spawn(
+        ctx, asyncSendOverNetwork(json, m_netInfo.generalMsgEndpoint, res), net::detached);
+    ctx.run();
+}
+
+//-------------------------------------------------------------------------
+
+void SimulationManager::publishEndInfo()
+{
+    if (!online()) return;
+
+    rapidjson::Document json = [this] {
+        const auto& representativeSimulation = m_simulations.front();
+        const auto msg = Message::create(
+            representativeSimulation->time().start,
+            0,
+            "SIMULATION",
+            "*",
+            "EVENT_SIMULATION_END",
+            MessagePayload::create<EmptyPayload>());
         rapidjson::Document json{rapidjson::kObjectType};
         auto& allocator = json.GetAllocator();
         json.AddMember(

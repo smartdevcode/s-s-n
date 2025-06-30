@@ -40,6 +40,7 @@ class SimulationManager
 public:
     void runSimulations();
     void publishStartInfo();
+    void publishEndInfo();
     void publishState();
 
     [[nodiscard]] rapidjson::Document makeStateJson() const;

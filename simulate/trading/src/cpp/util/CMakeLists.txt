@@ -2,7 +2,6 @@ add_library(util STATIC
     Cancellation.cpp
     EventRecord.cpp
     GBMValuationModel.hpp
-    LimitedDeque.hpp
     Order.cpp
     OrderContainer.hpp
     OrderFactory.cpp

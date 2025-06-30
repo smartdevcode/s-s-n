@@ -8,12 +8,13 @@
 #include "MessagePayload.hpp"
 #include "Agent.hpp"
 #include "GBMValuationModel.hpp"
-#include "LimitedDeque.hpp"
 #include "Order.hpp"
 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/variance.hpp>
+#include <boost/circular_buffer.hpp>
 #include <boost/math/distributions/rayleigh.hpp>
+
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -21,8 +22,7 @@
 #include <numeric>
 #include <random>
 
-
-namespace ba = boost::accumulators;
+//-------------------------------------------------------------------------
 
 class HighFrequencyTraderAgent : public Agent
 {
@@ -121,11 +121,12 @@ private:
     std::vector<double> m_deltaHFT;
     std::vector<Timestamp> m_tauHFT;
 
-    std::vector<LimitedDeque<double>> m_priceHist;
-    std::vector<LimitedDeque<double>> m_logReturns;
+    std::vector<boost::circular_buffer<double>> m_priceHist;
+    std::vector<boost::circular_buffer<double>> m_logReturns;
     std::vector<TimestampedTradePrice> m_tradePrice;
     boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
     boost::math::rayleigh_distribution<double> m_rayleighSample;
     std::uniform_real_distribution<double> m_placementDraw;
-
 };
+
+//-------------------------------------------------------------------------

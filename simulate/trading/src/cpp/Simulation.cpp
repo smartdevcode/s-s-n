@@ -185,7 +185,20 @@ void Simulation::configure(const pugi::xml_node& node)
         m_debug = true;
     }
 
-    m_logWindow = node.attribute("logWindow").as_ullong();
+    m_logWindow = [&] -> Timestamp {
+        static constexpr const char* attrName = "logWindow";
+        const auto logWindow = node.attribute(attrName).as_ullong();
+        using namespace taosim::simulation;
+        if (!(logWindow == 0ul || kLogWindowMin <= logWindow && logWindow <= kLogWindowMax)) {
+            throw std::runtime_error{fmt::format(
+                "{}: '{}' must be either empty (or 0), or in [{}, {}], was {}",
+                std::source_location::current().function_name(),
+                attrName,
+                kLogWindowMin, kLogWindowMax,
+                node.attribute(attrName).as_string())};
+        }
+        return logWindow;
+    }();
 
     // NOTE: Ordering important!
     configureLogging(node);

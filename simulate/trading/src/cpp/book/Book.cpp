@@ -194,7 +194,7 @@ bool Book::cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volu
         if (levelIt->empty()) {
             orderSideLevels.erase(levelIt);
         }
-        m_orderIdMap.erase(orderId);
+        unregisterLimitOrder(order);
     }
     else {
         order->removeVolume(volumeToCancelActual);

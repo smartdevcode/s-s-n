@@ -46,7 +46,7 @@ public:
 
     OrderPlacementValidator(const Parameters& params, MultiBookExchangeAgent* exchange) noexcept;
 
-    [[nodiscard]] auto& parameters(this auto&& self) noexcept { return self.m_params; }
+    [[nodiscard]] auto&& parameters(this auto&& self) noexcept { return self.m_params; }
 
     [[nodiscard]] ExpectedResult validateMarketOrderPlacement(
         const accounting::Account& account,

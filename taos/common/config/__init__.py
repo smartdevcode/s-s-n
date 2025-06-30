@@ -241,7 +241,7 @@ def add_validator_args(cls, parser):
         "--neuron.moving_average_alpha",
         type=float,
         help="Moving average alpha parameter, how much to add of the new observation.",
-        default=0.03278689,
+        default=0.0165289,
     )
 
     parser.add_argument(

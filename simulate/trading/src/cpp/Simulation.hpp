@@ -106,7 +106,7 @@ public:
     [[nodiscard]] const std::unique_ptr<LocalAgentManager>& localAgentManager() const noexcept { return m_localAgentManager; }
     [[nodiscard]] const auto& time() const noexcept { return m_time; }
     [[nodiscard]] uint32_t blockIdx() const noexcept { return m_blockIdx; }
-    [[nodiscard]] Timestamp logWindow() const noexcept { return m_logWindow; }
+    [[nodiscard]] auto&& logWindow(this auto&& self) noexcept { return self.m_logWindow; }
     
     virtual const fs::path& logDir() const noexcept override { return m_logDir; }
     virtual void receiveMessage(Message::Ptr msg) override;

@@ -134,9 +134,8 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
             "{}: attribute 'tauHist' should have a value greater than 0", ctx));
     }
     m_tauHist = attr.as_ullong();
-    m_historySize = std::min(std::max(
-        50ul, static_cast<Timestamp>(std::ceil(m_tauHist * (1.0 + m_weight.F) / (1.0 + m_weight.C)))),500ul);
-
+    m_historySize = std::clamp(
+        static_cast<Timestamp>(std::ceil(m_tauHist * (1.0 + m_weight.F) / (1.0 + m_weight.C))), 50ul, 500ul);
   
     attr = node.attribute("GBM_X0");
     const double gbmX0 = (attr.empty() || attr.as_double() <= 0.0f) ?  0.001 : attr.as_double();
@@ -145,7 +144,7 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     attr = node.attribute("GBM_sigma");
     const double gbmSigma = (attr.empty() || attr.as_double() < 0.0f) ? 0.01 : attr.as_double();
     attr = node.attribute("GBM_seed");
-    const uint64_t gbmSeed = attr.empty() ? 10000 : attr.as_ullong(); 
+    const uint64_t gbmSeed = attr.as_ullong(10000); 
 
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
         m_topLevel.push_back(TopLevel{});
@@ -168,14 +167,14 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
             return logReturns;
         }());
         m_priceHistExternal.push_back([&] {
-            decltype(m_priceHist)::value_type hist{m_historySize};
+            decltype(m_priceHistExternal)::value_type hist{m_historySize};
             for (uint32_t i = 0; i < m_historySize; ++i) {
                 hist.push_back(m_price0 * (1.0 + Xt[i]));
             }
             return hist;
         }());
         m_logReturnsExternal.push_back([&] {
-            decltype(m_logReturns)::value_type logReturns{m_historySize};
+            decltype(m_logReturnsExternal)::value_type logReturns{m_historySize};
             const auto& priceHist = m_priceHist.at(bookId);
             logReturns.push_back(Xt[0]);
             for (uint32_t i = 1; i < priceHist.capacity(); ++i) {

@@ -116,7 +116,7 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     attr = node.attribute("GBM_seed");
     const uint64_t gbmSeed = attr.empty() ? 10000 : attr.as_ullong(); 
     attr = node.attribute("historySize"); 
-    Timestamp historySize =  (attr.empty() || attr.as_ullong() == 0) ? 200 : attr.as_ullong();
+    const Timestamp historySize = attr.as_ullong(200);
 
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
         GBMValuationModel gbmPrice{gbmX0, gbmMu, gbmSigma, gbmSeed * (bookId + 1)}; //#

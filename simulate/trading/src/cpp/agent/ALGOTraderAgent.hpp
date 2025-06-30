@@ -9,6 +9,7 @@
 #include "Order.hpp"
 #include "Trade.hpp"
 #include "decimal.hpp"
+
 #include <boost/math/distributions/rayleigh.hpp>
 
 #include <memory>
@@ -114,15 +115,12 @@ private:
     std::unique_ptr<stats::Distribution> m_volumeDistribution;
     std::vector<ALGOTraderState> m_state;
     Timestamp m_period;
-
     double m_opLatencyScaleRay;
     DelayBounds m_opl;
     std::normal_distribution<double> m_marketFeedLatencyDistribution;
     boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
     std::uniform_real_distribution<double> m_placementDraw;
     decimal_t m_lastPrice;
-
-
 };
 
 //-------------------------------------------------------------------------

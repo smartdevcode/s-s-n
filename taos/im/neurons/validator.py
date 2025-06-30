@@ -47,6 +47,7 @@ from git import Repo
 from pathlib import Path
 
 from taos.common.neurons.validator import BaseValidatorNeuron
+from taos.im.utils import duration_from_timestamp
 
 from taos.im.config import add_im_validator_args
 from taos.im.protocol.simulator import SimulatorResponseBatch
@@ -113,7 +114,10 @@ class Validator(BaseValidatorNeuron):
                     remote.pull()
                     update_validator(self)
             else:
-                remote.pull()
+                try:
+                    remote.pull()
+                except Exception as ex:
+                    self.pagerduty_alert(f"Failed to pull changes from repo on simulation end : {ex}")
                 if simulator_cpp_files_changed or simulator_py_files_changed:
                     bt.logging.warning("SIMULATOR SOURCE CHANGED")
                     rebuild_simulator(self)
@@ -139,7 +143,10 @@ class Validator(BaseValidatorNeuron):
                         for log_file in log_path.iterdir():
                             if log_file.is_file() and log_file.suffix == '.log':
                                 log_period = log_file.name.split('.')[1]
-                                log_end = (int(log_period.split('-')[1][:2]) * 3600 + int(log_period.split('-')[1][2:4]) * 60 + int(log_period.split('-')[1][5:])) * 1_000_000_000
+                                if len(log_period) == 13:
+                                    log_end = (int(log_period.split('-')[1][:2]) * 3600 + int(log_period.split('-')[1][2:4]) * 60 + int(log_period.split('-')[1][4:])) * 1_000_000_000
+                                else:
+                                    log_end = (int(log_period.split('-')[1][:2]) * 86400 + int(log_period.split('-')[1][2:4]) * 3600 + int(log_period.split('-')[1][4:6]) * 60 + int(log_period.split('-')[1][6:])) * 1_000_000_000
                                 if log_end < self.simulation_timestamp or (start and str(output_dir.resolve()) != self.simulation.logDir):
                                     log_type = log_file.name.split('-')[0]
                                     label = f"{log_type}_{log_period}"
@@ -577,13 +584,9 @@ class Validator(BaseValidatorNeuron):
         global_start = time.time()
         start = time.time()
         body = await request.body()
-        bt.logging.debug(f"Request body retrieved ({time.time()-start:.4f}s).")
-        start = time.time()
         message = msgspec.json.decode(body)
-        bt.logging.debug(f"Request body decoded ({time.time()-start:.4f}s).")
-        start = time.time()
         state = MarketSimulationStateUpdate.from_json(message) # Populate synapse class from request data
-        bt.logging.debug(f"Synapse populated ({time.time()-start:.4f}s).")
+        bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")
         
         # Update variables
         if not self.start_time:
@@ -604,7 +607,7 @@ class Validator(BaseValidatorNeuron):
             self.compress_outputs()
 
         # Log received state data
-        bt.logging.info(f"STATE UPDATE RECEIVED | VALIDATOR STEP : {self.step} | TIMESTAMP : {state.timestamp}")
+        bt.logging.info(f"STATE UPDATE RECEIVED | VALIDATOR STEP : {self.step} | TIME : {duration_from_timestamp(state.timestamp)} (T={state.timestamp})")
         if self.config.logging.debug or self.config.logging.trace:
             debug_text = ''
             for bookId, book in state.books.items():
@@ -638,9 +641,6 @@ class Validator(BaseValidatorNeuron):
         self.last_state_time = time.time()
         self.save_state()
         self.report()
-        for notice in state.notices[0]:
-            if notice.type in ['EVENT_SIMULATION_END', 'ESE']:
-                self.onEnd()
         bt.logging.info(f"State update processed ({time.time()-global_start}s)")
         return response
 

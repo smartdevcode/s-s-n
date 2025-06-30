@@ -86,11 +86,7 @@ void FuturesTraderAgent::configure(const pugi::xml_node& node)
     
     m_orderFlag = std::vector<bool>(m_bookCount, false);
 
-    if (attr = node.attribute("tauHist"); attr.empty() || attr.as_ullong() == 0) {
-        m_historySize = 200;
-    } else {
-        m_historySize = attr.as_ullong();
-    }
+    m_historySize = node.attribute("tauHist").as_ullong(200);
 
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
         m_priceHist.push_back([&] {
@@ -100,7 +96,6 @@ void FuturesTraderAgent::configure(const pugi::xml_node& node)
             }
             return hist;
         }());
-
         m_logReturns.push_back([&] {
             decltype(m_logReturns)::value_type logReturns{m_historySize};
             for (uint32_t i = 0; i < m_historySize; ++i) {

@@ -28,7 +28,7 @@ public:
         uint32_t depth,
         std::chrono::system_clock::time_point startTimePoint,
         BookSignals& signals,
-        const Simulation* simulation) noexcept;
+        Simulation* simulation) noexcept;
 
     [[nodiscard]] const fs::path& filepath() const noexcept { return m_filepath; }
 
@@ -40,7 +40,7 @@ private:
     void log(const Book* book);
     void updateSink();
 
-    [[nodiscard]] std::unique_ptr<spdlog::sinks::basic_file_sink_st> makeFileSink() const;
+    [[nodiscard]] std::unique_ptr<spdlog::sinks::basic_file_sink_st> makeFileSink();
     [[nodiscard]] std::string createEntryAS(const Book* book) const noexcept;
 
     std::unique_ptr<spdlog::logger> m_logger;
@@ -49,9 +49,10 @@ private:
     boost::signals2::scoped_connection m_feed;
     uint32_t m_depth;
     std::string m_lastLog;
-    const Simulation* m_simulation;
+    Simulation* m_simulation;
     taosim::simulation::TimestampConversionFn m_timeConverter{};
     Timestamp m_currentWindowBegin{};
+    fs::path m_currentFilepath;
 };
 
 //-------------------------------------------------------------------------

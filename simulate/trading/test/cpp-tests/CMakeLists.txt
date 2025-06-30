@@ -11,7 +11,6 @@ add_subdirectory(message)
 
 add_executable(taosim-tests
     ${test_sources}
-    LimitedDequeTests.cpp
     SubscriptionRegistryTests.cpp
     UtilTests.cpp
     SelfTradePreventionTests.cpp
