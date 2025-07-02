@@ -496,8 +496,8 @@ class Cancellation(BaseModel):
     - quantity: Quantity which was cancelled (None if the entire order was cancelled).
     """
     i: int = Field(alias="orderId")
-    t: int = Field(alias='timestamp')
-    p: float = Field(alias="price")
+    t: int | None = Field(alias='timestamp', default=None)
+    p: float | None = Field(alias="price", default=None)
     q: float | None = Field(alias="quantity")
     
     @property
@@ -522,6 +522,39 @@ class Cancellation(BaseModel):
         Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
         """
         return Cancellation(orderId=event['orderId'], timestamp=event['timestamp'], price=event['price'], quantity=event['volume'])
+    
+class L2Snapshot(BaseModel):
+    timestamp : int
+    bids : dict[float, LevelInfo]
+    asks : dict[float, LevelInfo]
+    
+    def best_bid(self):
+        return max(self.bids.keys())
+    
+    def best_ask(self):
+        return min(self.asks.keys())
+    
+    def bid_level(self, index):
+        return self.bids[list(sorted(self.bids.values(), reverse=True))[index]]
+    
+    def ask_level(self, index):
+        return self.asks[list(sorted(self.asks.values()))[index]]
+    
+    def compare(self, target):
+        discrepancies = []
+        for price, bid in self.bids.items():
+            if price in target.bids:
+                if bid.quantity != target.bids[price].quantity:
+                    discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET {target.bids[price].quantity}@{price}")
+            else:
+                discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET 0.0@{price}")
+        for price, ask in self.asks.items():
+            if price in target.asks:
+                if ask.quantity != target.asks[price].quantity:
+                    discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET {target.asks[price].quantity}@{price}")
+            else:
+                discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET 0.0@{price}")
+        return len(discrepancies) == 0, discrepancies
 
 class Book(BaseModel):
     """
@@ -573,6 +606,57 @@ class Book(BaseModel):
                         (Cancellation.from_event(event) if event['event'] == 'cancel' else
                             None) for event in json['record']]
         return Book(id=id,bids=bids,asks=asks,events=events)
+    
+    def snapshot(self, timestamp):
+        return L2Snapshot(
+            timestamp=timestamp,
+            bids={l.price : l for l in self.bids},
+            asks={l.price : l for l in self.asks}
+        )
+    
+    def l2_history(self, snapshot : L2Snapshot, config : MarketSimulationConfig):
+        history = {snapshot.timestamp : snapshot}
+        for event in sorted(self.events, key=lambda x: x.timestamp):
+            match event:
+                case o if isinstance(event, Order):
+                    if o.side == OrderDirection.BUY:
+                        if not o.price in snapshot.bids:
+                            snapshot.bids[o.price] = LevelInfo(price=o.price, quantity=0.0, orders=None)
+                        snapshot.bids[o.price].q = round(snapshot.bids[o.price].q + o.quantity, config.volumeDecimals)
+                    else:
+                        if not o.price in snapshot.asks:
+                            snapshot.asks[o.price] = LevelInfo(price=o.price, quantity=0.0, orders=None)
+                        snapshot.asks[o.price].q = round(snapshot.asks[o.price].q + o.quantity, config.volumeDecimals)
+                case t if isinstance(event, TradeInfo):
+                    if t.side == OrderDirection.BUY:
+                        if t.price in snapshot.asks:
+                            snapshot.asks[t.price].q = round(snapshot.asks[t.price].q - t.quantity, config.volumeDecimals)
+                            if snapshot.asks[t.price].quantity == 0.0:
+                                del snapshot.asks[t.price]
+                    else:
+                        if t.price in snapshot.bids:
+                            snapshot.bids[t.price].q = round(snapshot.bids[t.price].q - t.quantity, config.volumeDecimals)
+                            if snapshot.bids[t.price].quantity == 0.0:
+                                del snapshot.bids[t.price]
+                case c if isinstance(event, Cancellation):
+                    if c.price >= snapshot.best_ask():
+                        if c.price in snapshot.asks:
+                            snapshot.asks[c.price].q = round(snapshot.asks[c.price].q - c.quantity, config.volumeDecimals)
+                            if snapshot.asks[c.price].quantity == 0.0:
+                                del snapshot.asks[c.price]
+                    else:
+                        if c.price in snapshot.bids:
+                            snapshot.bids[c.price].q = round(snapshot.bids[c.price].q - c.quantity, config.volumeDecimals)
+                            if snapshot.bids[c.price].quantity == 0.0:
+                                del snapshot.bids[c.price]
+            history[event.timestamp] = snapshot
+        snapshot.bids = dict(list(sorted(snapshot.bids.items(), reverse=True))[:len(target_snapshot.bids)])
+        snapshot.asks = dict(list(sorted(snapshot.asks.items()))[:len(target_snapshot.asks)])
+        target_snapshot = self.snapshot(snapshot.timestamp + config.publish_interval)
+        matched, discrepancies = snapshot.compare(target_snapshot)
+        return history, matched, discrepancies
+                        
+                    
 
 class Balance(BaseModel):
     """
