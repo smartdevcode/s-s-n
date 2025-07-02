@@ -118,6 +118,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         self.books = {}
         self.accounts = {}
         self.notices = {}
+        self.config = None
         return self
 
     def compress(self, level=-1, engine : Literal["zlib", "lz4"] | None = None):

@@ -7,9 +7,9 @@
             maxLeverage="4" maxLoan="10000" maintenanceMargin="0.10" maxOpenOrders="100"
             initialPrice="300.0">
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
-                <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0"/>
+                <Tier volumeRequired="0" makerFee="0.0" takerFee="0.00023"/>
             </FeePolicy>
-            <Books instanceCount="4" algorithm="PriceTime" maxDepth="5">
+            <Books instanceCount="5" algorithm="PriceTime" maxDepth="5">
                 <Processes updatePeriod="10000000000">
                     <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.014"
                         lambda="0.0020" muJump="0.0" sigmaJump="0.00335"/>
@@ -71,19 +71,19 @@
             instanceCount="10"
             exchange="EXCHANGE"
             debug="0"
-            minMFLatency="50000000"
+            minMFLatency="10000000"
             minOPLatency="1000000"
             maxOPLatency="50000000"
             opLatencyScaleRay="0.235"
             tau="3"
-            delta="5000000000"
-            psiHFT_constant="100"
+            delta="500000000"
+            psiHFT_constant="200"
             gHFT="0.2"
             kappa="20"
             spread="0.8"
             orderMean="1.6"
             noiseRay="0.23"
-            shiftPercentage="0.04">
+            shiftPercentage="0.02">
             <Balances>
                 <Base total="500" maxLeverage="1" maxLoan="10000" />
                 <Quote total="150000.0" maxLeverage="1" maxLoan="10000" />
@@ -104,6 +104,7 @@
 			scaleR="0.2"
 			sigmaN="0.7"
 			volume="8.0"
+			orderTypeProb="0.75"
             lambda="0.001155"
 			sigmaEps="0.5">
 			<Balances>
@@ -124,8 +125,8 @@
             minOPLatency="90000000"
             maxOPLatency="300000000"
             opLatencyScaleRay="0.235"
-            delayMean="10000000000"
-            delaySTD="2000000000"
+            delayMean="5000000000"
+            delaySTD="1000000000"
             scaleR="0.2"
             sigmaN="0.7"
             sigmaC="1.2"

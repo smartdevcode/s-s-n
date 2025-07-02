@@ -6,7 +6,11 @@
 #include "common.hpp"
 
 #include <CLI/CLI.hpp>
+#ifdef OVERRIDE_NEW_DELETE
+#include <mimalloc-new-delete.h>
+#endif
 #include <pybind11/embed.h>
+
 namespace py = pybind11;
 
 //-------------------------------------------------------------------------

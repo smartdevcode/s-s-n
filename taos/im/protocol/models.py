@@ -496,11 +496,21 @@ class Cancellation(BaseModel):
     - quantity: Quantity which was cancelled (None if the entire order was cancelled).
     """
     i: int = Field(alias="orderId")
+    t: int = Field(alias='timestamp')
+    p: float = Field(alias="price")
     q: float | None = Field(alias="quantity")
     
     @property
     def orderId(self) -> int:
         return self.i
+    
+    @property
+    def timestamp(self) -> int:
+        return self.t
+    
+    @property
+    def price(self) -> float:
+        return self.p
     
     @property
     def quantity(self) -> float | None:
@@ -511,7 +521,7 @@ class Cancellation(BaseModel):
         """
         Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Cancellation(orderId=event['orderId'],quantity=event['volume'])
+        return Cancellation(orderId=event['orderId'], timestamp=event['timestamp'], price=event['price'], quantity=event['volume'])
 
 class Book(BaseModel):
     """

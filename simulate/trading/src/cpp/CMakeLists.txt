@@ -38,6 +38,7 @@ target_include_directories(simulator
 
 target_link_libraries(simulator
     PUBLIC
+        mimalloc
         taosim::accounting
         taosim::agent
         taosim::book
@@ -76,6 +77,11 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
         taosim::simulator
         ${Python3_LIBRARIES}
+)
+
+target_compile_definitions(${PROJECT_NAME}
+    PRIVATE
+        $<$<BOOL:${OVERRIDE_NEW_DELETE}>:OVERRIDE_NEW_DELETE>
 )
 
 #-------------------------------------------------------------------------

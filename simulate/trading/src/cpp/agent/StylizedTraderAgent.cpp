@@ -125,7 +125,6 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     }
 
     m_price = m_priceF0;
-    m_priceExt = 300.0;
 
     m_orderFlag = std::vector<bool>(m_bookCount, false);
 
@@ -159,22 +158,6 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
         }());
         m_logReturns.push_back([&] {
             decltype(m_logReturns)::value_type logReturns{m_historySize};
-            const auto& priceHist = m_priceHist.at(bookId);
-            logReturns.push_back(Xt[0]);
-            for (uint32_t i = 1; i < priceHist.capacity(); ++i) {
-                logReturns.push_back(std::log(priceHist[i] / priceHist[i - 1]));
-            }
-            return logReturns;
-        }());
-        m_priceHistExternal.push_back([&] {
-            decltype(m_priceHistExternal)::value_type hist{m_historySize};
-            for (uint32_t i = 0; i < m_historySize; ++i) {
-                hist.push_back(m_price0 * (1.0 + Xt[i]));
-            }
-            return hist;
-        }());
-        m_logReturnsExternal.push_back([&] {
-            decltype(m_logReturnsExternal)::value_type logReturns{m_historySize};
             const auto& priceHist = m_priceHist.at(bookId);
             logReturns.push_back(Xt[0]);
             for (uint32_t i = 1; i < priceHist.capacity(); ++i) {
@@ -386,10 +369,6 @@ void StylizedTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
     m_logReturns.at(bookId).push_back(
                     std::log(lastPrice / m_priceHist.at(bookId).back()));
     m_priceHist.at(bookId).push_back(lastPrice);
-    m_priceExt = getProcessValue(bookId, "external");
-    m_logReturnsExternal.at(bookId).push_back(
-                    std::log(m_priceExt/m_priceHistExternal.at(bookId).back()));
-    m_priceHistExternal.at(bookId).push_back(m_priceExt);
 
     const double askVol = taosim::util::decimal2double(payload->askTotalVolume);
     const double bidVol = taosim::util::decimal2double(payload->bidTotalVolume);
@@ -522,18 +501,14 @@ void StylizedTraderAgent::handleTrade(Message::Ptr msg)
 StylizedTraderAgent::ForecastResult StylizedTraderAgent::forecast(BookId bookId)
 {
     const double pf = getProcessValue(bookId, "fundamental");
-    // const auto& logReturnsExternal = m_logReturnsExternal.at(bookId);
 
     const auto& logReturns = m_logReturns.at(bookId);
-
-    // const double compF = m_regimeState.at(bookId) == RegimeState::NORMAL ? 1.0 / m_tauF.at(bookId) * std::log(pf/ m_price) : 1.0 / m_tauF.at(bookId) * m_logReturnsExternal.at(bookId).back();
     const double compF =  1.0 / m_tauF.at(bookId) * std::log(pf/ m_price);
     const double compC = 1.0 / m_historySize * ranges::accumulate(logReturns, 0.0);
     const double compN = std::normal_distribution{0.0, m_sigmaEps}(*m_rng);
     const double tauFNormalizer = m_regimeState.at(bookId) == RegimeState::REGIME_A ?  m_tauF.at(bookId) / m_weightNormalizer *0.01 : 1;
-    // const double compExt = 1.0 /m_tau * ranges::accumulate(logReturnsExternal,0.0);
     const double logReturnForecast = m_weightNormalizer
-        * (m_weight.F * compF + m_weight.C * compC + m_weight.N * compN) * tauFNormalizer;// + compExt;
+        * (m_weight.F * compF + m_weight.C * compC + m_weight.N * compN) * tauFNormalizer;
    
     return {
         .price = m_price * std::exp(logReturnForecast),

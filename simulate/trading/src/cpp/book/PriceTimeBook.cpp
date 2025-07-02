@@ -41,9 +41,6 @@ taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, tao
             continue;
         }
 
-        auto roundedPrice = taosim::util::round(iop->price(), priceDecimals);
-        iop->setPrice(roundedPrice > 0_dec ? roundedPrice : taosim::util::pow(10_dec, -1_dec * priceDecimals));
-        iop->setLeverage(taosim::util::round(iop->leverage(), volumeDecimals));
         const taosim::decimal_t usedVolume = std::min(iop->totalVolume(), order->totalVolume());
         
         OrderClientContext aggCtx, restCtx;
@@ -116,9 +113,6 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
             continue;
         }
 
-        auto roundedPrice = taosim::util::round(iop->price(), priceDecimals);
-        iop->setPrice(roundedPrice > 0_dec ? roundedPrice : taosim::util::pow(10_dec, -1_dec * priceDecimals));
-        iop->setLeverage(taosim::util::round(iop->leverage(), volumeDecimals));
         const taosim::decimal_t usedVolume = std::min(iop->totalVolume(), order->totalVolume());
 
         OrderClientContext aggCtx, restCtx;

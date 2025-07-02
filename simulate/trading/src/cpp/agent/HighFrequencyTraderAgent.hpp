@@ -97,6 +97,7 @@ private:
     double m_noiseRay;
     double m_shiftPercentage;
     double m_orderMean;
+    double m_orderSTD;
 
     double m_pRes;
     double m_sigmaSqr;

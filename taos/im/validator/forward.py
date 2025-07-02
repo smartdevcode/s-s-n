@@ -171,9 +171,6 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     # Forward the simulation state update to all miners in the network
     bt.logging.info(f"Querying Miners...")
     start = time.time()
-    # if not self.dendrite._session:
-    #     await self.dendrite.session
-    #     self.dendrite._session._connector._limit = 256
         
     await DendriteManager.configure_session(self)
     

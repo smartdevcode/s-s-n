@@ -74,3 +74,22 @@ struct CancellationWithLogContext : public JsonSerializable
 };
 
 //-------------------------------------------------------------------------
+
+struct CancellationEvent : public JsonSerializable
+{
+    using Ptr = std::shared_ptr<CancellationEvent>;
+
+    Cancellation cancellation;
+    Timestamp timestamp;
+    taosim::decimal_t price;
+
+    CancellationEvent(
+        Cancellation cancellation, Timestamp timestamp, taosim::decimal_t price) noexcept
+        : cancellation{cancellation}, timestamp{timestamp}, price{price}
+    {}
+
+    virtual void jsonSerialize(
+        rapidjson::Document& json, const std::string& key = {}) const override;
+};
+
+//-------------------------------------------------------------------------

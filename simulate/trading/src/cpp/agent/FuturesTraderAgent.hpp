@@ -43,12 +43,16 @@ private:
     void handleRetrieveL1Response(Message::Ptr msg);
     void handleMarketOrderPlacementResponse(Message::Ptr msg);
     void handleMarketOrderPlacementErrorResponse(Message::Ptr msg);
+    void handleLimitOrderPlacementResponse(Message::Ptr msg);
+    void handleLimitOrderPlacementErrorResponse(Message::Ptr msg);
     void handleCancelOrdersResponse(Message::Ptr msg);
     void handleCancelOrdersErrorResponse(Message::Ptr msg);
     void handleTrade(Message::Ptr msg);
 
-    void placeOrder(BookId bookId);
+    void placeOrder(BookId bookId, double bestAsk, double bestBid);
+    void placeBid(BookId bookId,double volume, double price);
     void placeBuy(BookId bookId,double volume);
+    void placeAsk(BookId bookId, double volume, double price);
     void placeSell(BookId bookId, double volume);
     double getProcessValue(BookId bookId, const std::string& name);
     uint64_t getProcessCount(BookId bookId, const std::string& name);
@@ -68,6 +72,8 @@ private:
     std::vector<float> m_volumeFactor;
     std::vector<uint32_t> m_factorCounter;
     float m_lambda;
+    Timestamp m_tau;
+    float m_orderTypeProb;
 
     DelayBounds m_opl;
     std::vector<bool> m_orderFlag;

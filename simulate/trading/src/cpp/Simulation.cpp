@@ -289,10 +289,6 @@ void Simulation::saveCheckpoint()
             }
         });
 
-    // L3 record.
-    logDebug("Serializing L3Record...");
-    m_exchange->m_L3Record.checkpointSerialize(json, "L3Record");
-
     // Subscriptions.
     logDebug("Serializing Subscriptions...");
     taosim::json::serializeHelper(
@@ -439,10 +435,6 @@ std::unique_ptr<Simulation> Simulation::fromCheckpoint(const fs::path& path)
             book->m_initMode = false;
         }
     }
-
-    // L3 record.
-    fmt::println("\nRestoring L3Record...");
-    simulation->exchange()->m_L3Record = L3RecordContainer::fromJson(json["L3Record"]);
 
     // Subscriptions.
     fmt::println("Restoring Subscriptions: localMarketOrderSubscribers");

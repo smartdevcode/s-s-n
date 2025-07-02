@@ -80,7 +80,14 @@ void FuturesTraderAgent::configure(const pugi::xml_node& node)
     m_volumeFactor = std::vector<float>(m_bookCount,1.0);
     m_factorCounter = std::vector<uint32_t>(m_bookCount, 0);
     attr = node.attribute("lambda");
-    m_lambda = (attr.empty() || attr.as_float() <= 0.0) ? 0.01155 : attr.as_float() ;
+    m_lambda = (attr.empty() || attr.as_float() <= 0.0) ? 0.01155 : attr.as_float();
+
+    attr = node.attribute("tau");
+    m_tau = (attr.empty() || attr.as_ullong() == 0) ? 120'000'000'000 : attr.as_ullong();
+
+    
+    attr = node.attribute("orderTypeProb");
+    m_orderTypeProb = (attr.empty() || attr.as_float() <= 0.0f) ? 0.5f : attr.as_float();
 
     m_lastUpdate = std::vector<Timestamp>(m_bookCount,0);
     
@@ -181,6 +188,12 @@ void FuturesTraderAgent::receiveMessage(Message::Ptr msg)
     else if (msg->type == "ERROR_RESPONSE_PLACE_ORDER_MARKET") {
         handleMarketOrderPlacementErrorResponse(msg);
     }
+    else if (msg->type == "RESPONSE_PLACE_ORDER_LIMIT") {
+        handleLimitOrderPlacementResponse(msg);
+    }
+    else if (msg->type == "ERROR_RESPONSE_PLACE_ORDER_LIMIT") {
+        handleLimitOrderPlacementErrorResponse(msg);
+    }
     else if (msg->type == "EVENT_TRADE") {
         handleTrade(msg);
     }
@@ -208,9 +221,13 @@ void FuturesTraderAgent::handleSimulationStop()
 void FuturesTraderAgent::handleTradeSubscriptionResponse()
 {
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
+        auto rng = std::mt19937{simulation()->currentTimestamp() + bookId};
         simulation()->dispatchMessage(
             simulation()->currentTimestamp(),
-            1'000'000'000,
+            static_cast<Timestamp>(std::min(
+            std::abs(m_marketFeedLatencyDistribution(rng)),
+            m_marketFeedLatencyDistribution.mean()
+            + 3.0 * (m_marketFeedLatencyDistribution.stddev()))),
             name(),
             m_exchange,
             "RETRIEVE_L1",
@@ -226,7 +243,7 @@ void FuturesTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
 
     const BookId bookId = payload->bookId;
 
-    auto rng = std::mt19937{simulation()->currentTimestamp()};
+    auto rng = std::mt19937{simulation()->currentTimestamp() + bookId};
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         static_cast<Timestamp>(std::min(
@@ -303,7 +320,9 @@ void FuturesTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
     for (auto [categoryId, actorId] : views::zip(categoryIdDraws, actorIdsNonCanon)) {
         if (categoryIdToAgentType.right.at(m_baseName) != categoryId) continue;
         if (!name().ends_with(fmt::format("_{}", actorId))) continue;
-        placeOrder(bookId);
+        const double bestBid = taosim::util::decimal2double(payload->bestBidPrice);
+        const double bestAsk = taosim::util::decimal2double(payload->bestAskPrice);
+        placeOrder(bookId, bestAsk, bestBid);
     }    
 }
 
@@ -321,6 +340,36 @@ void FuturesTraderAgent::handleMarketOrderPlacementErrorResponse(Message::Ptr ms
 {
     const auto payload =
         std::dynamic_pointer_cast<PlaceOrderMarketErrorResponsePayload>(msg->payload);
+
+    const BookId bookId = payload->requestPayload->bookId;
+
+    m_orderFlag.at(bookId) = false;
+}
+
+//-------------------------------------------------------------------------
+
+void FuturesTraderAgent::handleLimitOrderPlacementResponse(Message::Ptr msg)
+{
+    const auto payload = std::dynamic_pointer_cast<PlaceOrderLimitResponsePayload>(msg->payload);
+
+    simulation()->dispatchMessage(
+        simulation()->currentTimestamp(),
+        m_tau,
+        name(),
+        m_exchange,
+        "CANCEL_ORDERS",
+        MessagePayload::create<CancelOrdersPayload>(
+            std::vector{Cancellation(payload->id)}, payload->requestPayload->bookId));
+
+    m_orderFlag.at(payload->requestPayload->bookId) = false;
+}
+
+//-------------------------------------------------------------------------
+
+void FuturesTraderAgent::handleLimitOrderPlacementErrorResponse(Message::Ptr msg)
+{
+    const auto payload =
+        std::dynamic_pointer_cast<PlaceOrderLimitErrorResponsePayload>(msg->payload);
 
     const BookId bookId = payload->requestPayload->bookId;
 
@@ -352,7 +401,7 @@ void FuturesTraderAgent::handleTrade(Message::Ptr msg)
 
 //-------------------------------------------------------------------------
 
-void FuturesTraderAgent::placeOrder(BookId bookId)
+void FuturesTraderAgent::placeOrder(BookId bookId, double bestAsk, double bestBid)
 {
     const double logReturn = m_logReturns.at(bookId).back();
     if (logReturn == 0) return;
@@ -363,15 +412,42 @@ void FuturesTraderAgent::placeOrder(BookId bookId)
     std::lognormal_distribution<> lognormalDist(newMean, 1); 
     double volume = lognormalDist(*m_rng);
     volume =  std::floor(volume / m_volumeIncrement) * m_volumeIncrement;
+    const double priceShift = std::round((newMean - volume) / 1) * m_priceIncrement;
     if (volume == 0) return;
+    const bool draw = std::bernoulli_distribution{m_orderTypeProb}(*m_rng);
     if (forecast > 0) {
-        placeBuy(bookId, volume);
+        if (draw) {
+            placeBuy(bookId, volume);
+        } else {
+            placeBid(bookId, volume, bestBid + priceShift);
+        }
     }
     else if (forecast < 0) {
-        placeSell(bookId, volume);
+        if (draw) {
+            placeSell(bookId, volume);
+        } else {
+            placeAsk(bookId, volume, bestAsk - priceShift);
+        }
     }
 }
+//-------------------------------------------------------------------------
 
+void FuturesTraderAgent::placeBid(BookId bookId, double volume, double price)
+{
+    m_orderFlag.at(bookId) = true;
+
+    simulation()->dispatchMessage(
+        simulation()->currentTimestamp(),
+        orderPlacementLatency(),
+        name(),
+        m_exchange,
+        "PLACE_ORDER_LIMIT",
+        MessagePayload::create<PlaceOrderLimitPayload>(
+            OrderDirection::BUY,
+            taosim::util::double2decimal(volume),
+            taosim::util::double2decimal(price),
+            bookId));
+}
 //-------------------------------------------------------------------------
 
 void FuturesTraderAgent::placeBuy(BookId bookId, double volume)
@@ -387,6 +463,24 @@ void FuturesTraderAgent::placeBuy(BookId bookId, double volume)
         MessagePayload::create<PlaceOrderMarketPayload>(
             OrderDirection::BUY,
             taosim::util::double2decimal(volume),
+            bookId));
+}
+
+//-------------------------------------------------------------------------
+
+void FuturesTraderAgent::placeAsk(BookId bookId, double volume, double price)
+{
+    m_orderFlag.at(bookId) = true;
+    simulation()->dispatchMessage(
+        simulation()->currentTimestamp(),
+        orderPlacementLatency(),
+        name(),
+        m_exchange,
+        "PLACE_ORDER_LIMIT",
+        MessagePayload::create<PlaceOrderLimitPayload>(
+            OrderDirection::SELL,
+            taosim::util::double2decimal(volume),
+            taosim::util::double2decimal(price),
             bookId));
 }
 

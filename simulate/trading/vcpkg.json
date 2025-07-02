@@ -18,6 +18,7 @@
         "fmt",
         "gtest",
         "magic-enum",
+        "mimalloc",
         "pugixml",
         "pybind11",
         "range-v3",

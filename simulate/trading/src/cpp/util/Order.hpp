@@ -240,21 +240,35 @@ struct OrderContext : public JsonSerializable
 
 //-------------------------------------------------------------------------
 
-struct OrderEvent : public JsonSerializable, public CheckpointSerializable
+struct OrderEvent : public JsonSerializable
 {
     using Ptr = std::shared_ptr<OrderEvent>;
 
-    Order::Ptr order;
+    OrderID id;
+    Timestamp timestamp;
+    taosim::decimal_t volume;
+    taosim::decimal_t leverage;
+    OrderDirection direction;
+    STPFlag stpFlag;
+    std::optional<taosim::decimal_t> price{};
     OrderContext ctx;
 
-    OrderEvent(Order::Ptr order, OrderContext ctx) noexcept : order{order}, ctx{ctx} {}
+    OrderEvent(Order::Ptr order, OrderContext ctx) noexcept
+        : id{order->id()},
+          timestamp{order->timestamp()},
+          volume{order->volume()},
+          leverage{order->leverage()},
+          direction{order->direction()},
+          stpFlag{order->stpFlag()},
+          ctx{ctx}
+    {
+        if (auto limitOrder = std::dynamic_pointer_cast<LimitOrder>(order)) {
+            price = limitOrder->price();
+        }
+    }
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
-    virtual void checkpointSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
-
-    [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
 };
 
 //-------------------------------------------------------------------------

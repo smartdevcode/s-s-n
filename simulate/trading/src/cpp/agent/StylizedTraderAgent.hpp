@@ -114,12 +114,11 @@ private:
     std::vector<TopLevel> m_topLevel;
     DelayBounds m_opl;
     double m_price;
-    double m_priceExt;
     std::vector<bool> m_orderFlag;
     std::vector<boost::circular_buffer<double>> m_priceHist;
     std::vector<boost::circular_buffer<double>> m_logReturns;
-    std::vector<boost::circular_buffer<double>> m_priceHistExternal;
-    std::vector<boost::circular_buffer<double>> m_logReturnsExternal;
+    // std::vector<boost::circular_buffer<double>> m_priceHistExternal;
+    // std::vector<boost::circular_buffer<double>> m_logReturnsExternal;
     
     bool m_debug;
 

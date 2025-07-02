@@ -42,7 +42,6 @@ class FinanceSimulationAgent(SimulationAgent):
         self.accounts = state.accounts[self.uid]
         self.events = state.notices[self.uid]
         self.simulation_config = state.config
-        state.config = None
         simulation_ended = False
         update_text = ''
         debug_text = ''

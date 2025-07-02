@@ -98,14 +98,13 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
             "{}: attribute 'psiHFT_constant' should have a value greater than or equal to 0.0", ctx));
     }
     m_psi = attr.as_double();
-    m_orderFlag = std::vector<bool>(m_bookCount, false);
     m_topLevel = std::vector<TopLevel>(m_bookCount, TopLevel{});
     m_baseFree = std::vector<double>(m_bookCount, 0.);
     m_quoteFree = std::vector<double>(m_bookCount, 0.);
     m_inventory = std::vector<double>(m_bookCount, 0.);
     m_deltaHFT = std::vector<double>(m_bookCount, 0.);
     m_tauHFT = std::vector<Timestamp>(m_bookCount, Timestamp{});
-    
+    m_orderFlag = std::vector<bool>(m_bookCount, false);
 
     attr = node.attribute("GBM_X0");
     const double gbmX0 = (attr.empty() || attr.as_double() <= 0.0f) ?  0.001 : attr.as_double();
@@ -148,6 +147,9 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
 
     m_orderMean = node.attribute("orderMean").as_double();
+    attr = node.attribute("orderSTD");
+    m_orderSTD = (attr.empty() || attr.as_double() < 0.0f)  ? 1 : attr.as_double();
+    
     m_noiseRay = node.attribute("noiseRay").as_double();
     m_rayleighSample = boost::math::rayleigh_distribution<double>{m_noiseRay};
     m_minMFLatency = node.attribute("minMFLatency").as_ullong();
@@ -273,19 +275,15 @@ void HighFrequencyTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
         topLevel.ask = m_tradePrice.at(payload->bookId).price;
 
 
-    const double midPrice = (topLevel.bid + topLevel.ask) / 2;
-    const double price = 
-        m_tradePrice.at(payload->bookId).timestamp - simulation()->currentTimestamp() < 1'000'000'000
-        ? m_tradePrice.at(payload->bookId).price
-        : midPrice;
+    const double midquote = (topLevel.bid + topLevel.ask) / 2;
     m_logReturns.at(payload->bookId).push_back(
-                    std::log(price / m_priceHist.at(payload->bookId).back()));
-    m_priceHist.at(payload->bookId).push_back(price);
+                    std::log(midquote / m_priceHist.at(payload->bookId).back()));
+    m_priceHist.at(payload->bookId).push_back(midquote);
+    
     m_baseFree[bookId] = m_wealthFrac * 
         taosim::util::decimal2double(simulation()->exchange()->account(name()).at(bookId).base.getFree());
     m_quoteFree[bookId] = m_wealthFrac * 
         taosim::util::decimal2double(simulation()->exchange()->account(name()).at(bookId).quote.getFree());
-    
     // const auto& logReturns = m_logReturns.at(bookId);
     // double sigmaSqr = [&] {
     //         namespace bacc = boost::accumulators;
@@ -297,9 +295,11 @@ void HighFrequencyTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
     //         return bacc::variance(acc) * (n - 1) / n;
     //     }();
 
+    if (m_orderFlag.at(bookId)) return;
     double timescaling = 1-simulation()->currentTimestamp()/simulation()->duration();
-    m_pRes = price - m_gHFT * m_inventory[bookId] * m_sigmaSqr *timescaling;
+    m_pRes = midquote - m_gHFT * m_inventory[bookId] * m_sigmaSqr *timescaling;
 
+    m_orderFlag.at(bookId) = true;
     placeOrder(bookId, topLevel);
 }
 
@@ -310,6 +310,7 @@ void HighFrequencyTraderAgent::handleLimitOrderPlacementResponse(Message::Ptr ms
     const auto payload = std::dynamic_pointer_cast<PlaceOrderLimitResponsePayload>(msg->payload);
     const BookId bookId = payload->requestPayload->bookId;
 
+    m_orderFlag.at(bookId) = false;
     static const std::regex pattern("^HIGH_FREQUENCY_TRADER_AGENT_(?:[0-9]|1[0-9]|20)$");
     if (std::regex_match(name(), pattern)) {
         recordOrder(payload);
@@ -335,6 +336,12 @@ void HighFrequencyTraderAgent::handleLimitOrderPlacementResponse(Message::Ptr ms
 
 void HighFrequencyTraderAgent::handleLimitOrderPlacementErrorResponse(Message::Ptr msg)
 {
+    const auto payload =
+        std::dynamic_pointer_cast<PlaceOrderLimitErrorResponsePayload>(msg->payload);
+
+    const BookId bookId = payload->requestPayload->bookId;
+
+    m_orderFlag.at(bookId) = false;
 }
 
 //-------------------------------------------------------------------------
@@ -372,6 +379,7 @@ void HighFrequencyTraderAgent::handleTrade(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<EventTradePayload>(msg->payload);
     BookId bookId = payload->bookId;
+    m_orderFlag.at(bookId) = false;
 
     const double tradePrice = taosim::util::decimal2double(payload->trade.price());
 
@@ -440,21 +448,24 @@ std::optional<PlaceOrderLimitPayload::Ptr> HighFrequencyTraderAgent::makeOrder(B
 //-------------------------------------------------------------------------
 
 void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
+    
+    const double actualSpread = topLevel.ask - topLevel.bid;
+    const double midquote = (topLevel.ask + topLevel.bid)/2;
+    const double relativeSpread = actualSpread/midquote;
 
     // Seed the random number generator
     m_rng->seed(std::random_device{}());
-    std::lognormal_distribution<> lognormalDist(m_orderMean, 1); // mean=m_orderMean, stddev=1
+    std::lognormal_distribution<> lognormalDist(m_orderMean*(1+relativeSpread), m_orderSTD); // mean=m_orderMean, stddev=1
     const double orderVolume = lognormalDist(*m_rng);
     const double currentInventory = m_inventory[bookId];
     const double rayleighShift = m_noiseRay * std::sqrt(-2.0 * std::log(1.0 - m_shiftPercentage));
-    const double actualSpread = topLevel.ask - topLevel.bid;
     const double optimalSpread = m_sigmaSqr*m_gHFT*(1-simulation()->currentTimestamp()/simulation()->duration()) + 2/m_gHFT * std::log(1 + m_gHFT/m_kappa);
     const double spread = actualSpread < m_spread ? actualSpread : optimalSpread;
     
 
     // ----- Bid Placement -----
     double wealthBid = topLevel.ask * m_baseFree[bookId] + m_quoteFree[bookId];
-    double orderVolumeBid = m_inventory[bookId] >= m_psi ? orderVolume*(0.5 - m_inventory[bookId]/m_psi) : lognormalDist(*m_rng);
+    double orderVolumeBid = lognormalDist(*m_rng);
     double noiseBid =  [&] { static std::uniform_real_distribution<double> s_unif{0.0, 1.0};
                                 const double rayleighDraw = boost::math::quantile(m_rayleighSample, s_unif(*m_rng)); 
                                 return rayleighDraw;
@@ -466,7 +477,7 @@ void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
 
     // ----- Ask Placement -----
     double wealthAsk = topLevel.bid * m_baseFree[bookId] + m_quoteFree[bookId];
-    double orderVolumeAsk = m_inventory[bookId] >= m_psi ? orderVolume*(0.5 + m_inventory[bookId]/m_psi) : lognormalDist(*m_rng);
+    double orderVolumeAsk = lognormalDist(*m_rng);
     double noiseAsk = [&] { static std::uniform_real_distribution<double> s_unif{0.0, 1.0};
                                 const double rayleighDraw = boost::math::quantile(m_rayleighSample, s_unif(*m_rng)); 
                                 return rayleighDraw;

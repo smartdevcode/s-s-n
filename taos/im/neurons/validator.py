@@ -472,6 +472,11 @@ class Validator(BaseValidatorNeuron):
                 } for bookId in range(self.simulation.book_count)
             } for uid in range(self.subnet_info.max_uids)
         }
+        self.inventory_history = {
+            uid : {                 
+                prev_time - self.simulation_timestamp : values for prev_time, values in self.inventory_history[uid].items() if prev_time - self.simulation_timestamp < self.simulation_timestamp
+            } for uid in range(self.subnet_info.max_uids)
+        }
         self.start_time = time.time()
         self.simulation_timestamp = timestamp
         self.start_timestamp = self.simulation_timestamp

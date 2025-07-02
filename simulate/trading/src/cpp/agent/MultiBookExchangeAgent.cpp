@@ -284,6 +284,8 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             }
         }
 
+        m_L3Record = L3RecordContainer{bookCount};
+
         for (BookId bookId{}; bookId < bookCount; ++bookId) {
             auto book = BookFactory::createBook(
                 bookAlgorithm,
@@ -308,7 +310,11 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                         .order = order,
                         .volumeToCancel = volumeToCancel
                     });
-                    m_L3Record[bookId].push(std::make_shared<Cancellation>(order->id(), volumeToCancel));
+                    m_L3Record[bookId].push(CancellationEvent(
+                        Cancellation(order->id(), volumeToCancel),
+                        simulation()->currentTimestamp(),
+                        order->price()
+                    ));
                 });
             book->signals().marketOrderProcessed.connect(
                 [this](MarketOrder::Ptr marketOrder, OrderContext ctx) {
@@ -316,7 +322,6 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                 });
             m_books.push_back(book);
             m_signals[bookId] = std::make_unique<ExchangeSignals>();
-            m_L3Record[bookId] = {};
             const BookId bookIdCanon = simulation()->m_blockIdx * bookCount + bookId;
             if (loggingNode) {
                 if (L2Node) {
@@ -1427,7 +1432,7 @@ void MultiBookExchangeAgent::orderCallback(Order::Ptr order, OrderContext ctx)
 void MultiBookExchangeAgent::orderLogCallback(Order::Ptr order, OrderContext ctx)
 {
     if (order->totalVolume() == 0_dec) return;
-    m_L3Record[ctx.bookId].push(std::make_shared<OrderEvent>(order, ctx));
+    m_L3Record[ctx.bookId].push(OrderEvent(order, ctx));
     m_signals[ctx.bookId]->orderLog(OrderWithLogContext(
         order, std::make_shared<OrderLogContext>(ctx.agentId, ctx.bookId)));
 }
@@ -1451,9 +1456,8 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
         .trade = trade
     });
 
-    m_L3Record[bookId].push(
-        std::make_shared<TradeEvent>(
-            trade, TradeContext(bookId, aggressingAgentId, restingAgentId, fees)));
+    m_L3Record[bookId].push(TradeEvent(
+        trade, TradeContext(bookId, aggressingAgentId, restingAgentId, fees)));
 
     auto tradeWithCtx = std::make_shared<TradeWithLogContext>(
         trade,

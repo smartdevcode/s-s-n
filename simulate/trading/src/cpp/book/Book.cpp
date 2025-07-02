@@ -71,10 +71,11 @@ MarketOrder::Ptr Book::placeMarketOrder(
 {
     const auto marketOrder = m_orderFactory.makeMarketOrder(
         direction, timestamp, volume, leverage, stpFlag.value());
-    m_order2clientCtx[marketOrder->id()] = clientCtx;
+    m_order2clientCtx.insert({marketOrder->id(), clientCtx});
     m_signals.orderCreated(
         marketOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
     placeOrder(marketOrder);
+    m_order2clientCtx.erase(marketOrder->id());
     m_signals.orderLog(
         marketOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
     return marketOrder;
@@ -93,7 +94,7 @@ LimitOrder::Ptr Book::placeLimitOrder(
 {
     const auto limitOrder = m_orderFactory.makeLimitOrder(
         direction, timestamp, volume, price, leverage, stpFlag.value());
-    m_order2clientCtx[limitOrder->id()] = clientCtx;
+    m_order2clientCtx.insert({limitOrder->id(), clientCtx});
     m_signals.orderCreated(
         limitOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
     placeOrder(limitOrder);
@@ -106,58 +107,34 @@ LimitOrder::Ptr Book::placeLimitOrder(
 
 void Book::placeOrder(MarketOrder::Ptr order)
 {
-    switch (order->direction()) {
-        case OrderDirection::BUY:
-            if (m_sellQueue.empty()) return;
-            processAgainstTheSellQueue(order, std::numeric_limits<taosim::decimal_t>::max());
-            m_signals.marketOrderProcessed(
-                order,
-                [&] -> OrderContext {
-                    const auto& clientCtx = m_order2clientCtx[order->id()];
-                    return OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId};
-                }());
-            return;
-        case OrderDirection::SELL:
-            if (m_buyQueue.empty()) return;
-            processAgainstTheBuyQueue(order, std::numeric_limits<taosim::decimal_t>::min());
-            m_signals.marketOrderProcessed(
-                order,
-                [&] -> OrderContext {  
-                    const auto& clientCtx = m_order2clientCtx[order->id()];
-                    return OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId};
-                }());
-            return;
-        default:
-            std::unreachable();
+    const auto& clientCtx = m_order2clientCtx.at(order->id());
+    OrderContext orderCtx{clientCtx.agentId, m_id, clientCtx.clientOrderId};
+
+    if (order->direction() == OrderDirection::BUY) {
+        if (m_sellQueue.empty()) [[unlikely]] return;
+        processAgainstTheSellQueue(order, std::numeric_limits<taosim::decimal_t>::max());
+    } else {
+        if (m_buyQueue.empty()) [[unlikely]] return;
+        processAgainstTheBuyQueue(order, std::numeric_limits<taosim::decimal_t>::min());
     }
+
+    m_signals.marketOrderProcessed(order, std::move(orderCtx));
 }
 
 //-------------------------------------------------------------------------
 
 void Book::placeOrder(LimitOrder::Ptr order)
 {
-    switch (order->direction()) {
-        case OrderDirection::BUY:
-            placeLimitBuy(order);
-            m_signals.limitOrderProcessed(
-                order,
-                [&] -> OrderContext {
-                    const auto& clientCtx = m_order2clientCtx[order->id()];
-                    return OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId};
-                }());
-            return;
-        case OrderDirection::SELL:
-            placeLimitSell(order);
-            m_signals.limitOrderProcessed(
-                order,
-                [&] -> OrderContext {
-                    const auto& clientCtx = m_order2clientCtx[order->id()];
-                    return OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId};
-                }());
-            return;
-        default:
-            std::unreachable();
+    const auto& clientCtx = m_order2clientCtx.at(order->id());
+    OrderContext orderCtx{clientCtx.agentId, m_id, clientCtx.clientOrderId};
+
+    if (order->direction() == OrderDirection::BUY) {
+        placeLimitBuy(order);
+    } else {
+        placeLimitSell(order);
     }
+
+    m_signals.limitOrderProcessed(order, std::move(orderCtx));
 }
 
 //-------------------------------------------------------------------------
@@ -202,12 +179,6 @@ bool Book::cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volu
     }
 
     m_signals.cancel(order->id(), volumeToCancelActual);
-    
-    if (m_simulation->debug()) {
-        const auto ctx = m_order2clientCtx[order->id()];
-        const auto& balances = m_simulation->exchange()->accounts()[ctx.agentId][m_id];
-        m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), ctx.agentId, m_id, balances.quote, balances.base);
-    }
 
     return true;
 }

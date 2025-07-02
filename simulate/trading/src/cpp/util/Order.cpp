@@ -325,37 +325,30 @@ OrderContext OrderContext::fromJson(const rapidjson::Value& json)
 void OrderEvent::jsonSerialize(rapidjson::Document& json, const std::string& key) const
 {
     auto serialize = [this](rapidjson::Document& json) {
-        order->jsonSerialize(json);
+        json.SetObject();
         auto& allocator = json.GetAllocator();
+        json.AddMember("orderId", rapidjson::Value{id}, allocator);
+        json.AddMember("timestamp", rapidjson::Value{timestamp}, allocator);
+        json.AddMember(
+            "volume", rapidjson::Value{taosim::util::decimal2double(volume)}, allocator);
+        json.AddMember(
+            "leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
+        json.AddMember(
+            "direction", rapidjson::Value{std::to_underlying(direction)}, allocator);
+        json.AddMember(
+            "stpFlag",
+            rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
+            allocator);
+        if (price) {
+            json.AddMember("price", taosim::util::decimal2double(*price), allocator);
+        } else {
+            json.AddMember("price", rapidjson::Value{}.SetNull(), allocator);
+        }
         json.AddMember("event", rapidjson::Value{"place", allocator}, allocator);
         json.AddMember("agentId", rapidjson::Value{ctx.agentId}, allocator);
         taosim::json::setOptionalMember(json, "clientOrderId", ctx.clientOrderId);
     };
     taosim::json::serializeHelper(json, key, serialize);
-}
-
-//-------------------------------------------------------------------------
-
-void OrderEvent::checkpointSerialize(rapidjson::Document& json, const std::string& key) const
-{
-    auto serialize = [this](rapidjson::Document& json) {
-        order->checkpointSerialize(json);
-        auto& allocator = json.GetAllocator();
-        json.AddMember("event", rapidjson::Value{"place", allocator}, allocator);
-        json.AddMember("agentId", rapidjson::Value{ctx.agentId}, allocator);
-        taosim::json::setOptionalMember(json, "clientOrderId", ctx.clientOrderId);
-    };
-    taosim::json::serializeHelper(json, key, serialize);
-}
-
-//-------------------------------------------------------------------------
-
-OrderEvent::Ptr OrderEvent::fromJson(const rapidjson::Value& json)
-{
-    if (json["price"].IsNull()) {
-        return Ptr{new OrderEvent(MarketOrder::fromJson(json), OrderContext::fromJson(json))};
-    }
-    return Ptr{new OrderEvent(LimitOrder::fromJson(json, 16, 16), OrderContext::fromJson(json))};
 }
 
 //-------------------------------------------------------------------------
