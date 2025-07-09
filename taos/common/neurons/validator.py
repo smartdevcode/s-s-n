@@ -18,22 +18,17 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-import os
-import time
 import copy
 import torch
 import asyncio
 import argparse
 import threading
-import numpy as np
 import bittensor as bt
 
 from typing import List
 from traceback import print_exception
 
 from abc import abstractmethod
-
-from multiprocessing import Process, Queue
 
 from taos.common.neurons import BaseNeuron
 from taos.mock import MockDendrite

@@ -9,7 +9,7 @@ from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 import random
 
 """
-A simple example agent which randomly places limit orders between the best levels of the book.
+A simple example agent to demonstrate usage of advanced order options.
 """
 class OrderOptionAgent(FinanceSimulationAgent):
     def initialize(self):
@@ -19,6 +19,7 @@ class OrderOptionAgent(FinanceSimulationAgent):
         """
         self.min_quantity = self.config.min_quantity
         self.max_quantity = self.config.max_quantity
+        # Process config flags indicating which tests are to be run
         self.tests = {
             'PO' : bool(self.config.PO) if hasattr(self.config, 'PO') else False,
             'GTT' : bool(self.config.GTT) if hasattr(self.config, 'GTT') else False,
@@ -26,6 +27,7 @@ class OrderOptionAgent(FinanceSimulationAgent):
             'FOK' : bool(self.config.FOK) if hasattr(self.config, 'FOK') else False,
             'QUOTE' : bool(self.config.QUOTE) if hasattr(self.config, 'QUOTE') else False
         }
+        # If no tests explicitly specified in launch parameters, assume all tests should be run
         if not any(self.tests.values()):
             self.tests = {k : True for k in self.tests}
 
@@ -39,6 +41,14 @@ class OrderOptionAgent(FinanceSimulationAgent):
         """
         The main logic of the strategy executed when a new state is received from validator.
         Analyses the latest market state data and generates instructions to be submitted.
+
+        Args:
+            state (MarketSimulationStateUpdate): The current market state data 
+                provided by the simulation validator.
+
+        Returns:
+            FinanceAgentResponse: A response object containing the list of 
+                instructions (e.g., limit orders) to submit to the market.
         """
         # Initialize a response class associated with the current miner
         response = FinanceAgentResponse(agent_id=self.uid)
@@ -141,4 +151,8 @@ class OrderOptionAgent(FinanceSimulationAgent):
         return response
 
 if __name__ == "__main__":
+    """
+    Example command for local standalone testing execution using Proxy:
+    python OrderOptionAgent.py --port 8888 --agent_id 0 --params min_quantity=0.1 max_quantity=1.0 expiry_period=200 PO=1 GTT=1 IOC=1 FOK=1 QUOTE=1"
+    """
     launch(OrderOptionAgent)

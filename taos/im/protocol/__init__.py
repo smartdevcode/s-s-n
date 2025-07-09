@@ -13,6 +13,7 @@ from taos.common.protocol import SimulationStateUpdate, EventNotification
 from taos.im.protocol.events import *
 from taos.im.protocol.models import Book, Account, Balance, Order
 from taos.im.protocol.response import FinanceAgentResponse
+from taos.im.utils.compress import compress
 
 """
 The core intelligent market simulation protocol classes are defined here.
@@ -47,7 +48,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
     accounts : dict[int,dict[int, Account]] | None = None
     notices : dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | None = None
     response: Optional[FinanceAgentResponse] | None  = None
-    compressed : str | None = None
+    compressed : str | dict | None = None
     compression_engine : str = "zlib"
     
     required_fields: ClassVar[list[str]] = None
@@ -121,7 +122,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         self.config = None
         return self
 
-    def compress(self, level=-1, engine : Literal["zlib", "lz4"] | None = None):
+    def compress(self, level=-1, engine : Literal["zlib", "lz4"] | None = None, compressed_books : str = None):
         """
         Method to compress large synapse fields for transmission over the network.
 
@@ -130,24 +131,21 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         try:
             if engine:
                 self.compression_engine = engine
-            match self.compression_engine:
-                case "zlib":
-                    compressor = zlib.compress
-                case "lz4":
-                    compressor = lz4.frame.compress
-                case _:
-                    raise Exception(f"Invalid compression engine `{engine}` - allowed values are `zlib` or `lz4`")
             if not self.compressed:
                 compressed = self.model_copy()
                 if compressed.books != {}:
+                    if not compressed_books:
+                        compressed_books = compress({bookId : book.model_dump(mode='json') for bookId, book in self.books.items()}, level, self.compression_engine)
                     payload = {
-                        "books" : {bookId : book.model_dump(mode='json') for bookId, book in self.books.items()},
                         "accounts" : {accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in self.accounts.items()},
                         "notices" : {agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in self.notices.items()},
                         "config" : self.config.model_dump(mode='json'),
                         "response" : compressed.response.model_dump(mode='json') if self.response else None
                     }
-                    compressed.compressed = pybase64.b64encode(compressor(msgspec.json.encode(payload),level)).decode("ascii")
+                    compressed.compressed = {
+                        "books" : compressed_books,
+                        "payload" : compress(payload, level, self.compression_engine)
+                    }
                     compressed.books = None
                     compressed.accounts = None
                     compressed.notices = None
@@ -175,7 +173,11 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                 case _:
                     raise Exception(f"Invalid compression engine `{self.compression_engine}` - allowed values are `zlib` or `lz4`")
             if self.compressed:
-                decompressed = msgspec.json.decode(decompressor(pybase64.b64decode(self.compressed)))
+                if isinstance(self.compressed, str):
+                    decompressed = msgspec.json.decode(decompressor(pybase64.b64decode(self.compressed)))
+                else:
+                    decompressed_payload = msgspec.json.decode(decompressor(pybase64.b64decode(self.compressed['payload'])))             
+                    decompressed ={"books" : msgspec.json.decode(decompressor(pybase64.b64decode(self.compressed['books'])))} | decompressed_payload
                 self.compressed = None
                 self.books = decompressed['books']
                 self.accounts = decompressed['accounts']

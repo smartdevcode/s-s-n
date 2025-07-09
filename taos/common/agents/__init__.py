@@ -1,17 +1,20 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+import os
 from abc import ABC, abstractmethod  # Importing the ABC class and abstractmethod decorator for creating abstract base classes
 from fastapi import APIRouter
 from taos.common.protocol import SimulationStateUpdate, AgentResponse, EventNotification  # Importing required classes for simulation state and agent responses
 
 # Defining an abstract base class for simulation agents
 class SimulationAgent(ABC):
-    def __init__(self, uid, config):
+    def __init__(self, uid, config, log_dir):
         """
         Initializer method that sets up the agent's unique ID and configuration.
         """
         self.uid = uid
-        self.config = config 
+        self.config = config
+        self.log_dir = log_dir
+        self.state_file = os.path.join(log_dir, 'state.mp')
         self.router = APIRouter()
         self.router.add_api_route("/handle", self.handle, methods=["POST"])
         self.initialize()  # Calling the abstract method to perform any agent-specific setup

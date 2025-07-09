@@ -9,7 +9,7 @@ from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 import random
 
 """
-A simple example agent which randomly places limit orders between the best levels of the book.
+A simple example agent to demonstrate self-trade prevention behaviour.
 """
 class SelfTradingAgent(FinanceSimulationAgent):
     def initialize(self):
@@ -34,6 +34,14 @@ class SelfTradingAgent(FinanceSimulationAgent):
         """
         The main logic of the strategy executed when a new state is received from validator.
         Analyses the latest market state data and generates instructions to be submitted.
+
+        Args:
+            state (MarketSimulationStateUpdate): The current market state data 
+                provided by the simulation validator.
+
+        Returns:
+            FinanceAgentResponse: A response object containing the list of 
+                instructions (e.g., limit orders) to submit to the market.
         """
         # Initialize a response class associated with the current miner
         response = FinanceAgentResponse(agent_id=self.uid)
@@ -79,4 +87,8 @@ class SelfTradingAgent(FinanceSimulationAgent):
         return response
 
 if __name__ == "__main__":
+    """
+    Example command for local standalone testing execution using Proxy:
+    python SelfTradingAgent.py --port 8888 --agent_id 0 --params min_quantity=0.1 max_quantity=1.0
+    """
     launch(SelfTradingAgent)

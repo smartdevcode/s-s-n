@@ -29,6 +29,7 @@ from taos.im.neurons.validator import Validator
 from taos.im.protocol import FinanceAgentResponse, FinanceEventNotification, MarketSimulationStateUpdate
 from taos.im.protocol.instructions import *
 from taos.im.validator.reward import set_delays
+from taos.im.utils.compress import compress, batch_compress
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -174,13 +175,54 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
         
     await DendriteManager.configure_session(self)
     
-    def create_axon_synapse(synapse : MarketSimulationStateUpdate, uid):
-        return synapse.model_copy(update={
-            "accounts" : {account_uid : account if account_uid == uid else {} for account_uid, account in synapse.accounts.items()},
-            "notices" : {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in synapse.notices.items()}
-        }).compress(level=self.config.compression.level, engine=self.config.compression.engine)
-    axon_synapses = {uid : create_axon_synapse(synapse, uid) for uid in range(len(self.metagraph.axons))}
-    bt.logging.info(f"Compressed synapses ({time.time()-start:.4f}s).")
+    if True:
+        compressed_books = compress({bookId : book.model_dump(mode='json') for bookId, book in synapse.books.items()}, level=self.config.compression.level, engine=self.config.compression.engine)
+        def create_axon_synapse(uid):
+            return synapse.model_copy(update={
+                "accounts" : {account_uid : account if account_uid == uid else {} for account_uid, account in synapse.accounts.items()},
+                "notices" : {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in synapse.notices.items()}
+            }).compress(level=self.config.compression.level, engine=self.config.compression.engine, compressed_books=compressed_books)
+        axon_synapses = {uid : create_axon_synapse(uid) for uid in range(len(self.metagraph.axons))}
+        bt.logging.info(f"Compressed synapses ({time.time()-start:.4f}s).")
+    else:
+        synapse_start = time.time()
+        def create_axon_synapse(uid):
+            return synapse.model_copy(update={
+                "accounts" : {account_uid : account if account_uid == uid else {} for account_uid, account in synapse.accounts.items()},
+                "notices" : {notice_uid : notices if notice_uid == uid else [] for notice_uid, notices in synapse.notices.items()}
+            })
+        axon_synapses = {uid : create_axon_synapse(uid) for uid in range(len(self.metagraph.axons))}    
+        bt.logging.info(f"Created axon synapses ({time.time()-start}s)")
+        start = time.time()
+        
+        num_processes = 4
+        batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0,256,int(256/num_processes))]
+        payloads = {uid : {
+                        "accounts" : {accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in axon_synapse.accounts.items()},
+                        "notices" : {agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in axon_synapse.notices.items()},
+                        "config" : axon_synapse.config.model_dump(mode='json'),
+                        "response" : axon_synapse.response.model_dump(mode='json') if axon_synapse.response else None
+                    } for uid, axon_synapse in axon_synapses.items()}
+        bt.logging.info(f"Constructed payloads ({time.time()-start}s)")
+        start = time.time()
+        compressed_payloads = batch_compress(payloads, batches)
+        bt.logging.info(f"Compressed payloads ({time.time()-start}s)")
+        start = time.time()
+        compressed_books = compress({bookId : book.model_dump(mode='json') for bookId, book in synapse.books.items()})
+        bt.logging.info(f"Compressed books ({time.time()-start:.4f}s).")
+        start = time.time()
+        for uid, axon_synapse in axon_synapses.items():
+            axon_synapse.books = None
+            axon_synapse.accounts = None
+            axon_synapse.notices = None
+            axon_synapse.config = None
+            axon_synapse.response = None
+            axon_synapse.compressed = {
+                "books" : compressed_books,
+                "payload" : compressed_payloads[uid]
+            }
+        bt.logging.info(f"Constructed synapses ({time.time()-start:.4f}s).")    
+        bt.logging.info(f"Synapses Prepared ({time.time()-synapse_start:.4f}s).")
     start = time.time()
     
     async def query_uid(uid):

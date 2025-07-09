@@ -32,6 +32,14 @@ class RandomTakerAgent(FinanceSimulationAgent):
         """
         The main logic of the strategy executed when a new state is received from validator.
         Analyses the latest market state data and generates instructions to be submitted.
+
+        Args:
+            state (MarketSimulationStateUpdate): The current market state data 
+                provided by the simulation validator.
+
+        Returns:
+            FinanceAgentResponse: A response object containing the list of 
+                instructions (e.g., limit orders) to submit to the market.
         """
         # Initialize a response class associated with the current miner
         response = FinanceAgentResponse(agent_id=self.uid)
@@ -48,4 +56,8 @@ class RandomTakerAgent(FinanceSimulationAgent):
         return response
 
 if __name__ == "__main__":
+    """
+    Example command for local standalone testing execution using Proxy:
+    python RandomTakerAgent.py --port 8888 --agent_id 0 --params min_quantity=0.1 max_quantity=1.0
+    """
     launch(RandomTakerAgent)

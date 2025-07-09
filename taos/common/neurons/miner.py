@@ -91,7 +91,7 @@ class BaseMinerNeuron(BaseNeuron):
         agent_module = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(agent_module)
         agent_class = getattr(agent_module, self.config.agent.name)
-        self.agent = agent_class(self.uid, self.config.agent.params)
+        self.agent = agent_class(self.uid, self.config.agent.params, self.config.neuron.full_path)
     
     async def forward(
         self, synapse: SimulationStateUpdate

@@ -5,8 +5,6 @@ from xml.etree.ElementTree import Element
 from pydantic import Field
 from enum import IntEnum
 from taos.common.protocol import BaseModel
-from taos.im.protocol.simulator import *
-
 """
 Classes representing models of objects occurring within intelligent market simulations are defined here.
 """
@@ -20,7 +18,7 @@ class FeePolicy(BaseModel):
     fee_type : str
     params : dict
     tiers : list[FeeTier]
-    
+
     @classmethod
     def from_xml(cls, xml : Element):
         """
@@ -31,13 +29,13 @@ class FeePolicy(BaseModel):
             match fee_policy.fee_type:
                 case 'static':
                     fee_policy.tiers = [FeeTier(volume_required=0, maker_fee=xml.attrib['makerFee'], taker_fee=xml.attrib['takerFee'] )]
-                case 'tiered':                    
+                case 'tiered':
                     fee_policy.tiers = [FeeTier(volume_required=tier.attrib['volumeRequired'], maker_fee=tier.attrib['makerFee'], taker_fee=tier.attrib['takerFee']) for tier in xml.findall("Tier")]
         else:
             fee_policy = FeePolicy(fee_type=xml.attrib['type'], params={k : v for k, v in xml.attrib if k != 'type'})
             fee_policy.tiers = [FeeTier(volume_required=0, maker_fee=0.0, taker_fee=0.0 )]
         return fee_policy
-    
+
     def to_prom_info(self) -> dict:
         """
         Creates a dictionary containing the details of the fee policy specification in format suitable for publishing via Prometheus Info metric
@@ -57,7 +55,7 @@ class MarketSimulationConfig(BaseModel):
     Class to represent the configuration of a intelligent markets simulation.
     """
     logDir : str | None = None
-    
+
     block_count : int
 
     time_unit : str = 'ns'
@@ -74,9 +72,9 @@ class MarketSimulationConfig(BaseModel):
     quoteDecimals : int
     priceDecimals : int
     volumeDecimals : int
-    
+
     fee_policy : FeePolicy | None = None
-    
+
     max_open_orders : int | None = None
 
     max_leverage : float
@@ -152,7 +150,7 @@ class MarketSimulationConfig(BaseModel):
     sta_agent_tauF : int
     sta_agent_sigmaEps : float
     sta_agent_r_aversion : float
-    
+
     futures_agent_count : int | None = None
     futures_agent_capital_type : str | None = None
     futures_agent_base_balance : float | None = None
@@ -179,7 +177,7 @@ class MarketSimulationConfig(BaseModel):
         FP_config = processes_config.find("FundamentalPrice")
         balances_config = MBE_config.find('Balances')
         fees_config = MBE_config.find("FeePolicy")
-        
+
         init_config = xml.find('Agents').find('InitializationAgent')
         init_balances_config = init_config.find("Balances") if init_config.find("Balances") else balances_config
         STA_config = xml.find('Agents').find('StylizedTraderAgent')
@@ -190,7 +188,7 @@ class MarketSimulationConfig(BaseModel):
         Futures_balances_config = Futures_config.find("Balances") if Futures_config.find("Balances") else balances_config
         return MarketSimulationConfig(
             block_count=int(xml.attrib['blockCount']),
-            
+
             time_unit = str(xml.attrib['timescale']),
             duration = int(xml.attrib['duration']),
             grace_period = int(MBE_config.attrib['gracePeriod']),
@@ -205,9 +203,9 @@ class MarketSimulationConfig(BaseModel):
             quoteDecimals = int(MBE_config.attrib['quoteDecimals']),
             priceDecimals = int(MBE_config.attrib['priceDecimals']),
             volumeDecimals = int(MBE_config.attrib['volumeDecimals']),
-            
+
             fee_policy=FeePolicy.from_xml(fees_config),
-            
+
             max_open_orders=int(MBE_config.attrib['maxOpenOrders']),
 
             max_leverage = float(MBE_config.attrib['maxLeverage']),
@@ -282,13 +280,13 @@ class MarketSimulationConfig(BaseModel):
             sta_agent_tauF = int(STA_config.attrib['tau']),
             sta_agent_sigmaEps = float(STA_config.attrib['sigmaEps']),
             sta_agent_r_aversion = float(STA_config.attrib['r_aversion']),
-            
+
             futures_agent_count = int(Futures_config.attrib['instanceCount']),
             futures_agent_capital_type = "static" if Futures_balances_config.find("Base") != None else Futures_balances_config.attrib['type'],
             futures_agent_base_balance = float(Futures_balances_config.find('Base').attrib['total']) if Futures_balances_config.find("Base") != None else None,
             futures_agent_quote_balance = float(Futures_balances_config.find('Quote').attrib['total']) if Futures_balances_config.find("Quote") != None else None,
             futures_agent_wealth = round(float(Futures_balances_config.find('Quote').attrib['total']) + float(Futures_balances_config.find('Base').attrib['total']) * float(MBE_config.attrib['initialPrice']), int(MBE_config.attrib['quoteDecimals'])) if Futures_balances_config.find("Base") != None else float(Futures_balances_config.attrib['wealth']),
-        
+
             futures_agent_volume = float(Futures_config.attrib['volume']),
             futures_agent_sigmaEps = float(Futures_config.attrib['sigmaEps']),
             futures_agent_lambda = float(Futures_config.attrib['lambda']),
@@ -326,37 +324,38 @@ class Order(BaseModel):
     - order_type: String identifier for the type of the order (limit or market).
     - price: Optional field for the price of the order (None for market orders).
     """
+    y : str = "o"
     i : int = Field(alias='id')
     c : int | None = Field(alias='client_id', default=None)
     t : int = Field(alias='timestamp')
     q : float = Field(alias='quantity')
     s : int = Field(alias='side')
     p : float | None = Field(alias='price')
-    
+
     @property
     def id(self) -> int:
         return self.i
-    
+
     @property
     def client_id(self) -> int | None:
         return self.c
-    
+
     @property
     def timestamp(self) -> int:
         return self.t
-    
+
     @property
     def quantity(self) -> float:
         return self.q
-    
+
     @property
     def side(self) -> int:
         return self.s
-    
+
     @property
     def price(self) -> float | None:
         return self.p
-    
+
     @classmethod
     def from_event(self, event : dict):
         """
@@ -383,15 +382,15 @@ class LevelInfo(BaseModel):
     p : float = Field(alias='price')
     q : float = Field(alias='quantity')
     o: list[Order] | None = Field(alias='orders')
-    
+
     @property
     def price(self) -> float:
         return self.p
-    
+
     @property
     def quantity(self) -> float:
         return self.q
-    
+
     @property
     def orders(self) -> list[Order]:
         return self.o
@@ -422,6 +421,7 @@ class TradeInfo(BaseModel):
     - quantity: Quantity in base currency which was traded.
     - price: The price at which the trade occurred.
     """
+    y : str = "t"
     i : int = Field(alias='id')
     s : int = Field(alias='side')
     t : int = Field(alias='timestamp')
@@ -433,51 +433,51 @@ class TradeInfo(BaseModel):
     Mi : int = Field(alias='maker_id')
     Ma : int = Field(alias='maker_agent_id')
     Mf : float | None = Field(alias='maker_fee', default=None)
-    
+
     @property
     def id(self) -> int:
         return self.i
-    
+
     @property
     def side(self) -> int:
         return self.s
-    
+
     @property
     def timestamp(self) -> int:
         return self.t
-    
+
     @property
     def quantity(self) -> float:
         return self.q
-    
+
     @property
     def price(self) -> float:
         return self.p
-    
+
     @property
     def taker_id(self) -> int:
         return self.Ti
-    
+
     @property
     def taker_agent_id(self) -> int:
         return self.Ta
-    
+
     @property
     def taker_fee(self) -> float | None:
         return self.Tf
-    
+
     @property
     def maker_id(self) -> int:
         return self.Mi
-    
+
     @property
     def maker_agent_id(self) -> int:
         return self.Ma
-    
+
     @property
     def maker_fee(self) -> float | None:
         return self.Mf
-    
+
     @classmethod
     def from_event(self, event : dict):
         """
@@ -495,23 +495,24 @@ class Cancellation(BaseModel):
     - orderId: ID of the cancelled order.
     - quantity: Quantity which was cancelled (None if the entire order was cancelled).
     """
+    y : str = "c"
     i: int = Field(alias="orderId")
     t: int | None = Field(alias='timestamp', default=None)
     p: float | None = Field(alias="price", default=None)
     q: float | None = Field(alias="quantity")
-    
+
     @property
     def orderId(self) -> int:
         return self.i
-    
+
     @property
     def timestamp(self) -> int:
         return self.t
-    
+
     @property
     def price(self) -> float:
         return self.p
-    
+
     @property
     def quantity(self) -> float | None:
         return self.q
@@ -522,141 +523,696 @@ class Cancellation(BaseModel):
         Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
         """
         return Cancellation(orderId=event['orderId'], timestamp=event['timestamp'], price=event['price'], quantity=event['volume'])
-    
+
 class L2Snapshot(BaseModel):
-    timestamp : int
-    bids : dict[float, LevelInfo]
-    asks : dict[float, LevelInfo]
-    
-    def best_bid(self):
+    """
+    Represents a level-2 order book snapshot at a specific timestamp.
+
+    Attributes:
+        timestamp (int): Simulation timestamp of the snapshot in nanoseconds.
+        bids (dict[float, LevelInfo]): Bid side of the order book (price → LevelInfo).
+        asks (dict[float, LevelInfo]): Ask side of the order book (price → LevelInfo).
+    """
+
+    timestamp: int
+    bids: dict[float, LevelInfo]
+    asks: dict[float, LevelInfo]
+
+    def best_bid(self) -> float:
+        """
+        Get the highest bid price in the snapshot.
+
+        Returns:
+            float: The best (highest) bid price.
+        """
         return max(self.bids.keys())
-    
-    def best_ask(self):
+
+    def best_ask(self) -> float:
+        """
+        Get the lowest ask price in the snapshot.
+
+        Returns:
+            float: The best (lowest) ask price.
+        """
         return min(self.asks.keys())
-    
-    def bid_level(self, index):
+
+    def bid_level(self, index: int) -> LevelInfo:
+        """
+        Get a specific bid level sorted by price descending.
+
+        Args:
+            index (int): The index of the bid level to retrieve.
+
+        Returns:
+            LevelInfo: The bid level at the specified index.
+        """
         return self.bids[list(sorted(self.bids.values(), reverse=True))[index]]
-    
-    def ask_level(self, index):
+
+    def ask_level(self, index: int) -> LevelInfo:
+        """
+        Get a specific ask level sorted by price ascending.
+
+        Args:
+            index (int): The index of the ask level to retrieve.
+
+        Returns:
+            LevelInfo: The ask level at the specified index.
+        """
         return self.asks[list(sorted(self.asks.values()))[index]]
-    
-    def compare(self, target):
+
+    def imbalance(self, depth: int | None = None) -> float:
+        """
+        Calculate the order book imbalance at a given depth.
+
+        Imbalance formula:
+            (total_bid_volume - total_ask_volume) / (total_bid_volume + total_ask_volume)
+
+        Args:
+            depth (int | None): Optional number of levels to include in the calculation. If None, uses all levels.
+
+        Returns:
+            float: The imbalance ratio.
+        """
+        total_bid_vol = sum(
+            [bid.quantity for bid in list(self.bids.values())[:(depth if depth else len(self.bids))]]
+        )
+        total_ask_vol = sum(
+            [ask.quantity for ask in list(self.asks.values())[:(depth if depth else len(self.asks))]]
+        )
+        return (total_bid_vol - total_ask_vol) / (total_bid_vol + total_ask_vol)
+
+    def compare(self, target: 'L2Snapshot', config: MarketSimulationConfig) -> tuple[bool, list[str], dict[str, dict[float, float]]]:
+        """
+        Compare this snapshot to a target snapshot, and return a list of discrepancies as well as a dictionary mapping price level to the volume determined to already exist at that level
+        prior to the original snapshot being constructed.  This is necessary as some new price levels may enter the top levels due to cancellations and trades.
+
+        Args:
+            target (L2Snapshot): The snapshot to compare against.
+            config (MarketSimulationConfig): Simulation configuration with rounding and volume precision.
+
+        Returns:
+            tuple:
+                - bool: True if snapshots match (no discrepancies), False otherwise.
+                - list[str]: List of textual discrepancy descriptions.
+                - dict: Dictionary of existing volumes needed to reconcile (bids and asks).
+        """
         discrepancies = []
+        existing_volumes = {'bid': {}, 'ask': {}}
+
+        # Compare bids
         for price, bid in self.bids.items():
             if price in target.bids:
                 if bid.quantity != target.bids[price].quantity:
                     discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET {target.bids[price].quantity}@{price}")
+                if bid.quantity < target.bids[price].quantity:
+                    existing_volumes['bid'][price] = round(target.bids[price].quantity - bid.quantity, config.volumeDecimals)
             else:
                 discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET 0.0@{price}")
+                if bid.quantity < 0:
+                    existing_volumes['bid'][price] = round(-bid.quantity, config.volumeDecimals)
+
+        # Add missing bids from target
+        for price, bid in target.bids.items():
+            if price not in self.bids:
+                discrepancies.append(f"BID : RECON 0.0@{price} vs. TARGET {bid.quantity}@{price}")
+                existing_volumes['bid'][price] = bid.quantity
+
+        # Compare asks
         for price, ask in self.asks.items():
             if price in target.asks:
                 if ask.quantity != target.asks[price].quantity:
                     discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET {target.asks[price].quantity}@{price}")
+                if ask.quantity < target.asks[price].quantity:
+                    existing_volumes['ask'][price] = round(target.asks[price].quantity - ask.quantity, config.volumeDecimals)
             else:
                 discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET 0.0@{price}")
-        return len(discrepancies) == 0, discrepancies
+                if ask.quantity < 0:
+                    existing_volumes['ask'][price] = round(-ask.quantity, config.volumeDecimals)
+
+        # Add missing asks from target
+        for price, ask in target.asks.items():
+            if price not in self.asks:
+                discrepancies.append(f"ASK : RECON 0.0@{price} vs. TARGET {ask.quantity}@{price}")
+                existing_volumes['ask'][price] = ask.quantity
+
+        return len(discrepancies) == 0, discrepancies, existing_volumes
+
+    def sort(self, depth: int | None = None, in_place : bool = True) -> 'L2Snapshot':
+        """
+        Sort bids descending and asks ascending, and truncates levels to the specified depth.
+
+        Args:
+            depth (int | None): Optional number of levels to keep after sorting.
+        """
+        if in_place:
+            self.bids = dict(list(sorted(self.bids.items(), reverse=True))[:(depth if depth else len(self.bids))])
+            self.asks = dict(list(sorted(self.asks.items()))[:(depth if depth else len(self.asks))])
+            return self
+        else:
+            return self.model_copy(update = {
+                "bids" : dict(list(sorted(self.bids.items(), reverse=True))[:(depth if depth else len(self.bids))]),
+                "asks" : dict(list(sorted(self.asks.items()))[:(depth if depth else len(self.asks))])
+            })
+
+    def reconcile(self, existing_volumes: dict[str, dict[float, float]], config: MarketSimulationConfig, depth: int) -> 'L2Snapshot':
+        """
+        Reconcile snapshot levels with specified volume adjustments.
+
+        Args:
+            existing_volumes (dict): Volumes to adjust for bids and asks.
+            config (MarketSimulationConfig): Simulation configuration, for rounding.
+            depth (int): Depth of levels to retain.
+
+        Returns:
+            L2Snapshot: The updated snapshot after reconciliation.
+        """
+        if len(existing_volumes['bid']) > 0 or len(existing_volumes['ask']) > 0:
+            # Adjust bid levels
+            for price, volume in existing_volumes['bid'].items():
+                if price in self.bids:
+                    self.bids[price].q = round(self.bids[price].q + volume, config.volumeDecimals)
+                    if self.bids[price].q == 0:
+                        del self.bids[price]
+                else:
+                    self.bids[price] = LevelInfo(price=price, quantity=volume, orders=None)
+            # Adjust ask levels
+            for price, volume in existing_volumes['ask'].items():
+                if price in self.asks:
+                    self.asks[price].q = round(self.asks[price].q + volume, config.volumeDecimals)
+                    if self.asks[price].q == 0:
+                        del self.asks[price]
+                else:
+                    self.asks[price] = LevelInfo(price=price, quantity=volume, orders=None)
+        self.sort(depth)
+        return self
+
+class L2History:
+    """
+    Represents the historical record of L2Snapshots and trades over time.
+
+    Attributes:
+        snapshots (dict[int, L2Snapshot]): Mapping of timestamps to L2Snapshot instances.
+        trades (dict[int, TradeInfo]): Mapping of timestamps to TradeInfo instances.
+        start (int): The earliest timestamp in the history.
+        end (int): The latest timestamp in the history.
+        retention_mins (int | None): Optional retention window in minutes. If set, older data will be purged.
+    """
+
+    snapshots: dict[int, L2Snapshot]
+    trades: dict[int, TradeInfo]
+    start : int
+    end : int
+    retention_mins : int | None
+
+    def __init__(
+        self,
+        snapshots: dict[int, L2Snapshot],
+        trades: dict[int, TradeInfo],
+        retention_mins: int | None = None
+    ):
+        """
+        Initialize an L2History object.
+
+        Args:
+            snapshots (dict[int, L2Snapshot]): Initial snapshots to populate history.
+            trades (dict[int, TradeInfo]): Initial trades to populate history.
+            retention_mins (int | None): Optional retention window in minutes.
+        """
+        self.snapshots = snapshots
+        self.trades = trades
+        self.start = list(snapshots.keys())[0]
+        self.end = list(snapshots.keys())[-1]
+        self.retention_mins = retention_mins
+
+    def append(self, new_history: 'L2History') -> 'L2History':
+        """
+        Append another L2History instance to this history.
+
+        Merges snapshots and trades, then applies retention logic if enabled.
+
+        Args:
+            new_history (L2History): The history instance to append.
+
+        Returns:
+            L2History: Updated history instance with merged data.
+        """
+        # Merge and sort snapshots and trades
+        self.snapshots = dict(list(sorted((self.snapshots | new_history.snapshots).items())))
+        self.trades = dict(list(sorted((self.trades | new_history.trades).items())))
+        self.end = list(self.snapshots.keys())[-1]
+
+        # Apply retention if configured
+        if self.retention_mins:
+            min_time = self.end - self.retention_mins * 60_000_000_000  # nanoseconds
+            # Remove old snapshots
+            for t in list(self.snapshots):
+                if t < min_time:
+                    del self.snapshots[t]
+                else:
+                    break
+            # Remove old trades
+            for t in list(self.trades):
+                if t < min_time:
+                    del self.trades[t]
+                else:
+                    break
+        self.start = list(self.snapshots.keys())[0]
+        return self
+
+    def insert(self, snapshot : L2Snapshot):
+        """
+        Insert a snapshot to the history, sorting and updating start/end times.
+        
+        Args:
+            snapshot (L2Snapshot): The snapshot to insert.
+        """
+        self.snapshots[snapshot.timestamp] = snapshot
+        self.snapshots = dict(list(sorted((self.snapshots).items())))
+        self.end = list(self.snapshots.keys())[-1]
+        self.start = list(self.snapshots.keys())[0]
+
+    def reconcile(self, existing_volumes: dict[str, dict[float, float]], config: MarketSimulationConfig, depth: int) -> None:
+        """
+        Reconcile all snapshots in history with specified volume adjustments.
+
+        Args:
+            existing_volumes (dict): Dictionary of volume adjustments (bids and asks).
+            config (MarketSimulationConfig): Simulation configuration.
+            depth (int): Depth of order book to retain.
+        """
+        for time in self.snapshots:
+            self.snapshots[time] = self.snapshots[time].reconcile(existing_volumes, config, depth)
+
+    def is_full(self) -> bool:
+        """
+        Check whether the history covers the full retention window.
+
+        Returns:
+            bool: True if the history is full (matches retention window), False otherwise.
+        """
+        if self.retention_mins:
+            return self.start == self.end - self.retention_mins * 60_000_000_000
+        return False
+
+    def sample(self, series: dict[int, float], sampling_secs: float) -> dict[int, float]:
+        """
+        Sample a time series at regular intervals.
+
+        Args:
+            series (dict[int, float]): Original time series (timestamp → value).
+            sampling_secs (float): Interval between samples in seconds.
+
+        Returns:
+            dict[int, float]: Sampled series at requested intervals.
+        """
+        sampled_times = [
+            self.start + sampling_secs * 1_000_000_000 * (i + 1)
+            for i in range(int((self.end - self.start) / (sampling_secs * 1_000_000_000)))
+        ]
+        prev_time, prev_val = self.start, None
+        sampled = {}
+        for time, val in series.items():
+            if sampled_times and time >= sampled_times[0] and prev_time < sampled_times[0]:
+                sampled[sampled_times.pop(0)] = prev_val
+            prev_time, prev_val = time, val
+        return sampled
+
+    def midquote(self, sampling_secs: float | None = None) -> dict[int, float]:
+        """
+        Compute the midquote (average of best bid and ask) over time.
+
+        Args:
+            sampling_secs (float | None): Optional sampling interval in seconds.
+
+        Returns:
+            dict[int, float]: Time series of midquotes.
+        """
+        midquotes = {
+            time: (snapshot.best_bid() + snapshot.best_ask()) / 2
+            for time, snapshot in self.snapshots.items()
+        }
+        return self.sample(midquotes, sampling_secs) if sampling_secs else midquotes
+
+    def bid(self, sampling_secs: float | None = None) -> dict[int, float]:
+        """
+        Get the best bid prices over time.
+
+        Args:
+            sampling_secs (float | None): Optional sampling interval in seconds.
+
+        Returns:
+            dict[int, float]: Time series of best bid prices.
+        """
+        bids = {time: snapshot.best_bid() for time, snapshot in self.snapshots.items()}
+        return self.sample(bids, sampling_secs) if sampling_secs else bids
+
+    def ask(self, sampling_secs: float | None = None) -> dict[int, float]:
+        """
+        Get the best ask prices over time.
+
+        Args:
+            sampling_secs (float | None): Optional sampling interval in seconds.
+
+        Returns:
+            dict[int, float]: Time series of best ask prices.
+        """
+        asks = {time: snapshot.best_ask() for time, snapshot in self.snapshots.items()}
+        return self.sample(asks, sampling_secs) if sampling_secs else asks
+
+    def trade(self, sampling_secs: float | None = None) -> dict[int, float]:
+        """
+        Get the trade prices over time.
+
+        Args:
+            sampling_secs (float | None): Optional sampling interval in seconds.
+
+        Returns:
+            dict[int, float]: Time series of trade prices.
+        """
+        trades = {time: trade.price for time, trade in self.trades.items()}
+        return self.sample(trades, sampling_secs) if sampling_secs else trades
+
+    def imbalance(self, depth: int | None = None, sampling_secs: float | None = None) -> dict[int, float]:
+        """
+        Get the order book imbalance over time.
+
+        Args:
+            depth (int | None): Depth of order book to consider.
+            sampling_secs (float | None): Optional sampling interval in seconds.
+
+        Returns:
+            dict[int, float]: Time series of imbalance values.
+        """
+        imbalance = {time: snapshot.imbalance(depth) for time, snapshot in self.snapshots.items()}
+        return self.sample(imbalance, sampling_secs) if sampling_secs else imbalance
+
+    def mean_imbalance(self, depth: int | None = None) -> float:
+        """
+        Compute the mean order book imbalance over the history.
+
+        Args:
+            depth (int | None): Depth of order book to consider.
+
+        Returns:
+            float: Mean imbalance value.
+        """
+        imbalance_history = self.imbalance(depth)
+        return sum(imbalance_history.values()) / len(imbalance_history)
+
 
 class Book(BaseModel):
     """
-    Represents an orderbook.
+    Represents an order book at a specific point in time, including events
+    (orders, trades, cancellations) that have occurred since the last update.
 
     Attributes:
-    - id: ID of the orderbook in the simulation.
-    - bids: List of LevelInfo objects representing the BID side of the book.
-    - asks: List of LevelInfo objects representing the ASK side of the book.
-    - events: List of models representing the events having occurred on the book since the last state update.
+        i (int): Internal book identifier (aliased as 'id').
+        b (list[LevelInfo]): List of LevelInfo objects representing bid levels (aliased as 'bids').
+        a (list[LevelInfo]): List of LevelInfo objects representing ask levels (aliased as 'asks').
+        e (list[Order | TradeInfo | Cancellation] | None): List of events applied to the book since
+            the last snapshot (aliased as 'events').
     """
-    i : int = Field(alias="id")
-    b : list[LevelInfo] = Field(alias="bids")
-    a : list[LevelInfo] = Field(alias="asks")
-    e : list[Order | TradeInfo | Cancellation] | None = Field(alias="events")
-    
+
+    i: int = Field(alias="id")
+    b: list[LevelInfo] = Field(alias="bids")
+    a: list[LevelInfo] = Field(alias="asks")
+    e: list[Order | TradeInfo | Cancellation] | None = Field(alias="events")
+
     @property
     def id(self) -> int:
+        """
+        Get the ID of the order book.
+
+        Returns:
+            int: The book's unique identifier.
+        """
         return self.i
-    
+
     @property
     def bids(self) -> list[LevelInfo]:
+        """
+        Get the list of bid levels.
+
+        Returns:
+            list[LevelInfo]: Bid levels in descending price order.
+        """
         return self.b
-    
+
     @property
     def asks(self) -> list[LevelInfo]:
+        """
+        Get the list of ask levels.
+
+        Returns:
+            list[LevelInfo]: Ask levels in ascending price order.
+        """
         return self.a
-    
+
     @property
     def events(self) -> list[Order | TradeInfo | Cancellation] | None:
+        """
+        Get the list of recent events applied to the book.
+
+        Returns:
+            list[Order | TradeInfo | Cancellation] | None: List of events or None.
+        """
         return self.e
 
     @classmethod
-    def from_json(self, json : dict):
+    def from_json(cls, json: dict, depth : int = 21) -> 'Book':
         """
-        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
+        Convert a JSON object from the simulator format into a Book instance.
+
+        Args:
+            json (dict): JSON dictionary with book details.
+            depth (int): Number of book levels to retain in the bids and asks arrays.
+
+        Returns:
+            Book: A new Book instance populated with bids, asks, and events.
         """
         id = json['bookId']
         bids = []
         asks = []
         if json['bid']:
-            bids = [LevelInfo.from_json(bid) for bid in json['bid']][:21]
+            # Parse bid levels (limit to top 21)
+            bids = [LevelInfo.from_json(bid) for bid in json['bid']][:depth]
         if json['ask']:
-            asks = [LevelInfo.from_json(ask) for ask in json['ask']][:21]
+            # Parse ask levels (limit to top 21)
+            asks = [LevelInfo.from_json(ask) for ask in json['ask']][:depth]
+
         events = []
         if json['record']:
-            events = [Order.from_event(event) if event['event'] == 'place' else
-                    (TradeInfo.from_event(event)) if event['event'] == 'trade' else
-                        (Cancellation.from_event(event) if event['event'] == 'cancel' else
-                            None) for event in json['record']]
-        return Book(id=id,bids=bids,asks=asks,events=events)
-    
-    def snapshot(self, timestamp):
+            # Parse events: orders, trades, cancellations
+            events = [
+                Order.from_event(event) if event['event'] == 'place' else
+                TradeInfo.from_event(event) if event['event'] == 'trade' else
+                Cancellation.from_event(event) if event['event'] == 'cancel' else
+                None
+                for event in json['record']
+            ]
+
+        return cls(id=id, bids=bids, asks=asks, events=events)
+
+    def snapshot(self, timestamp: int) -> L2Snapshot:
+        """
+        Generate an L2Snapshot of the current book state.
+
+        Args:
+            timestamp (int): Timestamp to assign to the snapshot.
+
+        Returns:
+            L2Snapshot: Snapshot representing current bids and asks.
+        """
         return L2Snapshot(
             timestamp=timestamp,
-            bids={l.price : l for l in self.bids},
-            asks={l.price : l for l in self.asks}
+            bids={l.price: l for l in self.bids},
+            asks={l.price: l for l in self.asks}
         )
-    
-    def l2_history(self, snapshot : L2Snapshot, config : MarketSimulationConfig):
-        history = {snapshot.timestamp : snapshot}
+        
+    def process_history(
+        self, 
+        history: dict[int, L2Snapshot], 
+        trades: dict[int, TradeInfo], 
+        timestamp: int, 
+        config: MarketSimulationConfig, 
+        retention_mins: int, 
+        depth: int | None = None
+    ) -> tuple[L2History, bool, list[str]]:
+        """
+        Processes an existing L2 history with the current book state.
+
+        Args:
+            history (dict[int, L2Snapshot]): Dictionary of previous snapshots indexed by timestamp.
+            trades (dict[int, TradeInfo]): Dictionary of trades indexed by timestamp.
+            timestamp (int): Current timestamp for the new snapshot.
+            config (MarketSimulationConfig): Configuration settings for volume precision and publish intervals.
+            retention_mins (int): Retention period for keeping history (in minutes).
+            depth (int | None): Optional depth to limit order book levels.
+
+        Returns:
+            tuple:
+                - L2History: The updated history object including the new snapshot.
+                - bool: True if the reconstructed snapshot matches the target snapshot.
+                - list[str]: List of discrepancies detected between reconstructed and target snapshot.
+        """
+        # Generate a snapshot of the current book state at the given timestamp
+        target_snapshot: L2Snapshot = self.snapshot(timestamp)
+
+        # Compare the last snapshot in history with the target snapshot to check for discrepancies
+        pre_matched, pre_discrepancies, pre_existing_volumes = (
+            list(history.values())[-1].compare(target_snapshot, config)
+        )
+
+        # Build a new history object from the provided snapshots and trades
+        history_obj: L2History = L2History(
+            snapshots=history, 
+            trades=trades, 
+            retention_mins=retention_mins
+        )
+
+        # Attempt to reconcile discrepancies by applying existing volume corrections
+        history_obj.reconcile(pre_existing_volumes, config, depth)
+
+        # After reconciliation, compare again to detect any remaining mismatches
+        matched, discrepancies, existing_volumes = (
+            list(history_obj.snapshots.values())[-1].compare(target_snapshot, config)
+        )
+
+        # Insert the target snapshot into the history
+        history_obj.insert(target_snapshot)
+
+        return history_obj, matched, discrepancies
+
+    def history(
+        self,
+        snapshot: L2Snapshot,
+        config: MarketSimulationConfig,
+        retention_mins: int | None = None,
+        depth: int | None = None
+    ) -> tuple[L2History, bool, list[str]]:
+        """
+        Build an L2History from the current book and apply all events.
+
+        Args:
+            snapshot (L2Snapshot): The initial snapshot to start from.
+            config (MarketSimulationConfig): Simulation configuration.
+            retention_mins (int | None): Optional retention window in minutes.
+            depth (int | None): Optional depth to limit order book levels.
+
+        Returns:
+            tuple:
+                - L2History: The resulting history after applying events.
+                - bool: True if the resulting snapshot matches the target.
+                - list[str]: List of discrepancies found during reconciliation.
+        """
+        if not depth:
+            depth = len(snapshot.bids)
+        # Create history dictionary and add the starting snapshot
+        history = {snapshot.timestamp: snapshot.model_copy(deep=True)}
+        trades = {}
+
+        # Generate target snapshot for comparison
+        target_snapshot = self.snapshot(snapshot.timestamp + config.publish_interval)
+        # Apply events in chronological order
         for event in sorted(self.events, key=lambda x: x.timestamp):
             match event:
                 case o if isinstance(event, Order):
+                    # Place new order
                     if o.side == OrderDirection.BUY:
-                        if not o.price in snapshot.bids:
+                        if o.price not in snapshot.bids:
                             snapshot.bids[o.price] = LevelInfo(price=o.price, quantity=0.0, orders=None)
-                        snapshot.bids[o.price].q = round(snapshot.bids[o.price].q + o.quantity, config.volumeDecimals)
+                        snapshot.bids[o.price].q = round(
+                            snapshot.bids[o.price].q + o.quantity,
+                            config.volumeDecimals
+                        )
                     else:
-                        if not o.price in snapshot.asks:
+                        if o.price not in snapshot.asks:
                             snapshot.asks[o.price] = LevelInfo(price=o.price, quantity=0.0, orders=None)
-                        snapshot.asks[o.price].q = round(snapshot.asks[o.price].q + o.quantity, config.volumeDecimals)
+                        snapshot.asks[o.price].q = round(
+                            snapshot.asks[o.price].q + o.quantity,
+                            config.volumeDecimals
+                        )
+
                 case t if isinstance(event, TradeInfo):
+                    # Record trade
+                    trades[t.timestamp] = t
                     if t.side == OrderDirection.BUY:
                         if t.price in snapshot.asks:
-                            snapshot.asks[t.price].q = round(snapshot.asks[t.price].q - t.quantity, config.volumeDecimals)
+                            snapshot.asks[t.price].q = round(
+                                snapshot.asks[t.price].q - t.quantity,
+                                config.volumeDecimals
+                            )
                             if snapshot.asks[t.price].quantity == 0.0:
                                 del snapshot.asks[t.price]
                     else:
                         if t.price in snapshot.bids:
-                            snapshot.bids[t.price].q = round(snapshot.bids[t.price].q - t.quantity, config.volumeDecimals)
+                            snapshot.bids[t.price].q = round(
+                                snapshot.bids[t.price].q - t.quantity,
+                                config.volumeDecimals
+                            )
                             if snapshot.bids[t.price].quantity == 0.0:
                                 del snapshot.bids[t.price]
+
                 case c if isinstance(event, Cancellation):
+                    # Cancel existing order
                     if c.price >= snapshot.best_ask():
                         if c.price in snapshot.asks:
-                            snapshot.asks[c.price].q = round(snapshot.asks[c.price].q - c.quantity, config.volumeDecimals)
+                            snapshot.asks[c.price].q = round(
+                                snapshot.asks[c.price].q - c.quantity,
+                                config.volumeDecimals
+                            )
                             if snapshot.asks[c.price].quantity == 0.0:
                                 del snapshot.asks[c.price]
                     else:
                         if c.price in snapshot.bids:
-                            snapshot.bids[c.price].q = round(snapshot.bids[c.price].q - c.quantity, config.volumeDecimals)
+                            snapshot.bids[c.price].q = round(
+                                snapshot.bids[c.price].q - c.quantity,
+                                config.volumeDecimals
+                            )
                             if snapshot.bids[c.price].quantity == 0.0:
                                 del snapshot.bids[c.price]
-            history[event.timestamp] = snapshot
-        snapshot.bids = dict(list(sorted(snapshot.bids.items(), reverse=True))[:len(target_snapshot.bids)])
-        snapshot.asks = dict(list(sorted(snapshot.asks.items()))[:len(target_snapshot.asks)])
-        target_snapshot = self.snapshot(snapshot.timestamp + config.publish_interval)
-        matched, discrepancies = snapshot.compare(target_snapshot)
-        return history, matched, discrepancies
-                        
-                    
+
+            # Add snapshot to history after each update
+            history[event.timestamp] = snapshot.model_copy(deep=True)
+        # Compare resulting snapshot to target
+        pre_matched, pre_discrepancies, pre_existing_volumes = snapshot.compare(target_snapshot, config)
+        history_obj = L2History(snapshots=history, trades=trades, retention_mins=retention_mins)
+        # Apply determined existing volumes to attempt to reconcile any discrepancies
+        history_obj.reconcile(pre_existing_volumes, config, depth)
+        # Check if any remaining discrepancies after reconciliation
+        matched, discrepancies, existing_volumes = list(history_obj.snapshots.values())[-1].compare(target_snapshot, config)
+        # Add the target snapshot to the history
+        history_obj.insert(target_snapshot)
+
+        return history_obj, matched, discrepancies
+
+    def append_to_history(
+        self,
+        history: L2History,
+        config: MarketSimulationConfig,
+        depth: int | None = None
+    ) -> tuple[L2History, bool, list[str]]:
+        """
+        Append the book's events to an existing L2History.
+
+        Args:
+            history (L2History): Existing history to append to.
+            config (MarketSimulationConfig): Simulation configuration.
+            depth (int | None): Optional depth to limit levels.
+
+        Returns:
+            tuple:
+                - L2History: Updated history including new events.
+                - bool: True if final snapshot matches target.
+                - list[str]: List of discrepancies found.
+        """
+        new_history, matched, discrepancies = self.history(
+            snapshot=list(history.snapshots.values())[-1],
+            config=config,
+            retention_mins=history.retention_mins,
+            depth=depth
+        )
+        return history.append(new_history=new_history), matched, discrepancies
 
 class Balance(BaseModel):
     """
@@ -672,19 +1228,19 @@ class Balance(BaseModel):
     t : float = Field(alias="total")
     f : float = Field(alias="free")
     r : float = Field(alias="reserved")
-    
+
     @property
     def currency(self) -> str:
         return self.c
-    
+
     @property
     def total(self) -> float:
         return self.t
-    
+
     @property
     def free(self) -> float:
         return self.f
-    
+
     @property
     def reserved(self) -> float:
         return self.r
@@ -695,7 +1251,7 @@ class Balance(BaseModel):
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
         return Balance(currency=currency,total=json['total'],free=json['free'],reserved=json['reserved'])
-    
+
 class Fees(BaseModel):
     """
     Represents account fees for a specific agent and book.
@@ -708,15 +1264,15 @@ class Fees(BaseModel):
     v : float = Field(alias="volume_traded")
     m : float = Field(alias="maker_fee_rate")
     t : float = Field(alias="taker_fee_rate")
-    
+
     @property
     def volume_traded(self) -> str:
         return self.v
-    
+
     @property
     def maker_fee_rate(self) -> float:
         return self.m
-    
+
     @property
     def taker_fee_rate(self) -> float:
         return self.t
@@ -746,27 +1302,27 @@ class Account(BaseModel):
     qb : Balance = Field(alias="quote_balance")
     o : list[Order] = Field(alias="orders", default=[])
     f : Fees | None = Field(alias="fees")
-    
+
     @property
     def agent_id(self) -> int:
         return self.i
-    
+
     @property
     def book_id(self) -> int:
         return self.b
-    
+
     @property
     def base_balance(self) -> Balance:
         return self.bb
-    
+
     @property
     def quote_balance(self) -> Balance:
         return self.qb
-    
+
     @property
     def orders(self) -> list[Order]:
         return self.o
-    
+
     @property
     def fees(self) -> Fees | None:
         return self.f

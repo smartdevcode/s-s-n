@@ -1,18 +1,24 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+import os
+import msgpack
+import traceback
+import time
 import bittensor as bt
+from threading import Thread
 from abc import ABC, abstractmethod
 from taos.common.agents import SimulationAgent
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 from taos.im.protocol.events import *
+from taos.im.protocol.models import *
 from taos.im.utils import duration_from_timestamp
 
 # Base class for agents operating in intelligent market simulations
-class FinanceSimulationAgent(SimulationAgent):    
-    def __init__(self, uid : int, config : object) -> None:
+class FinanceSimulationAgent(SimulationAgent):
+    def __init__(self, uid : int, config : object, log_dir : str) -> None:
         """
         Initializer method that sets up the agent's unique ID and configuration, and initializes common objects for storing agent data.
-        
+
         Args:
             uid (int): The UID of the agent in the subnet.
             config (obj): Config object for the agent.
@@ -22,7 +28,7 @@ class FinanceSimulationAgent(SimulationAgent):
         """
         self.history = []
         self.accounts = {}
-        super().__init__(uid, config)
+        super().__init__(uid, config, log_dir)
 
     def handle(self, state: MarketSimulationStateUpdate) -> FinanceAgentResponse:
         return super().handle(state)
@@ -30,7 +36,7 @@ class FinanceSimulationAgent(SimulationAgent):
     def update(self, state : MarketSimulationStateUpdate) -> None:
         """
         Method to update the stored agent data, print relevant state information and trigger handlers for reported events.
-        
+
         Args:
             state (taos.im.protocol.MarketSimulationStateUpdate): The UID of the agent in the subnet.
 
@@ -116,26 +122,26 @@ class FinanceSimulationAgent(SimulationAgent):
             update_text += f"{event}" + "\n"
             update_text += '-' * 50 + "\n"
             self.onEnd(event)
-        bt.logging.debug("." + debug_text)        
+        bt.logging.debug("." + debug_text)
         bt.logging.info("." + update_text)
-    
+
     # Handler functions for various simulation events, to be overridden in agent implementations.
     def onStart(self, event : SimulationStartEvent) -> None:
         """
         Handler for simulation start event.  To be implemented by subclasses.
-        
+
         Args:
             event (taos.im.protocol.events.SimulationStartEvent): The event class representing start of simulation.
 
         Returns:
             None
         """
-        pass      
+        pass
 
     def onOrderAccepted(self, event : OrderPlacementEvent) -> None:
         """
         Handler for event where order is accepted to the book by simulator.  To be implemented by subclasses.
-        
+
         Args:
             event (taos.im.protocol.events.OrderPlacementEvent): The event class representing order placement.
 
@@ -147,7 +153,7 @@ class FinanceSimulationAgent(SimulationAgent):
     def onOrderRejected(self, event : OrderPlacementEvent) -> None:
         """
         Handler for event where order is rejected for placement by simulator.  To be implemented by subclasses.
-        
+
         Args:
             event (taos.im.protocol.events.OrderPlacementEvent): The event class representing order rejection.
 
@@ -163,19 +169,19 @@ class FinanceSimulationAgent(SimulationAgent):
     def onOrderCancelled(self, event : OrderCancellationEvent) -> None:
         """
         Handler for event where order is cancelled in the simulator.  To be implemented by subclasses.
-        
+
         Args:
             event (taos.im.protocol.events.OrderCancellationEvent): The event class representing order cancellation.
 
         Returns:
             None
         """
-        pass        
+        pass
 
     def onOrderCancellationFailed(self, event : OrderCancellationEvent) -> None:
         """
         Handler for event where order cancellation request is rejected by the simulator.  To be implemented by subclasses.
-        
+
         Args:
             event (taos.im.protocol.events.OrderCancellationEvent): The event class representing order cancellation.
 
@@ -187,7 +193,7 @@ class FinanceSimulationAgent(SimulationAgent):
     def onTrade(self, event : TradeEvent) -> None:
         """
         Handler for event where an order is traded in the simulator.  To be implemented by subclasses.
-        
+
         Args:
             event (taos.im.protocol.events.TradeEvent): The event class representing a trade.
 
@@ -195,23 +201,23 @@ class FinanceSimulationAgent(SimulationAgent):
             None
         """
         pass
-        
+
     def onEnd(self, event : SimulationEndEvent) -> None:
         """
         Handler for simulation end event.  To be implemented by subclasses.
-        
+
         Args:
             event (taos.im.protocol.events.SimulationEndEvent): The event class representing end of simulation.
 
         Returns:
             None
         """
-        pass 
+        pass
 
     def respond(self, state : MarketSimulationStateUpdate) -> FinanceAgentResponse:
         """
         Abstract method for handling generation of response to new state update.  To be implemented by subclasses.
-        
+
         Args:
             state (taos.im.protocol.MarketSimulationStateUpdate): The class representing the latest state of the simulation.
 
@@ -223,7 +229,7 @@ class FinanceSimulationAgent(SimulationAgent):
     def report(self, state : MarketSimulationStateUpdate, response : FinanceAgentResponse) -> None:
         """
         Method for reporting the latest simulation state and the response generated by the agent.
-        
+
         Args:
             state (taos.im.protocol.MarketSimulationStateUpdate): The class representing the latest state of the simulation.
             response (taos.im.protocol.FinanceAgentResponse): The class representing the response of the agent.
@@ -241,3 +247,377 @@ class FinanceSimulationAgent(SimulationAgent):
             update_text += 'NO INSTRUCTIONS TO SUBMIT' + "\n"
         update_text += '-' * 50
         bt.logging.info(".\n" + update_text)
+
+from taos.im.utils.history import history, batch_history
+class StateHistoryManager:
+    """
+    Manages the state history for market simulations, including reconstruction of L2 states,
+    constructing and maintaining histories over multiple state updates, as well as
+    saving and loading of history data for later retrieval.
+    """
+
+    def __init__(self, history_retention_mins: int, log_dir: str, depth: int = 21, parallel_workers: int = 0, save: bool = False):
+        """
+        Initialize the StateHistoryManager.
+
+        Args:
+            history_retention_mins (int): Retention period for history in minutes.
+            log_dir (str): Directory to store history files.
+            depth (int): Number of levels of the order book to retain in history.
+            parallel_workers (int): Number of parallel processes for reconstruction; if 0, disables parallelization.
+            save (bool): If True, persist history to file after each update.
+        """
+        self.history_retention_mins: int = history_retention_mins  # Retention duration for history data
+        self.log_dir: str = log_dir  # Directory path for log and history files
+        self.state_file: str = os.path.join(log_dir, "history.mp")  # Path to serialized state file
+
+        self.gap: dict[str, dict[int, bool]] = {}  # Tracks gaps in validator/book histories
+        self.depth: int = depth  # Number of book levels to store
+        self.parallel_workers: int = parallel_workers  # Number of processes for parallel reconstruction
+        self.parallel: bool = parallel_workers > 0  # Whether parallel processing is enabled
+
+        self.should_save: bool = save  # Whether to automatically save history after updates
+        self.saving: bool = False  # Flag: True if a save operation is in progress
+        self.updating: bool = False  # Flag: True if an update operation is in progress
+
+        self.last_snapshot: dict[str, dict[int, L2Snapshot]] = {}  # Last known snapshot per validator/book
+        self.history: dict[str, dict[int, L2History]] = {}  # Full history per validator/book
+
+        self.load()  # Attempt to load existing history from disk
+
+    def update(self, state: MarketSimulationStateUpdate) -> None:
+        """
+        Update the history with a new market simulation state.
+
+        Args:
+            state (MarketSimulationStateUpdate): The latest simulation state to process.
+        """
+        self.updating = True
+        try:
+            validator: str = state.dendrite.hotkey  # Validator identifier
+
+            # Ensure internal structures for this validator exist
+            if validator not in self.last_snapshot:
+                self.last_snapshot[validator] = {}
+            if validator not in self.history:
+                self.history[validator] = {}
+            if validator not in self.gap:
+                self.gap[validator] = {}
+
+            # Wait for any ongoing save operation to complete
+            while self.saving:
+                bt.logging.info("Waiting for history saving to complete...")
+                time.sleep(0.5)
+
+            snapshots: dict[int, L2Snapshot | None] = {}
+            for book_id, book in state.books.items():
+                snapshots[book_id] = self._prepare_snapshot(state, book)
+
+            # If all snapshots were successfully prepared
+            if all(snapshots.values()):
+                bt.logging.info(f"Updating state history for {validator} at {duration_from_timestamp(state.timestamp)}...")
+                start_time = time.time()
+
+                # Parallel or sequential history reconstruction
+                if self.parallel:
+                    num_processes = min(self.parallel_workers, len(state.books))
+                    if len(state.books) % num_processes != 0:
+                        raise ValueError(f"`parallel_workers` ({self.parallel_workers}) must divide number of books ({len(state.books)}).")
+
+                    # Divide books into batches for parallel processing
+                    batch_size = len(state.books) // num_processes
+                    batches = [list(state.books.keys())[i:i + batch_size] for i in range(0, len(state.books), batch_size)]
+                    histories = batch_history(
+                        {book_id: snapshot.model_dump() for book_id, snapshot in snapshots.items()},
+                        {book_id: [event.model_dump() for event in book.events] for book_id, book in state.books.items()},
+                        batches,
+                        state.config.volumeDecimals
+                    )
+                else:
+                    # Process sequentially
+                    histories = {
+                        book_id: history(
+                            snapshot.model_dump(),
+                            [event.model_dump() for event in state.books[book_id].events],
+                            state.config.volumeDecimals
+                        )
+                        for book_id, snapshot in snapshots.items()
+                    }
+
+                # Validate and process histories
+                processed_histories = {
+                    book_id: state.books[book_id].process_history(
+                        {t: L2Snapshot.model_validate(snapshot).sort(self.depth) for t, snapshot in hist.items()},
+                        {t: TradeInfo.model_validate(trade) for t, trade in trades.items()},
+                        state.timestamp,
+                        state.config,
+                        self.history_retention_mins,
+                        self.depth
+                    )
+                    for book_id, (hist, trades) in histories.items()
+                }
+
+                # Update all books in the state
+                for book_id, book in state.books.items():
+                    history_obj, matched, discrepancies = processed_histories[book_id]
+                    self._update_book_history(state, book, history_obj, matched, discrepancies)
+
+                bt.logging.info(f"Updated State History ({time.time() - start_time:.2f}s)")
+
+            if self.should_save:
+                # Trigger asynchronous save
+                self.save()
+
+        except Exception as ex:
+            bt.logging.error(f"Exception processing state update for {validator} at {duration_from_timestamp(state.timestamp)}: {ex}")
+        finally:
+            self.updating = False
+
+    def update_async(self, state: MarketSimulationStateUpdate) -> None:
+        """
+        Update the history asynchronously in a separate thread.
+        Allows non-blocking updates while other operations continue.
+
+        Args:
+            state (MarketSimulationStateUpdate): The latest simulation state to process.
+        """
+        if not self.updating:
+            Thread(target=self.update, args=(state,), daemon=True, name=f'update_history_{state.timestamp}').start()
+
+    def _prepare_snapshot(self, state: MarketSimulationStateUpdate, book: Book) -> L2Snapshot | None:
+        """
+        Prepare a snapshot for a specific book, handling gaps if necessary.
+
+        Args:
+            state (MarketSimulationStateUpdate): The current simulation state.
+            book (Book): The book data to process.
+
+        Returns:
+            L2Snapshot | None: The prepared snapshot, or None if unavailable.
+        """
+        book_id: int = book.id
+        validator: str = state.dendrite.hotkey
+        snapshot: L2Snapshot | None = None
+
+        try:
+            # Detect gaps or inconsistencies in history
+            has_gap = (
+                (book_id not in self.gap[validator] or not self.gap[validator][book_id])
+                and (
+                    (book_id in self.history[validator] and self.history[validator][book_id].end != state.timestamp - state.config.publish_interval)
+                    or (book_id in self.last_snapshot[validator] and self.last_snapshot[validator][book_id].timestamp != state.timestamp - state.config.publish_interval)
+                )
+            )
+            if has_gap:
+                # Clear outdated snapshots and handle small/large gaps
+                if book_id in self.last_snapshot[validator]:
+                    del self.last_snapshot[validator][book_id]
+                if book_id in self.history[validator]:
+                    if state.timestamp > self.history[validator][book_id].end and state.timestamp < self.history[validator][book_id].end + (self.history_retention_mins * 60_000_000_000) // 10:
+                        self.gap[validator][book_id] = True
+                        if book_id == 0:
+                            bt.logging.warning(
+                                f"VALI {validator}: Small gap detected in L2 history from {duration_from_timestamp(self.history[validator][book_id].end)} to {duration_from_timestamp(state.timestamp - state.config.publish_interval)}. Continuing history."
+                            )
+                    else:
+                        self.gap[validator][book_id] = False
+                        if book_id == 0:
+                            bt.logging.warning(
+                                f"VALI {validator}: Large gap detected in L2 history. Resetting history for book {book_id}."
+                            )
+                        del self.history[validator][book_id]
+
+            # Determine appropriate snapshot to use
+            if book_id in self.last_snapshot[validator]:
+                if book_id not in self.history[validator]:
+                    snapshot = self.last_snapshot[validator][book_id]
+                else:
+                    if self.history[validator][book_id].end == state.timestamp - state.config.publish_interval:
+                        snapshot = list(self.history[validator][book_id].snapshots.values())[-1]
+                    else:
+                        snapshot = self.last_snapshot[validator][book_id]
+
+            # Update last snapshot for this book
+            self.last_snapshot[validator][book_id] = book.snapshot(state.timestamp)
+
+        except Exception as ex:
+            bt.logging.error(
+                f"VALI {validator} BOOK {book_id}: Exception while processing state at {duration_from_timestamp(state.timestamp)} (T={state.timestamp}): {ex}\n{traceback.format_exc()}"
+            )
+        finally:
+            return snapshot
+
+    def _update_book_history(self, state: MarketSimulationStateUpdate, book: Book, history: L2History, matched: bool, discrepancies: list[str]) -> None:
+        """
+        Commit an updated book history to the state manager.
+
+        Args:
+            state (MarketSimulationStateUpdate): The current simulation state.
+            book (Book): The book being updated.
+            history (L2History): The reconstructed book history.
+            matched (bool): Whether reconstructed snapshot matches published state.
+            discrepancies (list[str]): List of discrepancies found during reconstruction.
+        """
+        book_id: int = book.id
+        validator: str = state.dendrite.hotkey
+
+        try:
+            if book_id in self.last_snapshot[validator]:
+                self.gap[validator][book_id] = False
+                if book_id not in self.history[validator]:
+                    self.history[validator][book_id] = history
+                    if book_id == 0:
+                        bt.logging.info(
+                            f"VALI {validator}: Initialized new L2 history at {duration_from_timestamp(self.history[validator][book_id].end)} "
+                            f"(Available: {duration_from_timestamp(self.history[validator][book_id].start)}-{duration_from_timestamp(self.history[validator][book_id].end)})"
+                        )
+                else:
+                    if self.history[validator][book_id].end == state.timestamp - state.config.publish_interval:
+                        self.history[validator][book_id] = self.history[validator][book_id].append(history)
+                        if book_id == 0:
+                            bt.logging.info(
+                                f"VALI {validator}: Appended L2 history at {state.timestamp} "
+                                f"(Available: {duration_from_timestamp(self.history[validator][book_id].start)}-{duration_from_timestamp(self.history[validator][book_id].end)})"
+                            )
+                    else:
+                        # Recover after history gap
+                        self.history[validator][book_id] = self.history[validator][book_id].append(history)
+                        if book_id == 0:
+                            bt.logging.info(
+                                f"VALI {validator}: Recovered after history gap at {state.timestamp} "
+                                f"(Available: {duration_from_timestamp(self.history[validator][book_id].start)}-{duration_from_timestamp(self.history[validator][book_id].end)})"
+                            )
+
+                if not matched:
+                    bt.logging.error(
+                        f"VALI {validator} BOOK {book_id}: Mismatch between reconstructed and published book state:\n" + "\n".join(discrepancies)
+                    )
+
+            # Always update the last snapshot
+            self.last_snapshot[validator][book_id] = book.snapshot(state.timestamp)
+
+        except Exception as ex:
+            bt.logging.error(
+                f"VALI {validator} BOOK {book_id}: Exception while processing state at {duration_from_timestamp(state.timestamp)} (T={state.timestamp}): {ex}\n{traceback.format_exc()}"
+            )
+
+    def __getitem__(self, validator: str) -> dict[int, L2History]:
+        """
+        Access the history for a specific validator.
+
+        Args:
+            validator (str): Validator identifier.
+
+        Returns:
+            dict[int, L2History]: Mapping of book IDs to their histories.
+        """
+        return self.history[validator]
+
+    def __contains__(self, validator: str) -> bool:
+        """
+        Check if a validator has history stored.
+
+        Args:
+            validator (str): Validator identifier.
+
+        Returns:
+            bool: True if history exists, False otherwise.
+        """
+        return validator in self.history
+
+    def serialize(self) -> dict[str, Any]:
+        """
+        Serialize the current state history into a dictionary.
+
+        Returns:
+            dict[str, Any]: Serialized representation of the state history.
+        """
+        return {
+            "last_snapshot": {
+                validator: {book_id: snapshot.model_dump() for book_id, snapshot in validator_snapshot.items()}
+                for validator, validator_snapshot in self.last_snapshot.items()
+            },
+            "history": {
+                validator: {
+                    book_id: {
+                        'snapshots': {t: snapshot.model_dump() for t, snapshot in history.snapshots.items()},
+                        'trades': {t: trade.model_dump() for t, trade in history.trades.items()}
+                    }
+                    for book_id, history in validator_history.items()
+                }
+                for validator, validator_history in self.history.items()
+            }
+        }
+
+    def populate(self, serialized: dict[str, Any]) -> None:
+        """
+        Populate the state history from a serialized dictionary.
+
+        Args:
+            serialized (dict[str, Any]): Serialized history data.
+        """
+        self.last_snapshot = {
+            validator: {book_id: L2Snapshot.model_validate(snapshot) for book_id, snapshot in validator_snapshot.items()}
+            for validator, validator_snapshot in serialized["last_snapshot"].items()
+        }
+        self.history = {
+            validator: {
+                book_id: L2History(
+                    snapshots={t: L2Snapshot.model_validate(snapshot) for t, snapshot in history_data["snapshots"].items()},
+                    trades={t: TradeInfo.model_validate(trade) for t, trade in history_data["trades"].items()},
+                    retention_mins=self.history_retention_mins
+                )
+                for book_id, history_data in validator_history.items()
+            }
+            for validator, validator_history in serialized["history"].items()
+        }
+
+    def _save(self) -> None:
+        """
+        Save the current state history to disk synchronously.
+        """
+        self.saving = True
+        bt.logging.info("Saving history...")
+        start_time = time.time()
+
+        # Write serialized data to a temporary file
+        with open(self.state_file + ".tmp", 'wb') as file:
+            packed_data = msgpack.packb(self.serialize(), use_bin_type=True)
+            file.write(packed_data)
+
+        # Replace old state file with new one
+        if os.path.exists(self.state_file):
+            os.remove(self.state_file)
+        os.rename(self.state_file + ".tmp", self.state_file)
+
+        bt.logging.info(f"History saved to {self.state_file} ({time.time() - start_time:.2f}s)")
+        self.saving = False
+
+    def save(self) -> None:
+        """
+        Save the state history asynchronously in a separate thread.
+        """
+        if not self.saving:
+            Thread(target=self._save, daemon=True, name='save_history').start()
+
+    def load(self) -> None:
+        """
+        Load the state history from disk if available, otherwise initialize empty structures.
+        """
+        if os.path.exists(self.state_file):
+            bt.logging.info(f"Loading history from {self.state_file}...")
+            with open(self.state_file, 'rb') as file:
+                byte_data = file.read()
+            state_data = msgpack.unpackb(byte_data, use_list=False, strict_map_key=False)
+            self.populate(state_data)
+            bt.logging.success("Loaded history! Available data:")
+            for validator, validator_history in self.history.items():
+                for book_id, book_history in validator_history.items():
+                    bt.logging.info(
+                        f"VALI {validator} BOOK {book_id}: {duration_from_timestamp(book_history.start)} - {duration_from_timestamp(book_history.end)}"
+                    )
+        else:
+            # No saved state found; start fresh
+            bt.logging.info(f"No history file found at {self.state_file}. Initializing empty history.")
+            self.last_snapshot = {}
+            self.history = {}

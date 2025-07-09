@@ -381,7 +381,7 @@ class TradeEvent(FinanceEvent):
         )
     
     def __str__(self):
-        return f"{'BUY ' if self.side == 0 else 'SELL'} TRADE #{self.tradeId} : RESTING ORDER #{self.makerOrderId} (AGENT {self.makerAgentId}) MATCHED AGAINST #{self.takerOrderId} (AGENT {self.takerAgentId}) FOR {self.quantity}@{self.price} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp})"
+        return f"{'BUY ' if self.side == 0 else 'SELL'} TRADE #{self.tradeId} : AGGRESSIVE ORDER #{self.takerOrderId} (AGENT {self.takerAgentId}) MATCHED AGAINST #{self.makerOrderId} (AGENT {self.makerAgentId}) FOR {self.quantity}@{self.price} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp})"
     
 
 class ResetAgentEvent(FinanceEvent):

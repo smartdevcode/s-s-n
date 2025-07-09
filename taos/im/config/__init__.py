@@ -181,7 +181,7 @@ def add_im_validator_args(cls, parser):
         "--rewarding.pareto.shape",
         type=float,
         help="Shape parameter for Pareto distribution used in allocating rewards.",
-        default=1.16,
+        default=1.42,
     )
     
     parser.add_argument(
