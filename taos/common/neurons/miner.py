@@ -279,7 +279,8 @@ class BaseMinerNeuron(BaseNeuron):
                     else:
                         bt.logging.success("Published axon to chain.")
                 except Exception as ex:
-                    bt.logging.error(f"Exception when attempting to serve axon - Retrying (Attempt {attempts}) : {ex}")
+                    bt.logging.error(f"Exception when attempting to serve axon - Retrying in 5 secs (Attempt {attempts}) : {ex}")
+                    time.sleep(5)
         else:
             raise Exception("Cannot serve axon - invalid subtensor.  Check bittensor version and configuration and try again.")        
 

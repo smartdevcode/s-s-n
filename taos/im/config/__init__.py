@@ -101,6 +101,13 @@ def add_im_validator_args(cls, parser):
     )
 
     parser.add_argument(
+        "--compression.parallel_workers",
+        type=int,
+        help="Number of parallel workers to use in synapse compression. (0 => no parallelization)",
+        default=0,
+    )
+    
+    parser.add_argument(
         "--scoring.max_instructions_per_book",
         type=int,
         help="Maximum number of instructions that can be submitted by miners for each book in a single response.",

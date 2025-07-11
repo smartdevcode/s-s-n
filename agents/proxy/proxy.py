@@ -21,6 +21,7 @@ from taos.im.protocol import MarketSimulationStateUpdate, MarketSimulationConfig
 from taos.im.protocol.simulator import SimulatorResponseBatch
 from taos.im.protocol.events import SimulationStartEvent
 
+from ypyjson import YpyObject
 import xml.etree.ElementTree as ET
 #--------------------------------------------------------------------------
 
@@ -80,9 +81,10 @@ class Proxy(Validator):
         bt.logging.info("-"*40)
 
     async def orderbook(self, request : Request):
+        start = time.time()
         body = await request.body()
-        message = msgspec.json.decode(body)
-        state = MarketSimulationStateUpdate.from_json(message) # Populate synapse class from request data
+        message = YpyObject(body, 1)
+        state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
         if not self.start_time:
             self.start_time = time.time()
             self.start_timestamp = state.timestamp

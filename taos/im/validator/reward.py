@@ -231,5 +231,5 @@ def set_delays(self : Validator, synapse_responses : dict[int, MarketSimulationS
             for instruction in response.instructions:
                 instruction.delay = delay + instruction.delay
             responses.append(response)
-            bt.logging.debug(f"UID {response.agent_id} Responded with {len(response.instructions)} instructions after {synapse_response.dendrite.process_time:.4f}s - delay set to {delay}{self.simulation.time_unit}")
+            bt.logging.info(f"UID {response.agent_id} Responded with {len(response.instructions)} instructions after {synapse_response.dendrite.process_time:.4f}s - delay set to {delay}{self.simulation.time_unit}")
     return responses

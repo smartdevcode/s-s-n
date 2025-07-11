@@ -7,12 +7,14 @@ from taos.common.protocol import SimulationStateUpdate, AgentResponse, EventNoti
 
 # Defining an abstract base class for simulation agents
 class SimulationAgent(ABC):
-    def __init__(self, uid, config, log_dir):
+    def __init__(self, uid, config, log_dir = None):
         """
         Initializer method that sets up the agent's unique ID and configuration.
         """
         self.uid = uid
         self.config = config
+        if not log_dir:
+            log_dir = f"logs/{uid}"
         self.log_dir = log_dir
         self.state_file = os.path.join(log_dir, 'state.mp')
         self.router = APIRouter()

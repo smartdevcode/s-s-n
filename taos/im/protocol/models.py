@@ -1336,26 +1336,25 @@ class OrderDirection(IntEnum):
 
 class STP(IntEnum):
     """
-    Enum to represent order direction.
+    Enum to represent self-trade prevention options.
     """
-    NO_STP=0
-    CANCEL_OLDEST=1
-    CANCEL_NEWEST=2
-    CANCEL_BOTH=3
-    DECREASE_CANCEL=4
+    NO_STP=0 # No self-trade prevention
+    CANCEL_OLDEST=1 # If self-trade would occur when placing an order, cancel the resting order
+    CANCEL_NEWEST=2 # If self-trade would occur when placing an order, cancel the aggressive order
+    CANCEL_BOTH=3 # If self-trade would occur when placing an order, cancel both orders
+    DECREASE_CANCEL=4 # If self-trade would occur when placing an order, cancel the quantity of the smaller order from the larger
 
 class TimeInForce(IntEnum):
     """
     Enum to represent order time-in-force options.
     """
-    GTC=0
-    GTT=1
-    IOC=2
-    FOK=3
-
+    GTC=0 # Order remains on the book until cancelled by the agent, or executed in a trade.
+    GTT=1 # Order remains on the book until specified expiry period elapses, unless traded or cancelled before expiry.
+    IOC=2 # Any part of the order which is not immediately traded will be cancelled.
+    FOK=3 # If the order will not be executed in its entirety immediately upon receipt by the simulator, the order will be rejected.
 class OrderCurrency(IntEnum):
     """
-    Enum to represent order direction.
+    Enum to represent the currency in which the quantity of an order is specified.
     """
     BASE=0
     QUOTE=1

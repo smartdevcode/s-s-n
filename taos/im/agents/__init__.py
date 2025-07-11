@@ -15,7 +15,7 @@ from taos.im.utils import duration_from_timestamp
 
 # Base class for agents operating in intelligent market simulations
 class FinanceSimulationAgent(SimulationAgent):
-    def __init__(self, uid : int, config : object, log_dir : str) -> None:
+    def __init__(self, uid : int, config : object, log_dir : str | None = None) -> None:
         """
         Initializer method that sets up the agent's unique ID and configuration, and initializes common objects for storing agent data.
 
@@ -88,8 +88,9 @@ class FinanceSimulationAgent(SimulationAgent):
             debug_text += '-' * 50 + "\n"
             for event in self.events:
                 if hasattr(event, 'bookId') and event.bookId == book_id:
-                    debug_text += f"{event}" + "\n"
-                    update_text += f"BOOK {book_id} : {event}" + "\n"
+                    if not event.type in ["EVENT_TRADE", "ET"]:
+                        debug_text += f"{event}" + "\n"
+                        update_text += f"BOOK {book_id} : {event}" + "\n"
                     match event.type:
                         case "RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "RDPOL" | "RDPOM":
                             self.onOrderAccepted(event)
@@ -102,6 +103,13 @@ class FinanceSimulationAgent(SimulationAgent):
                             for cancellation in event.cancellations:
                                 self.onOrderCancellationFailed(cancellation)
                         case "EVENT_TRADE" | "ET":
+                            role = "taker" if self.uid == event.takerAgentId else "maker"
+                            trade_text = f"{'BUY ' if event.side == 0 else 'SELL'} TRADE #{event.tradeId} : YOUR {'AGGRESSIVE' if role=='taker' else 'PASSIVE'} " + \
+                                f"ORDER #{event.takerOrderId if role=='taker' else event.makerOrderId} (AGENT {event.takerAgentId if role=='taker' else event.makerAgentId}) " + \
+                                f"MATCHED AGAINST #{event.makerOrderId if role=='taker' else event.takerOrderId} (AGENT {event.makerAgentId if role=='taker' else event.takerAgentId}) " + \
+                                f"FOR {event.quantity}@{event.price} AT {duration_from_timestamp(event.timestamp)} (T={event.timestamp})"
+                            debug_text += f"{trade_text}" + "\n"
+                            update_text += f"BOOK {book_id} : {trade_text}" + "\n"
                             self.onTrade(event)
                         case _:
                             bt.logging.warning(f"Unknown event : {event}")
@@ -110,13 +118,13 @@ class FinanceSimulationAgent(SimulationAgent):
                 debug_text += 'ORDERS' + "\n"
                 debug_text += '-' * 50 + "\n"
                 for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"
+                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
             if account.fees:
                 debug_text += '-' * 50 + "\n"
                 debug_text += f'FEES : TRADED {account.fees.volume_traded} | MAKER {account.fees.maker_fee_rate * 100}% | TAKER {account.fees.taker_fee_rate * 100}%' + "\n"
                 debug_text += '-' * 50 + "\n"
                 for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} (PLACED AT T={order.timestamp})" + "\n"
+                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
             debug_text += '-' * 50 + "\n"
         if simulation_ended:
             update_text += f"{event}" + "\n"
@@ -476,7 +484,7 @@ class StateHistoryManager:
                         self.history[validator][book_id] = self.history[validator][book_id].append(history)
                         if book_id == 0:
                             bt.logging.info(
-                                f"VALI {validator}: Appended L2 history at {state.timestamp} "
+                                f"VALI {validator}: Appended L2 history at {duration_from_timestamp(state.timestamp)} "
                                 f"(Available: {duration_from_timestamp(self.history[validator][book_id].start)}-{duration_from_timestamp(self.history[validator][book_id].end)})"
                             )
                     else:
@@ -484,7 +492,7 @@ class StateHistoryManager:
                         self.history[validator][book_id] = self.history[validator][book_id].append(history)
                         if book_id == 0:
                             bt.logging.info(
-                                f"VALI {validator}: Recovered after history gap at {state.timestamp} "
+                                f"VALI {validator}: Recovered after history gap at {duration_from_timestamp(state.timestamp)} "
                                 f"(Available: {duration_from_timestamp(self.history[validator][book_id].start)}-{duration_from_timestamp(self.history[validator][book_id].end)})"
                             )
 

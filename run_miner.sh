@@ -7,7 +7,7 @@ NETUID=1
 AXON_PORT=8091
 AGENT_PATH=~/.taos/agents
 AGENT_NAME=RandomMakerAgent
-AGENT_PARAMS="min_quantity=0.1 max_quantity=1.0 expiry_period=200"
+AGENT_PARAMS="min_quantity=0.1 max_quantity=1.0 expiry_period=200000000000"
 LOG_LEVEL=info
 while getopts e:p:w:h:u:a:g:n:m:l: flag
 do

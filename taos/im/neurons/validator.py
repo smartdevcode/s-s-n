@@ -32,6 +32,7 @@ if __name__ != "__mp_main__":
     import zipfile
     import asyncio
     from datetime import datetime
+    from ypyjson import YpyObject
 
     # Bittensor
     print(f"BT : {__file__} {__name__}")
@@ -48,6 +49,7 @@ if __name__ != "__mp_main__":
     from git import Repo
     from pathlib import Path
 
+    from taos import __spec_version__
     from taos.common.neurons.validator import BaseValidatorNeuron
     from taos.im.utils import duration_from_timestamp
 
@@ -462,8 +464,6 @@ if __name__ != "__mp_main__":
             Triggered when start of simulation event is published by simulator.
             Sets the simulation output directory and retrieves any fundamental price values already written.
             """
-            bt.logging.info("-"*40)
-            bt.logging.info("SIMULATION STARTED")
             self.load_simulation_config()
             self.trade_volumes = {
                 uid : {
@@ -486,6 +486,9 @@ if __name__ != "__mp_main__":
             self.step_rates = []
             self.simulation.logDir = event.logDir
             self.compress_outputs(start=True)
+            bt.logging.info("-"*40)
+            bt.logging.info("SIMULATION STARTED")
+            bt.logging.info("-"*40)
             bt.logging.info(f"START TIME: {self.start_time}")
             bt.logging.info(f"TIMESTAMP : {self.start_timestamp}")
             bt.logging.info(f"OUT DIR   : {self.simulation.logDir}")
@@ -590,9 +593,11 @@ if __name__ != "__mp_main__":
             bt.logging.debug("Received state update from simulator")
             global_start = time.time()
             start = time.time()
-            body = await request.body()
-            message = msgspec.json.decode(body)
-            state = MarketSimulationStateUpdate.from_json(message) # Populate synapse class from request data
+            body = await request.body()            
+            start = time.time()
+            message = YpyObject(body, 1)
+            state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data            
+            state.version = __spec_version__
             bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")
             
             # Update variables
