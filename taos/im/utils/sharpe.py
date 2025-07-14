@@ -6,7 +6,7 @@ from loky import get_reusable_executor
 
 from taos.im.utils import normalize
 
-def sharpe(uid, inventory_values, lookback, norm_min, norm_max) -> dict:
+def sharpe(uid, inventory_values, lookback, norm_min, norm_max, grace_period) -> dict:
     """
     Calculates intraday Sharpe ratios for a particular UID using the change in inventory values over previous `config.scoring.sharpe.lookback` observations to represent returns.
     Values are also stored to a property of the Validator class to be accessed later for scoring and reporting purposes.
@@ -28,7 +28,7 @@ def sharpe(uid, inventory_values, lookback, norm_min, norm_max) -> dict:
         # Calculate the per-book Sharpe ratio values
         np_inventory_values = np.array([list(iv.values()) for iv in inventory_values.values()]).T
         timestamps = list(inventory_values.keys())
-        changeover = [i for i in range(len(timestamps)-1) if timestamps[i+1] < timestamps[i]]
+        changeover = [i for i in range(len(timestamps)-1) if timestamps[i+1] >= timestamps[i] + grace_period]
         bookId = 0
         for book_inventory_values in np_inventory_values:
             returns = (book_inventory_values[1:] - book_inventory_values[:-1])
@@ -62,13 +62,13 @@ def sharpe(uid, inventory_values, lookback, norm_min, norm_max) -> dict:
         print(f"Failed to calculate Sharpe for UID {uid} : {traceback.format_exc()}")
         return None
     
-def sharpe_batch(inventory_values, lookback, norm_min, norm_max):
-    return {uid : sharpe(uid, inventory_value, lookback, norm_min, norm_max) for uid, inventory_value in inventory_values.items()}
+def sharpe_batch(inventory_values, lookback, norm_min, norm_max, grace_period):
+    return {uid : sharpe(uid, inventory_value, lookback, norm_min, norm_max, grace_period) for uid, inventory_value in inventory_values.items()}
 
-def batch_sharpe(inventory_values, batches, lookback, norm_min, norm_max):
+def batch_sharpe(inventory_values, batches, lookback, norm_min, norm_max, grace_period):
     sharpe_batches= []
     pool = get_reusable_executor(max_workers=len(batches))
-    tasks = [pool.submit(sharpe_batch, {uid : inventory_values[uid] for uid in batch}, lookback, norm_min, norm_max) for batch in batches]
+    tasks = [pool.submit(sharpe_batch, {uid : inventory_values[uid] for uid in batch}, lookback, norm_min, norm_max, grace_period) for batch in batches]
     for task in tasks:
         result = task.result()
         sharpe_batches.append(result)

@@ -196,7 +196,7 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
         bt.logging.info(f"Created axon synapses ({time.time()-start}s)")
         start = time.time()
         
-        num_processes = 4
+        num_processes = self.config.compression.parallel_workers
         batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0,256,int(256/num_processes))]
         payloads = {uid : {
                         "accounts" : {accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in axon_synapse.accounts.items()},

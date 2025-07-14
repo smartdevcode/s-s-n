@@ -34,8 +34,6 @@ if __name__ != "__mp_main__":
     from datetime import datetime
     from ypyjson import YpyObject
 
-    # Bittensor
-    print(f"BT : {__file__} {__name__}")
     import bittensor as bt
 
     import uvicorn
@@ -563,7 +561,7 @@ if __name__ != "__mp_main__":
         def _reward(self, state : MarketSimulationStateUpdate):
             # Calculate the rewards for the miner based on the latest simulation state.
             try:
-                bt.logging.info(f"Updating Agent Scores at Step {self.step}...")
+                bt.logging.info(f"Updating Agent Scores at Step {self.step} (Workers={self.config.scoring.sharpe.parallel_workers})...")
                 self.rewarding = True
                 start = time.time()
                 rewards = get_rewards(self, state)

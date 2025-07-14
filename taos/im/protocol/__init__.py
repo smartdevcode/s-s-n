@@ -37,11 +37,15 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
     Main class for representing intelligent market simulator state.
 
     Attributes:
+    - version : Number indicating the version of the taos package which the validator sending the state update is running.
     - timestamp: Simulation timestamp at which the state was recorded.
+    - config : Class containing details of the simulation configuration run by the sending validator.
     - books: A dictionary mapping the ID of the simulated orderbooks to a Book object containing state information.
     - accounts: A dictionary mapping the ID of the agent to a dictionary associating orderbook IDs with the state of the agents accounts relative to each book.
     - notices: A dictionary mapping the ID of an agent to the market events relevant to them which have occurred since the last state update.
     - response : Mutable field to be populated by the miner agent with a response containing instructions to be executed in the simulation.
+    - compressed : Field to contain compressed format of the state data, used to reduce message size when transmitting the state
+    - compression_engine : The library used by the validator when compressing the data; one of `zlib` or `lz4` (default=`lz4`)
     """
     version : int | None = None
     timestamp : int
@@ -51,7 +55,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
     notices : dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | None = None
     response: Optional[FinanceAgentResponse] | None  = None
     compressed : str | dict | None = None
-    compression_engine : str = "zlib"
+    compression_engine : str = "lz4"
     
     required_fields: ClassVar[list[str]] = None
     def get_required_fields(self) -> list[str]:

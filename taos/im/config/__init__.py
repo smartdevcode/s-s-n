@@ -115,6 +115,13 @@ def add_im_validator_args(cls, parser):
     )
 
     parser.add_argument(
+        "--scoring.sharpe.parallel_workers",
+        type=int,
+        help="Number of parallel workers to use in Sharpe calculation. (0 => no parallelization)",
+        default=0,
+    )
+
+    parser.add_argument(
         "--scoring.sharpe.lookback",
         type=int,
         help="Number of previous liquidation value observations to use for Sharpe ratio calculation.",

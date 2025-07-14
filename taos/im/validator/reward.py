@@ -28,7 +28,7 @@ from taos.im.neurons.validator import Validator
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 from taos.im.protocol.models import Account, Book
 from taos.im.utils import normalize
-from taos.im.utils.sharpe import batch_sharpe
+from taos.im.utils.sharpe import sharpe, batch_sharpe
 
 def get_inventory_value(account : Account, book : Book, method='midquote') -> float:
     """
@@ -74,6 +74,7 @@ def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[i
         float: The new score value for the given UID.
     """
     if not self.sharpe_values[uid]: return 0.0
+    if uid in self.deregistered_uids: return 0.0
     sharpes = self.sharpe_values[uid]['books']
     normalized_sharpes = {book_id : normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, sharpe) for book_id, sharpe in sharpes.items()}
     # The maximum volume to be traded by a miner in a `trade_volume_assessment_period` (24H) is `capital_turnover_cap` (10) times the initial miner capital
@@ -116,30 +117,30 @@ def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[i
     sharpe_score = max(activity_weighted_normalized_median - abs(outlier_penalty), 0.0)
     return self.reward_weights['sharpe'] * sharpe_score
 
-def score_inventory_values(self, inventory_values):    
-    num_processes = 4
-    batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0,256,int(256/num_processes))]
-    self.sharpe_values = batch_sharpe(inventory_values, batches, self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max)
-    inventory_scores = {}
-    for uid in self.metagraph.uids:
-        inventory_scores[uid] = score_inventory_value(self, uid, self.inventory_history[uid])
+def score_inventory_values(self, inventory_values):
+    if self.config.scoring.sharpe.parallel_workers == 0:
+        self.sharpe_values = {uid.item() : sharpe(uid, inventory_values[uid], self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.simulation.grace_period) for uid in self.metagraph.uids}
+    else:
+        num_processes = self.config.scoring.sharpe.parallel_workers
+        batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0,256,int(256/num_processes))]
+        self.sharpe_values = batch_sharpe(inventory_values, batches, self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.simulation.grace_period)
+
+    inventory_scores = {uid : score_inventory_value(self, uid, self.inventory_history[uid]) for uid in self.metagraph.uids}
     return inventory_scores
 
-def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> float:
+def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> list[float]:
     """
     Calculate and store the scores for a particular miner.
 
     Args:
         self (taos.im.neurons.validator.Validator) : Validator instance
         synapse (taos.im.protocol.MarketSimulationStateUpdate) : The latest state update synapse
-        uid (int) : UID of miner being scored
 
     Returns:
-        float: The new score value for the miner.
+        list[float]: The new score values for all uids in the subnet.
     """
     for uid in self.metagraph.uids:
         try:
-            if uid in self.deregistered_uids: return 0.0 
             sampled_timestamp = math.ceil(synapse.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
             # Prune the trading volume history of the miner to exclude values prior to the latest `trade_volume_assessment_period`
             for book_id, role_trades in self.trade_volumes[uid].items():
@@ -182,8 +183,7 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> float:
             # Prune the inventory history
             self.inventory_history[uid] = dict(list(self.inventory_history[uid].items())[-self.config.scoring.sharpe.lookback:])
         except Exception as ex:
-            bt.logging.error(f"Failed to calculate reward for UID {uid} at step {self.step} : {traceback.format_exc()}")
-            return self.scores[uid]
+            bt.logging.error(f"Failed to update reward data for UID {uid} at step {self.step} : {traceback.format_exc()}")
             
     inventory_scores = score_inventory_values(self, self.inventory_history)
     return list(inventory_scores.values())
