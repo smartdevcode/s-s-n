@@ -588,13 +588,16 @@ if __name__ != "__mp_main__":
             if self.simulation_timestamp % 3600_000_000_000 == 0 and self.simulation_timestamp != 0:
                 bt.logging.info("Checking for validator updates...")
                 self.update_repo()
-            bt.logging.debug("Received state update from simulator")
+            bt.logging.debug("Received state update from simulator.")
             global_start = time.time()
             start = time.time()
-            body = await request.body()            
-            start = time.time()
+            body = await request.body()
+            bt.logging.debug(f"Retrieved request body ({time.time()-start:.4f}s).")
+            if body[-3:].decode() != "]}}":
+                raise Exception(f"Incomplete JSON!")
             message = YpyObject(body, 1)
-            state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data            
+            bt.logging.debug(f"Constructed YpyObject ({time.time()-start:.4f}s).")
+            state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
             state.version = __spec_version__
             bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")
             

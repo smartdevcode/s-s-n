@@ -227,16 +227,18 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     start = time.time()
     
     async def query_uid(uid):
-        return await self.dendrite(
-            axons=self.metagraph.axons[uid],
-            synapse=axon_synapses[uid],
-            timeout=self.config.neuron.timeout,
-            deserialize=False
+        return (uid,
+            await self.dendrite(
+                axons=self.metagraph.axons[uid],
+                synapse=axon_synapses[uid],
+                timeout=self.config.neuron.timeout,
+                deserialize=False
+            )
         )
     synapse_responses = await asyncio.gather(
             *(query_uid(uid) for uid in range(len(self.metagraph.axons)) if uid not in self.deregistered_uids)
         )
-    synapse_responses = {self.metagraph.hotkeys.index(synapse_response.axon.hotkey) : synapse_response for synapse_response in synapse_responses}
+    synapse_responses = {uid : synapse_response for uid, synapse_response in synapse_responses}
     
     bt.logging.info(f"Dendrite call completed ({time.time()-start:.4f}s | Timeout {self.config.neuron.timeout}).")
     self.dendrite.synapse_history = self.dendrite.synapse_history[-10:]
