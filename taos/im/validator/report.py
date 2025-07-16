@@ -334,7 +334,7 @@ def report(self : Validator) -> None:
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="min_daily_maker_volume").set(min_daily_volume['maker'])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="min_daily_taker_volume").set(min_daily_volume['taker'])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="min_daily_self_volume").set(min_daily_volume['self'])
-                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="activity_factor").set(min(self.activity_factors[agentId].values()))
+                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="activity_factor").set(sum(self.activity_factors[agentId].values()) / len(self.activity_factors[agentId]))
                 if self.sharpe_values[agentId]:
                     self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="sharpe").set(self.sharpe_values[agentId]['median'])
                 else:
@@ -364,7 +364,7 @@ def report(self : Validator) -> None:
                     placement=placements[agentId].item(), base_balance=total_base_balance, quote_balance=total_quote_balance,
                     inventory_value=total_inventory_history[agentId][-1], inventory_value_change=total_inventory_history[agentId][-1] - total_inventory_history[agentId][-2] if len(total_inventory_history[agentId]) > 1 else 0.0,
                     pnl=pnl[agentId], pnl_change=pnl[agentId] - (total_inventory_history[agentId][-2] - total_inventory_history[agentId][0]) if len(total_inventory_history[agentId]) > 1 else 0.0,
-                    min_daily_volume=min_daily_volume['total'], activity_factor=min(self.activity_factors[agentId].values()), sharpe=self.sharpe_values[agentId]['median'] if self.sharpe_values[agentId] else None, unnormalized_score=self.unnormalized_scores[agentId], score=scores[agentId].item(),
+                    min_daily_volume=min_daily_volume['total'], activity_factor=sum(self.activity_factors[agentId].values()) / len(self.activity_factors[agentId]), sharpe=self.sharpe_values[agentId]['median'] if self.sharpe_values[agentId] else None, unnormalized_score=self.unnormalized_scores[agentId], score=scores[agentId].item(),
                     miner_gauge_name='miners'
                 ).set( 1.0 )
                 time_metric += time.time() - start_metric

@@ -12,17 +12,19 @@ Classes representing instructions that may be submitted by miner agents in a int
     
 class FinanceAgentInstruction(AgentInstruction):
     """
-    Base class representing an instruction submitted by an agent in a intelligent markets simulation.    
+    Base class representing an instruction submitted by an agent in an intelligent markets simulation.
 
     Attributes:
-    - agentId: The ID of the agent that submitted the instruction.
-    - delay: The processing delay to be assigned to the instruction.  This is set by validators based on the actual response time of the miner, 
-             and determines how many simulation steps will elapse after submission before the agent instruction is processed.
-    - type : String identifier for the type of the submitted instruction in the simulator.
+        agentId (int): The ID of the agent that submitted the instruction.
+        delay (NonNegativeInt): The processing delay to be assigned to the instruction. 
+            This is set by validators based on the actual response time of the miner, and determines 
+            how many simulation steps will elapse after submission before the agent instruction is processed.
+        type (Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "RESET_AGENT"]): 
+            String identifier for the type of the submitted instruction in the simulator.
     """
-    agentId : int
+    agentId: int
     delay: NonNegativeInt = 0
-    type : Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "RESET_AGENT"]
+    type: Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "RESET_AGENT"]
     
     def serialize(self) -> dict:
         return {
@@ -40,19 +42,21 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
     Base class representing an instruction by an agent to place an order.
 
     Attributes:
-    - bookId: The ID of the book on which the order is to be placed.
-    - direction: Indicates whether the order is to buy or sell.
-    - quantity : The size of the order to be placed in base currency.
-    - clientOrderId : User-assigned client id associated to the order.
-    - stp : Self-trade prevention strategy to be applied for the order.
-    - currency : Currency in which the `quantity` is specified (BASE or QUOTE).
+        bookId (NonNegativeInt): The ID of the book on which the order is to be placed.
+        direction (Literal[OrderDirection.BUY, OrderDirection.SELL]): Indicates whether the order is to buy or sell.
+        quantity (PositiveFloat): The size of the order to be placed in base currency.
+        clientOrderId (int | None): User-assigned client ID associated with the order.
+        stp (Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL]): 
+            Self-trade prevention strategy to be applied for the order.
+        currency (Literal[OrderCurrency.BASE, OrderCurrency.QUOTE]): Currency in which the quantity is specified (BASE or QUOTE).
     """
     bookId: NonNegativeInt
-    direction : Literal[OrderDirection.BUY, OrderDirection.SELL]
-    quantity : PositiveFloat
-    clientOrderId : int | None    
-    stp : Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
-    currency : Literal[OrderCurrency.BASE, OrderCurrency.QUOTE] = OrderCurrency.BASE
+    direction: Literal[OrderDirection.BUY, OrderDirection.SELL]
+    quantity: PositiveFloat
+    clientOrderId: int | None
+    stp: Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
+    currency: Literal[OrderCurrency.BASE, OrderCurrency.QUOTE] = OrderCurrency.BASE
+
     
     def __str__(self):
         return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {self.quantity} ON BOOK {self.bookId}"
@@ -60,8 +64,12 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
 class PlaceMarketOrderInstruction(PlaceOrderInstruction):
     """
     Class representing an instruction by an agent to place a market order.
+
+    Attributes:
+        type (Literal['PLACE_ORDER_MARKET']): Fixed to 'PLACE_ORDER_MARKET'.
     """
-    type : Literal['PLACE_ORDER_MARKET'] = 'PLACE_ORDER_MARKET'
+    type: Literal['PLACE_ORDER_MARKET'] = 'PLACE_ORDER_MARKET'
+
     def payload(self) -> dict:
         return {
             "direction": self.direction,
@@ -80,16 +88,20 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
     Class representing an instruction by an agent to place a limit order.
 
     Attributes:
-    - price: The price level at which the order is to be placed.    
-    - postOnly: Boolean flag specifying if the order should be placed with Post-Only enforcement    
-    - timeInForce: Enum option specifying the Time-In_Force option to be appled for the order.    
-    - expiryPeriod: The period in simulation time after which the order should be cancelled (valid only with `timeInForce = TimeInForce.GTT`).    
+        type (Literal['PLACE_ORDER_LIMIT']): Fixed to 'PLACE_ORDER_LIMIT'.
+        price (PositiveFloat): The price level at which the order is to be placed.
+        postOnly (bool): Boolean flag specifying if the order should be placed with Post-Only enforcement.
+        timeInForce (Literal[TimeInForce.GTC, TimeInForce.GTT, TimeInForce.IOC, TimeInForce.FOK]): 
+            Time-In-Force option to be applied for the order.
+        expiryPeriod (PositiveInt | None): The period in simulation time after which the order should 
+            be cancelled (valid only with `timeInForce = TimeInForce.GTT`).
     """
-    type : Literal['PLACE_ORDER_LIMIT'] = 'PLACE_ORDER_LIMIT'
-    price : PositiveFloat
-    postOnly : bool = False
-    timeInForce : Literal[TimeInForce.GTC, TimeInForce.GTT, TimeInForce.IOC, TimeInForce.FOK] = TimeInForce.GTC
-    expiryPeriod : PositiveInt | None = None
+    type: Literal['PLACE_ORDER_LIMIT'] = 'PLACE_ORDER_LIMIT'
+    price: PositiveFloat
+    postOnly: bool = False
+    timeInForce: Literal[TimeInForce.GTC, TimeInForce.GTT, TimeInForce.IOC, TimeInForce.FOK] = TimeInForce.GTC
+    expiryPeriod: PositiveInt | None = None
+
     def payload(self) -> dict:
         return {
             "direction": self.direction,
@@ -111,11 +123,13 @@ class CancelOrderInstruction(BaseModel):
     Class representing an instruction by an agent to cancel an open limit order.
 
     Attributes:
-    - orderId: The simulator-assigned ID of the order to be cancelled.    
-    - volume : The quantity of the order that should be cancelled (`None` to cancel the entire remaining order size).
+        orderId (int): The simulator-assigned ID of the order to be cancelled.
+        volume (PositiveFloat | None): The quantity of the order that should be cancelled 
+            (`None` to cancel the entire remaining order size).
     """
-    orderId : int
-    volume : PositiveFloat | None
+    orderId: int
+    volume: PositiveFloat | None
+
     def serialize(self) -> dict:
         return {
             "orderId" : self.orderId,
@@ -130,12 +144,14 @@ class CancelOrdersInstruction(FinanceAgentInstruction):
     Class representing an instruction by an agent to cancel a list of open limit orders.
 
     Attributes:
-    - bookId : The ID of the book on which cancellations are to be performed.
-    - cancellations: A list of CancelOrderInstruction objects.    
+        type (Literal['CANCEL_ORDERS']): Fixed to 'CANCEL_ORDERS'.
+        bookId (NonNegativeInt): The ID of the book on which cancellations are to be performed.
+        cancellations (list[CancelOrderInstruction]): A list of CancelOrderInstruction objects.
     """
-    type : Literal['CANCEL_ORDERS'] = 'CANCEL_ORDERS'
+    type: Literal['CANCEL_ORDERS'] = 'CANCEL_ORDERS'
     bookId: NonNegativeInt
-    cancellations : list[CancelOrderInstruction]
+    cancellations: list[CancelOrderInstruction]
+
     def payload(self) -> dict:
         return {
             "cancellations": [cancellation.serialize() for cancellation in self.cancellations],
@@ -147,14 +163,16 @@ class CancelOrdersInstruction(FinanceAgentInstruction):
         
 class ResetAgentsInstruction(FinanceAgentInstruction):
     """
-    Class representing an instruction to reset an agent's accounts.  
+    Class representing an instruction to reset an agent's accounts.
     This instruction can only be submitted by validators to handle deregistration of a miner.
 
     Attributes:
-    - agentIds : List of IDs of the agents for which reset should be applied.
+        type (Literal['RESET_AGENT']): Fixed to 'RESET_AGENT'.
+        agentIds (list[int]): List of IDs of the agents for which reset should be applied.
     """
-    type : Literal['RESET_AGENT'] = 'RESET_AGENT'
-    agentIds : list[int]
+    type: Literal['RESET_AGENT'] = 'RESET_AGENT'
+    agentIds: list[int]
+
     def payload(self) -> dict:
         return {
             "agentIds": self.agentIds

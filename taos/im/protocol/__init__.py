@@ -37,15 +37,16 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
     Main class for representing intelligent market simulator state.
 
     Attributes:
-    - version : Number indicating the version of the taos package which the validator sending the state update is running.
-    - timestamp: Simulation timestamp at which the state was recorded.
-    - config : Class containing details of the simulation configuration run by the sending validator.
-    - books: A dictionary mapping the ID of the simulated orderbooks to a Book object containing state information.
-    - accounts: A dictionary mapping the ID of the agent to a dictionary associating orderbook IDs with the state of the agents accounts relative to each book.
-    - notices: A dictionary mapping the ID of an agent to the market events relevant to them which have occurred since the last state update.
-    - response : Mutable field to be populated by the miner agent with a response containing instructions to be executed in the simulation.
-    - compressed : Field to contain compressed format of the state data, used to reduce message size when transmitting the state
-    - compression_engine : The library used by the validator when compressing the data; one of `zlib` or `lz4` (default=`lz4`)
+        version (int | None): Number indicating the version of the taos package which the validator sending the state update is running.
+        timestamp (int): Simulation timestamp at which the state was recorded.
+        config (MarketSimulationConfig | str | None): Details of the simulation configuration run by the sending validator.
+        books (dict[int, Book] | None): Mapping from orderbook IDs to Book objects containing state information.
+        accounts (dict[int, dict[int, Account]] | None): Mapping from agent IDs to dictionaries associating orderbook IDs with agent account states.
+        notices (dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | None):
+            Mapping from agent IDs to lists of market events relevant to them since the last state update.
+        response (Optional[FinanceAgentResponse] | None): Mutable field to be populated by the miner agent with instructions to execute.
+        compressed (str | dict | None): Compressed format of the state data to reduce message size during transmission.
+        compression_engine (str): Compression library used by the validator; one of `zlib` or `lz4` (default is `lz4`).
     """
     version : int | None = None
     timestamp : int

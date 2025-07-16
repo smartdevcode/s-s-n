@@ -639,11 +639,11 @@ retry:
 
     // Send the request.
     attempts = 0;
-    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(10s));
+    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(15s));
     while (writeVariant.index() == 1) {
         fmt::println("http::async_write timed out on {}:{}", m_netInfo.host, m_netInfo.port);
-        std::this_thread::sleep_for(10s);
-        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(10s));
+        std::this_thread::sleep_for(5s);
+        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(15s));
     }
     auto [e3, _3] = std::get<0>(writeVariant);
     while (e3) {

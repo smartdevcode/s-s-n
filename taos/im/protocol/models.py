@@ -52,7 +52,132 @@ class FeePolicy(BaseModel):
 
 class MarketSimulationConfig(BaseModel):
     """
-    Class to represent the configuration of a intelligent markets simulation.
+    Class to represent the configuration of an intelligent markets simulation.
+
+    Attributes:
+        logDir (str | None): Directory where simulation logs are saved.
+
+        block_count (int): Number of parallel "blocks" of simulation runs (related to parallelization implementation).
+
+        time_unit (str): Unit of time used in the simulation (e.g., 'ns' for nanoseconds). Default is 'ns'.
+        duration (int): Total simulation time in the given time_unit.
+        grace_period (int): Time period at start of simulation which must elapse before miner agents are able to submit instructions.
+        publish_interval (int): Interval at which the simulation state is published.
+        log_window (int | None): Size of the time window for logs.
+
+        books_per_block (int): Number of order books simulated in each parallelization block.
+        book_count (int): Total number of order books in the simulation.
+        book_levels (int): Number of levels for which full L3 state information is included.
+
+        baseDecimals (int): Decimal precision for base currency values.
+        quoteDecimals (int): Decimal precision for quote currency values.
+        priceDecimals (int): Decimal precision for price values.
+        volumeDecimals (int): Decimal precision for order volumes.
+
+        fee_policy (FeePolicy | None): The fee policy applied to trades.
+
+        max_open_orders (int | None): Maximum number of open orders per agent.
+
+        max_leverage (float): Maximum leverage allowed for agents.
+        max_loan (float): Maximum loan amount agents can take.
+        maintenance_margin (float): Maintenance margin ratio required for agents to avoid liquidation.
+
+        miner_capital_type (str): Capital allocation strategy for miners ('static' or 'pareto').
+        miner_base_balance (float | None): Initial base currency balance for miners.
+        miner_quote_balance (float | None): Initial quote currency balance for miners.
+        miner_wealth (float): Total wealth allocated to miners (QUOTE value of initial BASE balance at initial price + initial QUOTE balance).
+
+        init_price (float): Initial market price for the simulation.
+
+        # Fundamental Price (FP) parameters
+        fp_update_period (int | None): Period for updating the fundamental price.
+        fp_seed_interval (int | None): Interval for reseeding the fundamental process.
+        fp_mu (float | None): Drift term in the fundamental price process.
+        fp_sigma (float | None): Volatility in the fundamental price process.
+        fp_lambda (float | None): Intensity of price jumps.
+        fp_mu_jump (float | None): Mean size of price jumps.
+        fp_sigma_jump (float | None): Volatility of price jumps.
+
+        # Initialization Agent Configuration
+        # Initialization Agents are triggered only once at the start of the simulation to provide an initial random state of the orderbook
+        # After some time, when the other background agents have had time to create a sensible orderbook structure, their orders are cancelled.
+        init_agent_count (int): Number of initialization agents.
+        init_agent_capital_type (str): Capital allocation strategy for initialization agents.
+        init_agent_base_balance (float | None): Base currency balance for initialization agents.
+        init_agent_quote_balance (float | None): Quote currency balance for initialization agents.
+        init_agent_wealth (float): Total wealth allocated to initialization agents.
+        init_agent_tau (int): Time period after which orders placed by initialization agents are cancelled.
+
+        # High-Frequency Trader (HFT) agents
+        # HFT Agents function somewhat like market makers in real markets.
+        # https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2336772
+        hft_agent_count (int): Number of HFT agents.
+        hft_agent_capital_type (str): Capital allocation strategy for HFT agents.
+        hft_agent_base_balance (float | None): Base currency balance for HFT agents.
+        hft_agent_quote_balance (float | None): Quote currency balance for HFT agents.
+        hft_agent_wealth (float): Total wealth allocated to HFT agents.
+
+        hft_agent_feed_latency_min (int): Minimum market data feed latency for HFT agents.
+        hft_agent_order_latency_min (int): Minimum order placement latency for HFT agents.
+        hft_agent_order_latency_max (int): Maximum order placement latency for HFT agents.
+        hft_agent_order_latency_scale (float): Scaling factor for HFT order latencies.
+
+        hft_agent_tau (int): Latency parameter for HFT agents.
+        hft_agent_delta (int): Sensitivity parameter for HFT agents.
+        hft_agent_psi (float): Probability weighting factor for HFT decisions.
+        hft_agent_gHFT (float): Aggressiveness factor in HFT strategies.
+        hft_agent_kappa (float): Inventory control parameter for HFT agents.
+        hft_agent_spread (float): Target bid-ask spread for HFT agents.
+        hft_agent_order_size_mean (float): Mean size of orders placed by HFT agents.
+        hft_agent_price_noise (float): Noise applied to HFT agent pricing decisions.
+        hft_agent_price_shift (float): Systematic price shift applied by HFT agents.
+
+        # Stylized Trader Agent (STA) configuration
+        # STA agents aim to approximate the behaviour of several interacting classes of traders.
+        # https://arxiv.org/abs/0711.3581
+        sta_agent_count (int): Number of STA agents.
+        sta_agent_capital_type (str): Capital allocation strategy for STA agents.
+        sta_agent_base_balance (float | None): Base currency balance for STA agents.
+        sta_agent_quote_balance (float | None): Quote currency balance for STA agents.
+        sta_agent_wealth (float): Total wealth allocated to STA agents.
+
+        sta_agent_feed_latency_min (int): Minimum market data feed latency for STA agents. Default is 0.
+        sta_agent_feed_latency_mean (int): Mean feed latency for STA agents.
+        sta_agent_feed_latency_std (int): Standard deviation of feed latency for STA agents.
+        sta_agent_order_latency_min (int): Minimum order placement latency for STA agents.
+        sta_agent_order_latency_max (int): Maximum order placement latency for STA agents.
+        sta_agent_order_latency_scale (float): Scaling factor for STA order latencies.
+        sta_agent_decision_latency_mean (int): Mean decision-making latency for STA agents.
+        sta_agent_decision_latency_std (int): Standard deviation of decision latency for STA agents.
+        sta_agent_selection_scale (float): Scale factor influencing STA selection preferences.
+
+        sta_agent_noise_weight (float): Weight for noise component in STA decision making.
+        sta_agent_chartist_weight (float): Weight for chartist component in STA agents.
+        sta_agent_fundamentalist_weight (float): Weight for fundamentalist component in STA agents.
+
+        sta_agent_tau (int): Decision interval for STA agents.
+        sta_agent_tauHist (int): Historical observation window size for STA agents.
+        sta_agent_tauF (int): Forecast horizon for STA agents.
+        sta_agent_sigmaEps (float): Volatility parameter in STA forecasting.
+        sta_agent_r_aversion (float): Risk aversion parameter for STA agents.
+
+        # Futures Agent configuration
+        # The Futures Agent aims to bring real-world connection into the simulation dynamics
+        # These agents make trading decisions based on external signals obtained from live futures markets
+        futures_agent_count (int | None): Number of futures agents.
+        futures_agent_capital_type (str | None): Capital allocation strategy for futures agents.
+        futures_agent_base_balance (float | None): Base currency balance for futures agents.
+        futures_agent_quote_balance (float | None): Quote currency balance for futures agents.
+        futures_agent_wealth (float | None): Total wealth allocated to futures agents.
+
+        futures_agent_volume (float | None): Typical trade volume for futures agents.
+        futures_agent_sigmaEps (float | None): Noise level in futures agent decisions.
+        futures_agent_lambda (float | None): Order arrival intensity for futures agents.
+        futures_agent_feed_latency_mean (int | None): Mean market data latency for futures agents.
+        futures_agent_feed_latency_std (int | None): Standard deviation of feed latency for futures agents.
+        futures_agent_order_latency_min (int | None): Minimum order latency for futures agents.
+        futures_agent_order_latency_max (int | None): Maximum order latency for futures agents.
+        futures_agent_selection_scale (float | None): Scale factor for futures agent selection.
     """
     logDir : str | None = None
 
@@ -316,13 +441,13 @@ class Order(BaseModel):
     Represents an order.
 
     Attributes:
-    - id: The id of the order as assigned by the simulator.
-    - client_id: Optional agent-assigned identifier for the order.
-    - timestamp: The simulation timestamp at which the order was placed.
-    - quantity: The size of the order in base currency.
-    - side: The side of the book on which the order was attempted to be placed (0=BID, 1=ASK).
-    - order_type: String identifier for the type of the order (limit or market).
-    - price: Optional field for the price of the order (None for market orders).
+        type (str): The type of the instruction; fixed to `"o"` (used for parallelized history reconstruction).
+        id (int): The ID of the order as assigned by the simulator.
+        client_id (int | None): Optional agent-assigned identifier for the order.
+        timestamp (int): Simulation timestamp at which the order was placed.
+        quantity (float): The size of the order in base currency.
+        side (int): The side of the book on which the order was attempted to be placed (`0=BID`, `1=ASK`).
+        price (float | None): Price of the order (`None` for market orders).
     """
     y : str = "o"
     i : int = Field(alias='id')
@@ -331,6 +456,10 @@ class Order(BaseModel):
     q : float = Field(alias='quantity')
     s : int = Field(alias='side')
     p : float | None = Field(alias='price')
+
+    @property
+    def type(self) -> str:
+        return self.y
 
     @property
     def id(self) -> int:
@@ -372,13 +501,14 @@ class Order(BaseModel):
 
 class LevelInfo(BaseModel):
     """
-    Represents an orderbook level.
+    Represents a level in the order book.
 
     Attributes:
-    - price: Price level in the orderbook at which the level exists.
-    - quantity: Total quantity in base currency which exists at this price level in the book.
-    - orders: List of the individual orders composing the orderbook level.
+        price (float): The price level in the order book.
+        quantity (float): Total quantity in base currency at this price level.
+        orders (list[Order] | None): List of individual orders at this level (if available).
     """
+    
     p : float = Field(alias='price')
     q : float = Field(alias='quantity')
     o: list[Order] | None = Field(alias='orders')
@@ -411,15 +541,18 @@ class TradeInfo(BaseModel):
     Represents a trade.
 
     Attributes:
-    - id: Simulator-assigned ID of the trade.
-    - side: Direction in which trade was initiated (0=BUY initiated, 1=SELL initiated).
-    - timestamp: Simulation timestamp at which the trade occurred.
-    - taker_id: ID of the aggressing order.
-    - taker_agent_id: ID of the agent which placed the aggressing order.
-    - maker_id: ID of the resting order.
-    - maker_agent_id: ID of the agent which placed the resting order.
-    - quantity: Quantity in base currency which was traded.
-    - price: The price at which the trade occurred.
+        type (str): The type of instruction; fixed to `t` (used for parallelized history reconstruction).
+        id (int): Simulator-assigned ID of the trade.
+        side (int): Direction in which the trade was initiated (0 = BUY, 1 = SELL).
+        timestamp (int): Simulation timestamp at which the trade occurred.
+        quantity (float): Quantity in base currency that was traded.
+        price (float): Price at which the trade occurred.
+        taker_id (int): ID of the aggressing order.
+        taker_agent_id (int): ID of the agent placing the aggressing order.
+        taker_fee (float | None): Transaction fee paid by the taker agent.
+        maker_id (int): ID of the resting order.
+        maker_agent_id (int): ID of the agent placing the resting order.
+        maker_fee (float | None): Transaction fee paid by the maker agent.
     """
     y : str = "t"
     i : int = Field(alias='id')
@@ -433,6 +566,10 @@ class TradeInfo(BaseModel):
     Mi : int = Field(alias='maker_id')
     Ma : int = Field(alias='maker_agent_id')
     Mf : float | None = Field(alias='maker_fee', default=None)
+
+    @property
+    def type(self) -> str:
+        return self.y
 
     @property
     def id(self) -> int:
@@ -492,14 +629,21 @@ class Cancellation(BaseModel):
     Represents an order cancellation.
 
     Attributes:
-    - orderId: ID of the cancelled order.
-    - quantity: Quantity which was cancelled (None if the entire order was cancelled).
+        type (str): The type of instruction; fixed to `c` (used for parallelized history reconstruction).
+        orderId (int): ID of the cancelled order.
+        timestamp (int | None): Simulation timestamp at which the cancellation occurred.
+        price (float | None): Price of the order that was cancelled.
+        quantity (float | None): Quantity cancelled (None if the entire order was cancelled).
     """
     y : str = "c"
     i: int = Field(alias="orderId")
     t: int | None = Field(alias='timestamp', default=None)
     p: float | None = Field(alias="price", default=None)
     q: float | None = Field(alias="quantity")
+
+    @property
+    def type(self) -> str:
+        return self.y
 
     @property
     def orderId(self) -> int:
@@ -926,11 +1070,11 @@ class Book(BaseModel):
     (orders, trades, cancellations) that have occurred since the last update.
 
     Attributes:
-        i (int): Internal book identifier (aliased as 'id').
-        b (list[LevelInfo]): List of LevelInfo objects representing bid levels (aliased as 'bids').
-        a (list[LevelInfo]): List of LevelInfo objects representing ask levels (aliased as 'asks').
-        e (list[Order | TradeInfo | Cancellation] | None): List of events applied to the book since
-            the last snapshot (aliased as 'events').
+        id (int): Internal book identifier.
+        bids (list[LevelInfo]): List of LevelInfo objects representing bid levels.
+        asks (list[LevelInfo]): List of LevelInfo objects representing ask levels.
+        events (list[Order | TradeInfo | Cancellation] | None): List of events applied to the book 
+            since the last snapshot.
     """
 
     i: int = Field(alias="id")
@@ -977,6 +1121,10 @@ class Book(BaseModel):
             list[Order | TradeInfo | Cancellation] | None: List of events or None.
         """
         return self.e
+    
+    @property
+    def last_trade(self) -> TradeInfo:
+        return [t for t in self.events if t.type == 't'][-1]
 
     @classmethod
     def from_json(cls, json: dict, depth : int = 21) -> 'Book':
@@ -1219,10 +1367,10 @@ class Balance(BaseModel):
     Represents an account balance for a specific currency.
 
     Attributes:
-    - currency: String identifier for the currency.
-    - total: Total currency balance of account.
-    - free: Free curreny balance of account (this amount is available for order placement).
-    - reserved: Reserved currency balance; this represents the amount tied up in resting orders.
+        currency (str): String identifier for the currency (e.g., "USD", "BTC").
+        total (float): Total currency balance in the account.
+        free (float): Free currency balance available for order placement.
+        reserved (float): Reserved currency balance tied up in resting orders.
     """
     c : str = Field(alias="currency")
     t : float = Field(alias="total")
@@ -1257,9 +1405,9 @@ class Fees(BaseModel):
     Represents account fees for a specific agent and book.
 
     Attributes:
-    - volume_traded: Total volume traded in the aggregation period for tiered fees assignment.
-    - maker_fee_rate: The current maker fee rate for the agent.
-    - maker_fee_rate: The current taker fee rate for the agent.
+        volume_traded (float): Total volume traded in the aggregation period for tiered fee assignment.
+        maker_fee_rate (float): The current maker fee rate for the agent.
+        taker_fee_rate (float): The current taker fee rate for the agent.
     """
     v : float = Field(alias="volume_traded")
     m : float = Field(alias="maker_fee_rate")
@@ -1289,12 +1437,12 @@ class Account(BaseModel):
     Represents an agent's trading account.
 
     Attributes:
-    - agent_id: The agent ID which owns the account.
-    - book_id: ID of the book on which the account is able to trade.
-    - base_balance: Balance object for the base currency.
-    - quote_balance: Balance object for the quote currency.
-    - orders: List of the current open orders associated to the agent.
-    - fees: The current fee structure for the account.
+        agent_id (int): The agent ID which owns the account.
+        book_id (int): ID of the book on which the account is able to trade.
+        base_balance (Balance): Balance object for the base currency.
+        quote_balance (Balance): Balance object for the quote currency.
+        orders (list[Order]): List of the current open orders associated to the agent.
+        fees (Fees | None): The current fee structure for the account.
     """
     i : int = Field(alias="agent_id")
     b : int = Field(alias="book_id")

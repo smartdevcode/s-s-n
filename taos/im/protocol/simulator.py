@@ -12,10 +12,10 @@ class SimulatorAgentResponse(BaseModel):
     Represents a response from an agent.
 
     Attributes:
-    - agentId: Identifier for the agent sending the response.
-    - delay: Delay to be applied in processing the response.
-    - type: Type of the response.
-    - payload: Additional data related to the response.
+        agentId (int): Identifier for the agent sending the response.
+        delay (int): Delay to be applied in processing the response.
+        type (str): Type of the response.
+        payload (dict[str, Any] | None): Additional data related to the response.
     """
     agentId: int
     delay: int
@@ -38,7 +38,7 @@ class SimulatorResponseBatch(BaseModel):
     Represents a batch of responses from agents.
 
     Attributes:
-    - responses: List of agent responses.
+        responses (list[SimulatorAgentResponse]): List of agent responses.
     """
     responses: list[SimulatorAgentResponse]
 

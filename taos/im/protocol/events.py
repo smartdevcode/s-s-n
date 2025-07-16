@@ -42,7 +42,7 @@ class SimulationStartEvent(FinanceEvent):
     Represents the event generated on simulation start.
 
     Attributes:
-    - logDir: The directory where simulation outputs are recorded by the simulator.
+        logDir (str): The directory where simulation outputs are recorded by the simulator.
     """
     l : str = Field(alias="logDir")
     
@@ -80,16 +80,16 @@ class SimulationEndEvent(FinanceEvent):
 
 class OrderPlacementEvent(FinanceEvent):
     """
-    Base class for representing events corresponding to placement of a order in the simulation.
+    Base class for representing events corresponding to placement of an order in the simulation.
 
     Attributes:
-    - bookId: The id of the orderbook on which the order was attempted to be placed.
-    - orderId: The id assigned to the order by the simulator.
-    - clientOrderId: Optional agent-assigned identifier for the order.
-    - side: The side of the book on which the order  was attempted to be placed (0=BID, 1=ASK).
-    - quantity: The size of the order in base currency.
-    - success: Flag indicating if the order was successfully placed or not.
-    - message: The message associated with the failure in the case of unsuccessful placement.
+        bookId (int | None): The ID of the orderbook on which the order was attempted to be placed.
+        orderId (int | None): The ID assigned to the order by the simulator.
+        clientOrderId (int | None): Optional agent-assigned identifier for the order.
+        side (int): The side of the book on which the order was attempted to be placed (0=BID, 1=ASK).
+        quantity (float): The size of the order in base currency.
+        success (bool): Flag indicating if the order was successfully placed or not.
+        message (str): The message associated with the failure in case of unsuccessful placement.
     """
     b : int | None = Field(alias="bookId", default=None)
     o : int | None = Field(alias="orderId")
@@ -132,7 +132,7 @@ class LimitOrderPlacementEvent(OrderPlacementEvent):
     Represents the event generated on placement of a Limit Order in the simulation.
 
     Attributes:
-    - price: The price level at which the order was attempted to beplaced.
+        price (float): The price level at which the order was attempted to be placed.
     """
     p : float = Field(alias="price")
     
@@ -201,12 +201,12 @@ class OrderCancellationEvent(BaseModel):
     Represents cancellation of a single order.
 
     Attributes:
-    - timestamp: The timestamp at which cancellation was attempted.
-    - bookId: The id of the orderbook on which the order was attempted to be cancelled.
-    - orderId: The id of the order attempted to be cancelled.
-    - quantity: The quantity of the order to be cancelled, in base currency.  If `None`, the whole remaining size of the order is cancelled.
-    - success: Flag indicating if the order was successfully cancelled or not.
-    - message: The message associated with the failure in the case of unsuccessful cancellation.
+        timestamp (int): The timestamp at which cancellation was attempted.
+        bookId (int): The ID of the orderbook on which the order was attempted to be cancelled.
+        orderId (int): The ID of the order attempted to be cancelled.
+        quantity (float | None): The quantity of the order to be cancelled, in base currency. If `None`, the entire remaining size is cancelled.
+        success (bool): Flag indicating if the order was successfully cancelled or not.
+        message (str): The message associated with failure in case of unsuccessful cancellation.
     """
     t : int = Field(alias="timestamp")
     b : int = Field(alias="bookId")
@@ -247,8 +247,8 @@ class OrderCancellationsEvent(FinanceEvent):
     Represents the event generated on cancellation of a list of orders.
 
     Attributes:
-    - bookId: The id of the orderbook on which the orders were attempted to be cancelled.
-    - cancellations: A list of OrderCancellationEvent objects representing the individual order cancellation events.
+        bookId (int | None): The ID of the orderbook on which the orders were attempted to be cancelled.
+        cancellations (list[OrderCancellationEvent]): A list of individual order cancellation events.
     """
     b : int | None = Field(alias="bookId", default=None)
     c : list[OrderCancellationEvent] = Field(alias="cancellations", default=[])
@@ -293,16 +293,18 @@ class TradeEvent(FinanceEvent):
     Represents the event generated on execution of trade in the simulation.
 
     Attributes:
-    - bookId: The id of the orderbook on which the trade occurred.
-    - tradeId: The id of the trade as assigned by the simulator.
-    - clientOrderId: Optional agent-assigned identifier for the resting order which was traded.
-    - takerAgentId: The id of the agent which initiated the trade (aggressor).
-    - takerOrderId: The id of the aggressing order involved in the trade.
-    - makerAgentId: The id of the agent which placed the resting order involved in the trade.
-    - makerOrderId: The id of the resting order involved in the trade.
-    - side: The direction in which the trade occurred; if the trade was buy initiated side=0, otherwise side=1
-    - price: The price level at which the trade occurred.
-    - quantity: The quantity traded in base currency.
+        bookId (int | None): The ID of the orderbook on which the trade occurred.
+        tradeId (int): The ID of the trade as assigned by the simulator.
+        clientOrderId (int | None): Optional agent-assigned identifier for the resting order which was traded.
+        takerAgentId (int): The ID of the agent which initiated the trade (aggressor).
+        takerOrderId (int): The ID of the aggressing order involved in the trade.
+        takerFee (float): The fee paid by the agent which placed the aggressing order.
+        makerAgentId (int): The ID of the agent which placed the resting order involved in the trade.
+        makerOrderId (int): The ID of the resting order involved in the trade.
+        makerFee (float): The fee paid by the agent which placed the resting order.
+        side (int): The direction of the trade; 0 if buy-initiated, otherwise 1.
+        price (float): The price level at which the trade occurred.
+        quantity (float): The quantity traded in base currency.
     """
     b : int | None = Field(alias="bookId", default=None)
     i : int = Field(alias="tradeId")
@@ -389,9 +391,8 @@ class ResetAgentEvent(FinanceEvent):
     Represents the event generated when a single agent account is reset (requested by validator on deregistration).
 
     Attributes:
-    - agentId: The id of the agent whose accounts were reset.
-    - success: Flag indicating if the agent's accounts was successfully reset or not.
-    - message: The message associated with the failure in the case of unsuccessful reset.
+        success (bool): Flag indicating if the agent's accounts were successfully reset.
+        message (str): Message associated with failure if the reset was unsuccessful.
     """
     u : bool = Field(alias="success")
     m : str = Field(alias="message")
@@ -412,7 +413,7 @@ class ResetAgentsEvent(FinanceEvent):
     Represents the event generated on reset of a list of agents.
 
     Attributes:
-    - resets: A list of ResetAgentEvent objects representing the individual agent reset events.
+        resets (list[ResetAgentEvent]): List of individual agent reset events.
     """
     r : list[ResetAgentEvent] =  Field(alias="resets", default=[])
     
