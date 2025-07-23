@@ -8,7 +8,8 @@ CHECKPOINT=0
 LOG_LEVEL=info
 PD_KEY="\"\""
 PROM_PORT=9001
-while getopts e:p:w:h:u:l:d:o: flag
+TIMEOUT=3.0
+while getopts e:p:w:h:u:l:d:o:t: flag
 do
     case "${flag}" in
         e) ENDPOINT=${OPTARG};;
@@ -19,6 +20,7 @@ do
         l) LOG_LEVEL=${OPTARG};;
         d) PD_KEY=${OPTARG};;
         o) PROM_PORT=${OPTARG};;
+        t) TIMEOUT=${OPTARG};;
         # c) CHECKPOINT=${OPTARG};;
     esac
 done
@@ -30,6 +32,7 @@ echo "NETUID: $NETUID"
 echo "CHECKPOINT: $CHECKPOINT"
 echo "PAGERDUTY KEY: $PD_KEY"
 echo "PROMETHEUS PORT: $PROM_PORT"
+echo "TIMEOUT: $TIMEOUT"
 
 pm2 delete simulator validator
 tmux kill-session -t taos
@@ -49,7 +52,7 @@ fi
 
 echo "Starting Validator"
 cd ../../../taos/im/neurons
-pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY --prometheus.port $PROM_PORT"
+pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY --prometheus.port $PROM_PORT --neuron.timeout $TIMEOUT"
 
 echo "Starting Simulator"
 cd ../../../simulate/trading/run

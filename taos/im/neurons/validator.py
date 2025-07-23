@@ -224,8 +224,7 @@ if __name__ != "__mp_main__":
                         "recent_trades": self.recent_trades,
                         "recent_miner_trades": self.recent_miner_trades,
                         "pending_notices": self.pending_notices,
-                        "simulation.logDir": self.simulation.logDir,
-                        "fundamental_price": self.fundamental_price
+                        "simulation.logDir": self.simulation.logDir
                     },
                     self.simulation_state_file + ".tmp",
                 )
@@ -285,7 +284,6 @@ if __name__ != "__mp_main__":
                 self.recent_trades = simulation_state["recent_trades"]
                 self.recent_miner_trades = simulation_state["recent_miner_trades"] if "recent_miner_trades" in simulation_state else {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
                 self.simulation.logDir = simulation_state["simulation.logDir"]
-                self.fundamental_price = simulation_state["fundamental_price"]
                 bt.logging.success(f"Loaded simulation state.")
             else:
                 # If no state exists or the neuron.reset flag is set, re-initialize the simulation state
@@ -337,8 +335,10 @@ if __name__ != "__mp_main__":
                     if self.sharpe_values[uid] and len(self.sharpe_values[uid]['books']) < self.simulation.book_count:
                         for bookId in range(len(self.sharpe_values[uid]['books']),self.simulation.book_count):
                             self.sharpe_values[uid]['books'][bookId] = 0.0
+                            self.sharpe_values[uid]['books_weighted'][bookId] = 0.0
                     if self.sharpe_values[uid] and len(self.sharpe_values[uid]['books']) > self.simulation.book_count:
                         self.sharpe_values[uid]['books'] = {k : v for k, v in self.sharpe_values[uid]['books'].items() if k < self.simulation.book_count}
+                        self.sharpe_values[uid]['books_weighted'] = {k : v for k, v in self.sharpe_values[uid]['books_weighted'].items() if k < self.simulation.book_count}
                 self.unnormalized_scores = validator_state["unnormalized_scores"]
                 self.trade_volumes = validator_state["trade_volumes"] if "trade_volumes" in validator_state else {uid : {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
                 reorg = False
@@ -382,12 +382,18 @@ if __name__ != "__mp_main__":
                         'books' : {
                             bookId : 0.0 for bookId in range(self.simulation.book_count)
                         },
+                        'books_weighted' : {
+                            bookId : 0.0 for bookId in range(self.simulation.book_count)
+                        },
                         'total' : 0.0,
                         'average' : 0.0,
                         'median' : 0.0,
                         'normalized_average' : 0.0,
                         'normalized_total' : 0.0,
-                        'normalized_median' : 0.0
+                        'normalized_median' : 0.0,
+                        'activity_weighted_normalized_median' : 0.0,
+                        'penalty' : 0.0,
+                        'score' : 0.0
                     } for uid in range(self.subnet_info.max_uids)
                 }
                 self.unnormalized_scores = {uid : 0.0 for uid in range(self.subnet_info.max_uids)}
@@ -445,17 +451,21 @@ if __name__ != "__mp_main__":
             publish_info(self)
             
         def load_fundamental(self):
-            df_fp = pd.DataFrame()
-            for block in range(self.simulation.block_count):
-                block_file = os.path.join(self.simulation.logDir, f'fundamental.{block * self.simulation.books_per_block}-{self.simulation.books_per_block * (block + 1) - 1}.csv')
-                block_fp = pd.read_csv(block_file) 
-                block_fp.set_index('Timestamp', inplace=True)
-                block_fp.columns = [int(col) for col in block_fp.columns]
-                if block == 0:
-                    df_fp = block_fp
-                else:
-                    df_fp = pd.merge(df_fp, block_fp, left_index=True, right_index=True, how='inner')
-            self.fundamental_price = {bookId : df_fp[bookId] for bookId in range(self.simulation.book_count)}
+            if self.simulation.logDir:
+                prices = {}
+                for block in range(self.simulation.block_count):
+                    block_file = os.path.join(self.simulation.logDir, f'fundamental.{block * self.simulation.books_per_block}-{self.simulation.books_per_block * (block + 1) - 1}.csv')
+                    fp_line = None
+                    book_ids = None
+                    for line in open(block_file, 'r').readlines():
+                        if not book_ids:
+                            book_ids = [int(col) for col in line.split(',') if col != "Timestamp\n"]
+                        if line.strip() != '':
+                            fp_line = line
+                    prices = prices | {book_ids[i] : float(price) for i, price in enumerate(fp_line.strip().split(',')[:-1])}
+            else:
+                prices = {bookId : None for bookId in range(self.simulation.book_count)}
+            self.fundamental_price = prices
 
         def onStart(self, timestamp, event : SimulationStartEvent) -> None:
             """
@@ -533,12 +543,18 @@ if __name__ != "__mp_main__":
                                     'books' : {
                                         bookId : 0.0 for bookId in range(self.simulation.book_count)
                                     },
+                                    'books_weighted' : {
+                                        bookId : 0.0 for bookId in range(self.simulation.book_count)
+                                    },
                                     'total' : 0.0,
                                     'average' : 0.0,
                                     'median' : 0.0,
                                     'normalized_average' : 0.0,
                                     'normalized_total' : 0.0,
-                                    'normalized_median' : 0.0
+                                    'normalized_median' : 0.0,
+                                    'activity_weighted_normalized_median' : 0.0,
+                                    'penalty' : 0.0,
+                                    'score' : 0.0
                                 }
                                 self.unnormalized_scores[reset.agentId] = 0.0
                                 self.activity_factors[reset.agentId] = {bookId : 0.0 for bookId in range(self.simulation.book_count)}
@@ -600,6 +616,7 @@ if __name__ != "__mp_main__":
             state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
             state.version = __spec_version__
             bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")
+            del body
             
             # Update variables
             if not self.start_time:
@@ -615,6 +632,7 @@ if __name__ != "__mp_main__":
                 state.config = self.simulation.model_copy()
                 state.config.logDir = None
             self.step += 1
+            del message
             
             if self.simulation_timestamp % self.simulation.log_window == self.simulation.publish_interval:
                 self.compress_outputs()

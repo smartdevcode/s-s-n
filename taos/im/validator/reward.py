@@ -97,7 +97,7 @@ def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[i
     self.activity_factors[uid] = {book_id : min(1 + (miner_volume / volume_cap), 2.0) if latest_volumes[book_id] > 0 else self.activity_factors[uid][book_id] * inactivity_decay_factor for book_id, miner_volume in miner_volumes.items()}
     # Calculate the activity-weighted Sharpes by multiplying the activity factors onto the normalized volume-weighted Sharpes - this magnifies wins and losses occurring in periods with higher trading volumes
     activity_weighted_normalized_sharpes = [(activity_factor if activity_factor < 1 or normalized_sharpes[book_id] > 0.5 else 2 - activity_factor) * normalized_sharpes[book_id] for book_id, activity_factor in self.activity_factors[uid].items()]
-
+    self.sharpe_values[uid]['books_weighted'] = {book_id : weighted_sharpe for book_id, weighted_sharpe in enumerate(activity_weighted_normalized_sharpes)}
     # Define a function which uses the 1.5 rule to detect left-hand outliers in the activity-weighted Sharpes
     def detect_outliers(sharpes):
         data = np.array(sharpes)
@@ -115,6 +115,10 @@ def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[i
     activity_weighted_normalized_median = np.median(activity_weighted_normalized_sharpes)
     # The penalty factor is subtracted from the base score to punish particularly poor performance on any particular book
     sharpe_score = max(activity_weighted_normalized_median - abs(outlier_penalty), 0.0)
+    
+    self.sharpe_values[uid]['activity_weighted_normalized_median'] = activity_weighted_normalized_median
+    self.sharpe_values[uid]['penalty'] = abs(outlier_penalty)
+    self.sharpe_values[uid]['score'] = sharpe_score
     return self.reward_weights['sharpe'] * sharpe_score
 
 def score_inventory_values(self, inventory_values):
