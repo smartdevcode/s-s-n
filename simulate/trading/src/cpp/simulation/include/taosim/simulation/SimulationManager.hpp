@@ -31,6 +31,7 @@ struct SimulationBlockInfo
 struct NetworkingInfo
 {
     std::string host, port, bookStateEndpoint, generalMsgEndpoint;
+    int64_t resolveTimeout, connectTimeout, writeTimeout, readTimeout;
 };
 
 //-------------------------------------------------------------------------

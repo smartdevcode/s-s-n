@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+import bittensor as bt
 from taos.common.agents import launch
 from taos.im.agents import FinanceSimulationAgent
 from taos.im.protocol.models import *
@@ -19,13 +20,22 @@ class RandomMakerAgent(FinanceSimulationAgent):
         """
         self.min_quantity = self.config.min_quantity
         self.max_quantity = self.config.max_quantity
+        self.min_leverage = self.config.min_leverage if hasattr(self.config, 'min_leverage') else 0.0
+        self.max_leverage = self.config.max_leverage if hasattr(self.config, 'max_leverage') else 0.0
         self.expiry_period = self.config.expiry_period
+        self.open_order = {}
 
     def quantity(self):
         """
         Obtains a random quantity for order placement within the bounds defined by the agent strategy parameters.
         """
         return round(random.uniform(self.min_quantity,self.max_quantity),self.simulation_config.volumeDecimals)
+
+    def leverage(self):
+        """
+        Obtains a random quantity for order placement within the bounds defined by the agent strategy parameters.
+        """
+        return round(random.uniform(self.min_leverage,self.max_leverage),2)
 
     def respond(self, state : MarketSimulationStateUpdate) -> FinanceAgentResponse:
         """
@@ -57,16 +67,36 @@ class RandomMakerAgent(FinanceSimulationAgent):
             if bidprice != askprice:
                 # Obtain a random quantity
                 quantity = self.quantity()
+                # Obtain a random leverage value
+                leverage = self.leverage()
+                bt.logging.info(f"BOOK {book_id} | QUOTE : {self.accounts[book_id].quote_balance.total} [LOAN {self.accounts[book_id].quote_loan} | COLLAT {self.accounts[book_id].quote_collateral}]")
+                bt.logging.info(f"BOOK {book_id} | BASE : {self.accounts[book_id].base_balance.total} [LOAN {self.accounts[book_id].base_loan} | COLLAT {self.accounts[book_id].base_collateral}]")
                 # If the agent can afford to place the buy order
                 if self.accounts[book_id].quote_balance.free >= quantity * bidprice:
                     # Attach a buy limit order placement instruction to the response
-                    response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bidprice, stp=STP.CANCEL_BOTH, timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period)
+                    # On the BUY side, we place leveraged orders according to the config
+                    response.limit_order(
+                        book_id=book_id, 
+                        direction=OrderDirection.BUY, 
+                        quantity=quantity, price=bidprice, 
+                        stp=STP.CANCEL_BOTH, 
+                        timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period,
+                        leverage=leverage)
                 else:
                     print(f"Cannot place BUY order for {quantity}@{bidprice} : Insufficient quote balance!")
                 # If the agent can afford to place the sell order
                 if self.accounts[book_id].base_balance.free >= quantity:
                     # Attach a sell limit order placement instruction to the response
-                    response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askprice, stp=STP.CANCEL_NEWEST, timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period)
+                    # In the SELL case, the order quantity is adjusted to approximate that of the leveraged buy order
+                    # By setting LoanSettlementOption.FIFO, these orders will repay the loans taken in executing the BUY orders.
+                    response.limit_order(
+                        book_id=book_id, 
+                        direction=OrderDirection.SELL, 
+                        quantity=round(quantity * 1 + leverage, self.simulation_config.volumeDecimals), price=askprice, 
+                        stp=STP.CANCEL_NEWEST, 
+                        timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period,
+                        settlement_option=LoanSettlementOption.FIFO
+                    )
                 else:
                     print(f"Cannot place SELL order for {quantity}@{askprice} : Insufficient base balance!")
         # Return the response with instructions appended
@@ -76,6 +106,6 @@ class RandomMakerAgent(FinanceSimulationAgent):
 if __name__ == "__main__":
     """
     Example command for local standalone testing execution using Proxy:
-    python RandomMakerAgent.py --port 8888 --agent_id 0 --params min_quantity=0.1 max_quantity=1.0 expiry_period=200000000000
+    python RandomMakerAgent.py --port 8888 --agent_id 0 --params min_quantity=0.1 max_quantity=1.0 min_leverage=0.0 max_leverage=1.0 expiry_period=200000000000
     """
     launch(RandomMakerAgent)

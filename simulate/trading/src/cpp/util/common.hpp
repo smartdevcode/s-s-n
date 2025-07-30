@@ -45,6 +45,7 @@ using namespace taosim::literals;
 
 //-------------------------------------------------------------------------
 
+using OrderID = uint32_t;
 using AgentId = int32_t;
 using LocalAgentId = std::string;
 using BookId = uint32_t;

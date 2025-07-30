@@ -124,6 +124,78 @@ OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
 
 //-------------------------------------------------------------------------
 
+bool ClearingManager::handleClosePosition(const ClosePositionDesc &closeDesc)
+{
+    const auto& [bookId, agentId, orderId, volumeToClose] = closeDesc;
+
+    accounting::Account& account = accounts()[agentId];
+    accounting::Balances& balances = account[bookId];
+    const auto& loan = balances.getLoan(orderId);
+
+    if (loan.has_value()){
+        decimal_t loanAmount = loan->get().amount();
+        decimal_t settleAmount = volumeToClose.value_or(loanAmount);
+
+        // if (settleAmount > loanAmount){
+        //     m_exchange->simulation()->logDebug("Settle Amount {} bigger than the remining loan {}",
+        //         settleAmount, loanAmount
+        //     );
+        //     return false;
+        // }
+
+        if (loan->get().direction() == OrderDirection::BUY){
+            const auto bestBid = m_exchange->books()[bookId]->bestBid();
+            settleAmount = util::roundUp(
+                bestBid * util::roundUp(settleAmount / bestBid, 
+                    m_exchange->config().parameters().baseIncrementDecimals),
+                m_exchange->config().parameters().quoteIncrementDecimals);
+
+            const auto takerFee = m_feePolicy->getRates(bookId, agentId).taker;
+            settleAmount = util::roundUp(settleAmount /util::dec1m(takerFee),
+                m_exchange->config().parameters().quoteIncrementDecimals);
+        }
+
+        auto orderPayload = MessagePayload::create<PlaceOrderMarketPayload>(
+                loan->get().direction() == OrderDirection::BUY ? OrderDirection::SELL : OrderDirection::BUY,
+                settleAmount,
+                bookId,
+                loan->get().direction() == OrderDirection::BUY ? Currency::QUOTE : Currency::BASE,
+                std::nullopt,
+                STPFlag::CO,
+                orderId
+            );
+        if (agentId < 0) {
+            m_exchange->simulation()->dispatchMessage(
+                m_exchange->simulation()->currentTimestamp(),
+                0,
+                accounts().idBimap().right.at(agentId),
+                m_exchange->name(),
+                "PLACE_ORDER_MARKET",
+                orderPayload
+            );
+        } else {
+            m_exchange->simulation()->dispatchMessage(
+                m_exchange->simulation()->currentTimestamp(),
+                0,
+                "DISTRIBUTED_PROXY_AGENT",
+                m_exchange->name(),
+                "DISTRIBUTED_PLACE_ORDER_MARKET",
+                MessagePayload::create<DistributedAgentResponsePayload>(
+                    agentId,
+                    orderPayload
+                )
+            );
+        }
+        
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
+//-------------------------------------------------------------------------
+
 void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
 {
     const auto& [bookId, order, volumeToCancel] = cancelDesc;
@@ -211,6 +283,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
                 balances.base.getReserved(), agentId, orderId));
         }
     }
+
 }
 
 //-------------------------------------------------------------------------
@@ -343,7 +416,8 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             fees.taker,
             bestBid,
             bestAsk,
-            aggressingMarginCall);
+            aggressingMarginCall,
+            aggressingOrder->settleFlag());
 
         m_exchange->simulation()->logDebug(
             "{} | AGENT #{} BOOK {} : COMMIT {} WITH FEE {} FOR RESTING SELL ORDER #{} AGAINST {} FOR AGG BUY ORDER #{} (BEST BID {} | MARGIN={})",
@@ -357,7 +431,8 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             fees.maker,
             bestBid,
             bestAsk,
-            restingMarginCall);
+            restingMarginCall,
+            restingOrder->settleFlag());
 
         removeMarginOrders(bookId, OrderDirection::BUY, removedIdsMarginBuy);
         removeMarginOrders(bookId, OrderDirection::SELL, removedIdsShortSell);
@@ -428,7 +503,8 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             fees.taker,
             bestBid,
             bestAsk,
-            aggressingMarginCall);
+            aggressingMarginCall,
+            aggressingOrder->settleFlag());
 
         m_exchange->simulation()->logDebug(
             "{} | AGENT #{} BOOK {} : COMMIT {} WITH FEE {} FOR RESTING BUY ORDER #{} AGAINST {} FOR AGG SELL ORDER #{} (BEST BID {} | MARGIN={})",
@@ -443,7 +519,8 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             fees.maker,
             bestBid,
             bestAsk,
-            restingMarginCall);
+            restingMarginCall,
+            restingOrder->settleFlag());
 
         removeMarginOrders(bookId, OrderDirection::SELL, removedIdsShortSell);
         removeMarginOrders(bookId, OrderDirection::BUY, removedIdsMarginBuy);

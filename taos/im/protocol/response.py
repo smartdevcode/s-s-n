@@ -6,11 +6,11 @@ from typing import Annotated, Union, List
 from annotated_types import Len
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentResponse
-from taos.im.protocol.instructions import PlaceMarketOrderInstruction, PlaceLimitOrderInstruction, CancelOrdersInstruction, CancelOrderInstruction, ResetAgentsInstruction
-from taos.im.protocol.models import OrderDirection, STP, TimeInForce, OrderCurrency
+from taos.im.protocol.instructions import PlaceMarketOrderInstruction, PlaceLimitOrderInstruction, CancelOrdersInstruction, CancelOrderInstruction, ClosePositionInstruction, ClosePositionsInstruction, ResetAgentsInstruction
+from taos.im.protocol.models import OrderDirection, STP, TimeInForce, OrderCurrency, LoanSettlementOption
 
 FinanceInstruction = Annotated[
-    Union[PlaceMarketOrderInstruction, PlaceLimitOrderInstruction, CancelOrdersInstruction, ResetAgentsInstruction],
+    Union[PlaceMarketOrderInstruction, PlaceLimitOrderInstruction, CancelOrdersInstruction, ClosePositionsInstruction, ResetAgentsInstruction],
     Field(discriminator="type")
 ]
 
@@ -41,7 +41,9 @@ class FinanceAgentResponse(AgentResponse):
         delay: int = 0, 
         clientOrderId: int | None = None, 
         stp: STP = STP.CANCEL_OLDEST, 
-        currency: OrderCurrency = OrderCurrency.BASE
+        currency: OrderCurrency = OrderCurrency.BASE,
+        leverage: float = 0.0,
+        settlement_option: LoanSettlementOption | int = LoanSettlementOption.NONE
     ) -> None:
         """
         Add a market order instruction to the agent response.
@@ -60,6 +62,16 @@ class FinanceAgentResponse(AgentResponse):
                                 If set to `OrderCurrency.QUOTE`, the `quantity` will be interpreted as the amount of QUOTE currency that the agent wishes to exchange.
                                 The matching engine at the simulator will determine the corresponding BASE amount to assign based on the asset price at the time of execution.
                                 Defaults to BASE.
+            leverage (float, optional): Leverage multiplier to apply to the order. The effective order quantity will be `(1+leverage)`
+                                e.g. an order placed for 1.0 BASE with 0.5 leverage will be placed for a total quantity of 1.5 BASE, where 0.5 is borrowed from the exchange.
+                                Must be non-negative. Defaults to 0.0 (no leverage).
+            settlement_option (LoanSettlementOption | int, optional): Strategy for settling outstanding margin loans using the proceeds of this order. Options:
+                                LoanSettlementOption.NONE : No loan repayments
+                                LoanSettlementOption.FIFO : Loans will be repaid, starting from the oldest
+                                int : An integer order id; this specifies that the proceeds of the order should be used to repay the loan associated with a specific order
+                                Defaults to NONE.
+                                Note that you can only settle loans using unleveraged orders (`leverage=0`) due to the restriction preventing to hold leveraged 
+                                positions on both sides of the book simultaneously.
 
         Returns:
             None
@@ -73,7 +85,9 @@ class FinanceAgentResponse(AgentResponse):
                 quantity=quantity, 
                 clientOrderId=clientOrderId, 
                 stp=stp, 
-                currency=currency
+                currency=currency,
+                leverage=leverage,
+                settleFlag=settlement_option
             )
         )
 
@@ -88,7 +102,9 @@ class FinanceAgentResponse(AgentResponse):
         stp: STP = STP.CANCEL_OLDEST, 
         postOnly: bool = False, 
         timeInForce: TimeInForce = TimeInForce.GTC, 
-        expiryPeriod: int | None = None
+        expiryPeriod: int | None = None,
+        leverage: float = 0.0,
+        settlement_option: LoanSettlementOption | int = LoanSettlementOption.NONE
     ) -> None:
         """
         Add a limit order instruction to the agent response.
@@ -115,6 +131,16 @@ class FinanceAgentResponse(AgentResponse):
                                 Fill Or Kill : If the order will not be executed in its entirety immediately upon receipt by the simulator, the order will be rejected.
                                 Defaults to GTC.
             expiryPeriod (int | None, optional): Expiry period for GTT (Good Till Time) orders, in simulation nanoseconds.
+            leverage (float, optional): Leverage multiplier to apply to the order. The effective order quantity will be `(1+leverage)`
+                                e.g. an order placed for 1.0 BASE with 0.5 leverage will be placed for a total quantity of 1.5 BASE, where 0.5 is borrowed from the exchange.
+                                Must be non-negative. Defaults to 0.0 (no leverage).
+            settlement_option (LoanSettlementOption | int, optional): Strategy for settling outstanding margin loans using the proceeds of this order. 
+                                    LoanSettlementOption.NONE : No loan repayments
+                                    LoanSettlementOption.FIFO : Loans will be repaid, starting from the oldest
+                                    int : An integer order id; this specifies that the proceeds of the order should be used to repay the loan associated with a specific order
+                                Defaults to NONE.
+                                Note that you can only settle loans using unleveraged orders (`leverage=0`) due to the restriction preventing to hold leveraged 
+                                positions on both sides of the book simultaneously.
 
         Returns:
             None
@@ -151,7 +177,9 @@ class FinanceAgentResponse(AgentResponse):
                 stp=stp, 
                 postOnly=postOnly, 
                 timeInForce=timeInForce, 
-                expiryPeriod=expiryPeriod
+                expiryPeriod=expiryPeriod,
+                leverage=leverage,
+                settleFlag=settlement_option
             )
         )
 
@@ -211,6 +239,67 @@ class FinanceAgentResponse(AgentResponse):
                 bookId=book_id, 
                 cancellations=[
                     CancelOrderInstruction(orderId=order_id, volume=None) 
+                    for order_id in order_ids
+                ]
+            )
+        )
+        
+    def close_position(
+        self, 
+        book_id: int, 
+        order_id: int, 
+        quantity: float | None = None, 
+        delay: int = 0
+    ) -> None:
+        """
+        Add a close position instruction for a single order.
+
+        Args:
+            book_id (int): The ID of the order book where the order exists.
+            order_id (int): The ID of the leveraged order for which to settle the associated loan.
+            quantity (float | None, optional): Quantity (in BASE) to close (if None, closes the entire position associated with the order).
+            delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
+                                This delay will be added to the delay calculated based on your response time to the validator.
+                                Defaults to 0.
+
+        Returns:
+            None
+        """
+        self.add_instruction(
+            ClosePositionsInstruction(
+                agentId=self.agent_id, 
+                delay=delay, 
+                bookId=book_id, 
+                closes=[ClosePositionInstruction(orderId=order_id, volume=quantity)]
+            )
+        )
+
+    def close_positions(
+        self, 
+        book_id: int, 
+        order_ids: list[int], 
+        delay: int = 0
+    ) -> None:
+        """
+        Add a close position instruction for multiple orders.
+
+        Args:
+            book_id (int): The ID of the order book where the orders exist.
+            order_ids (list[int]): A list of IDs of the leveraged orders for which to settle the associated loans.
+            delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
+                                This delay will be added to the delay calculated based on your response time to the validator.
+                                Defaults to 0.
+
+        Returns:
+            None
+        """
+        self.add_instruction(
+            ClosePositionsInstruction(
+                agentId=self.agent_id, 
+                delay=delay, 
+                bookId=book_id, 
+                closes=[
+                    ClosePositionInstruction(orderId=order_id, volume=None) 
                     for order_id in order_ids
                 ]
             )

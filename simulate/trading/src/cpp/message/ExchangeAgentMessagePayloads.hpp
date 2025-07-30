@@ -6,6 +6,7 @@
 
 #include "Book.hpp"
 #include "Cancellation.hpp"
+#include "ClosePosition.hpp"
 #include "MessagePayload.hpp"
 #include "Order.hpp"
 #include "Trade.hpp"
@@ -16,6 +17,8 @@
 #include <vector>
 
 using STPFlag = taosim::STPFlag;
+using SettleFlag = taosim::SettleFlag;
+using SettleType = taosim::SettleType;
 
 //-------------------------------------------------------------------------
 
@@ -50,6 +53,7 @@ struct PlaceOrderMarketPayload : public MessagePayload
     Currency currency;
     std::optional<ClientOrderID> clientOrderId{};
     STPFlag stpFlag{STPFlag::CO};
+    SettleFlag settleFlag{SettleType::FIFO};
 
     PlaceOrderMarketPayload(
         OrderDirection direction,
@@ -57,8 +61,10 @@ struct PlaceOrderMarketPayload : public MessagePayload
         BookId bookId,
         Currency currency = Currency::BASE,
         std::optional<ClientOrderID> clientOrderId = {},
-        STPFlag stpFlag = STPFlag::CO) noexcept
-        : direction{direction}, volume{volume}, leverage{0_dec}, bookId{bookId}, currency{currency}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO) noexcept
+        : direction{direction}, volume{volume}, leverage{0_dec}, bookId{bookId}, currency{currency},
+        clientOrderId{clientOrderId}, stpFlag{stpFlag}, settleFlag{settleFlag}
     {}
 
     PlaceOrderMarketPayload(
@@ -68,8 +74,10 @@ struct PlaceOrderMarketPayload : public MessagePayload
         BookId bookId,
         Currency currency = Currency::BASE,
         std::optional<ClientOrderID> clientOrderId = {},
-        STPFlag stpFlag = STPFlag::CO) noexcept
-        : direction{direction}, volume{volume}, leverage{leverage}, bookId{bookId}, currency{currency}, clientOrderId{clientOrderId}, stpFlag{stpFlag}
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO) noexcept
+        : direction{direction}, volume{volume}, leverage{leverage}, bookId{bookId}, currency{currency},
+        clientOrderId{clientOrderId}, stpFlag{stpFlag}, settleFlag{settleFlag}
     {}
 
     virtual void jsonSerialize(
@@ -142,6 +150,7 @@ struct PlaceOrderLimitPayload : public MessagePayload
     taosim::TimeInForce timeInForce{taosim::TimeInForce::GTC};
     std::optional<Timestamp> expiryPeriod{};
     STPFlag stpFlag{STPFlag::CO};
+    SettleFlag settleFlag{SettleType::FIFO};
 
     PlaceOrderLimitPayload(
         OrderDirection direction,
@@ -153,7 +162,8 @@ struct PlaceOrderLimitPayload : public MessagePayload
         bool postOnly = false,
         taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
         std::optional<Timestamp> expiryPeriod = std::nullopt,
-        STPFlag stpFlag = STPFlag::CO) noexcept
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO) noexcept
         : direction{direction},
           volume{volume},
           price{price},
@@ -163,7 +173,8 @@ struct PlaceOrderLimitPayload : public MessagePayload
           postOnly{postOnly},
           timeInForce{timeInForce},
           expiryPeriod{expiryPeriod},
-          stpFlag{stpFlag}
+          stpFlag{stpFlag},
+          settleFlag{settleFlag}
     {}
 
     PlaceOrderLimitPayload(
@@ -177,7 +188,8 @@ struct PlaceOrderLimitPayload : public MessagePayload
         bool postOnly = false,
         taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
         std::optional<Timestamp> expiryPeriod = std::nullopt,
-        STPFlag stpFlag = STPFlag::CO) noexcept
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO) noexcept
         : direction{direction},
           volume{volume},
           price{price},
@@ -188,7 +200,8 @@ struct PlaceOrderLimitPayload : public MessagePayload
           postOnly{postOnly},
           timeInForce{timeInForce},
           expiryPeriod{expiryPeriod},
-          stpFlag{stpFlag}
+          stpFlag{stpFlag},
+          settleFlag{settleFlag}
     {}
 
     virtual void jsonSerialize(
@@ -347,6 +360,79 @@ struct CancelOrdersErrorResponsePayload : public MessagePayload
     CancelOrdersErrorResponsePayload(
         std::vector<OrderID> orderIds,
         CancelOrdersPayload::Ptr requestPayload,
+        ErrorResponsePayload::Ptr errorPayload) noexcept
+        : orderIds{std::move(orderIds)}, requestPayload{requestPayload}, errorPayload{errorPayload}
+    {}
+
+    virtual void jsonSerialize(
+        rapidjson::Document& json, const std::string& key = {}) const override;
+    virtual void checkpointSerialize(
+        rapidjson::Document& json, const std::string& key = {}) const override;
+
+    [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
+};
+
+//-------------------------------------------------------------------------
+
+struct ClosePositionsPayload : public MessagePayload
+{
+    using Ptr = std::shared_ptr<ClosePositionsPayload>;
+
+    std::vector<ClosePosition> closePositions;
+    BookId bookId;
+
+    ClosePositionsPayload() = default;
+
+    ClosePositionsPayload(std::vector<ClosePosition> closePositions, BookId bookId) noexcept
+        : closePositions{std::move(closePositions)}, bookId{bookId}
+    {}
+
+    ClosePositionsPayload(ClosePosition closePositions, BookId bookId) noexcept
+        : closePositions{closePositions}, bookId{bookId}
+    {}
+
+    virtual void jsonSerialize(
+        rapidjson::Document& json, const std::string& key = {}) const override;
+    virtual void checkpointSerialize(
+        rapidjson::Document& json, const std::string& key = {}) const override;
+
+    [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
+};
+
+//-------------------------------------------------------------------------
+
+struct ClosePositionsResponsePayload : public MessagePayload
+{
+    using Ptr = std::shared_ptr<ClosePositionsResponsePayload>;
+
+    std::vector<OrderID> orderIds;
+    ClosePositionsPayload::Ptr requestPayload;
+
+    ClosePositionsResponsePayload(std::vector<OrderID> orderIds, ClosePositionsPayload::Ptr requestPayload) noexcept
+        : orderIds{std::move(orderIds)}, requestPayload{requestPayload}
+    {}
+
+    virtual void jsonSerialize(
+        rapidjson::Document& json, const std::string& key = {}) const override;
+    virtual void checkpointSerialize(
+        rapidjson::Document& json, const std::string& key = {}) const override;
+
+    [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
+};
+
+//-------------------------------------------------------------------------
+
+struct ClosePositionsErrorResponsePayload : public MessagePayload
+{
+    using Ptr = std::shared_ptr<ClosePositionsErrorResponsePayload>;
+
+    std::vector<OrderID> orderIds;
+    ClosePositionsPayload::Ptr requestPayload;
+    ErrorResponsePayload::Ptr errorPayload;
+
+    ClosePositionsErrorResponsePayload(
+        std::vector<OrderID> orderIds,
+        ClosePositionsPayload::Ptr requestPayload,
         ErrorResponsePayload::Ptr errorPayload) noexcept
         : orderIds{std::move(orderIds)}, requestPayload{requestPayload}, errorPayload{errorPayload}
     {}

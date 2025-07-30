@@ -53,7 +53,8 @@ def init_metrics(self : Validator) -> None:
     ])
     self.prometheus_miners = Gauge('miners', 'Gauge summaries for miner metrics.', [
         'wallet', 'netuid', 'timestamp', 'timestamp_str', 'agent_id',
-        'placement', 'base_balance', 'quote_balance', 'inventory_value', 'inventory_value_change', 'pnl', 'pnl_change', 
+        'placement', 'base_balance', 'base_loan', 'base_collateral', 'quote_balance', 'quote_loan', 'quote_collateral', 
+        'inventory_value', 'inventory_value_change', 'pnl', 'pnl_change', 
         'min_daily_volume','activity_factor', 'sharpe', 'sharpe_penalty', 'sharpe_score', 'unnormalized_score', 'score',
         'miner_gauge_name'
     ])
@@ -248,7 +249,11 @@ def report(self : Validator) -> None:
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="base_balance_reserved").set( account.base_balance.reserved )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_balance_total").set( account.quote_balance.total )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_balance_free").set( account.quote_balance.free )
-                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_balance_reserved").set( account.quote_balance.reserved )                    
+                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_balance_reserved").set( account.quote_balance.reserved )     
+                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="base_loan").set( account.base_loan )
+                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="base_collateral").set( account.base_collateral )
+                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_loan").set( account.quote_loan )             
+                    self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="quote_collateral").set( account.quote_collateral )  
                     
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="fees_traded_volume").set( account.fees.volume_traded )
                     self.prometheus_agent_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, book_id=bookId, agent_id=agentId, agent_gauge_name="fees_maker_rate").set( account.fees.maker_fee_rate )
@@ -313,7 +318,11 @@ def report(self : Validator) -> None:
                 total_inventory_history[agentId] = [sum(list(inventory_value.values())) for inventory_value in list(self.inventory_history[agentId].values())]
                 pnl[agentId] = total_inventory_history[agentId][-1] - total_inventory_history[agentId][0]
                 total_base_balance = round(sum([accounts[bookId].base_balance.total for bookId in self.last_state.books]), self.simulation.baseDecimals)
-                total_quote_balance = round(sum([accounts[bookId].quote_balance.total for bookId in self.last_state.books]), self.simulation.baseDecimals)
+                total_base_loan = round(sum([accounts[bookId].base_loan for bookId in self.last_state.books]), self.simulation.baseDecimals)
+                total_base_collateral = round(sum([accounts[bookId].base_collateral for bookId in self.last_state.books]), self.simulation.baseDecimals)
+                total_quote_balance = round(sum([accounts[bookId].quote_balance.total for bookId in self.last_state.books]), self.simulation.quoteDecimals)
+                total_quote_loan = round(sum([accounts[bookId].quote_loan for bookId in self.last_state.books]), self.simulation.quoteDecimals)
+                total_quote_collateral = round(sum([accounts[bookId].quote_collateral for bookId in self.last_state.books]), self.simulation.quoteDecimals)
                 total_daily_volume = {
                     role : round(sum([book_volume[role] for book_volume in daily_volumes[agentId].values()]), self.simulation.volumeDecimals) for role in ['total', 'maker', 'taker', 'self']
                 }
@@ -329,7 +338,11 @@ def report(self : Validator) -> None:
                 # placement = min_place_for_score + (uids_at_score == agentId).nonzero().flatten().item()
                 start_gauges = time.time()
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_base_balance").set(total_base_balance)
+                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_base_loan").set(total_base_loan)
+                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_base_collateral").set(total_base_collateral)
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_quote_balance").set(total_quote_balance)
+                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_quote_loan").set(total_quote_loan)
+                self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_quote_collateral").set(total_quote_collateral)
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_inventory_value").set(total_inventory_history[agentId][-1])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="pnl").set(pnl[agentId])
                 self.prometheus_miner_gauges.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId, miner_gauge_name="total_daily_volume").set(total_daily_volume['total'])
@@ -374,7 +387,9 @@ def report(self : Validator) -> None:
                 start_metric = time.time()
                 self.prometheus_miners.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, agent_id=agentId,
                     timestamp=self.simulation_timestamp, timestamp_str=simulation_duration,
-                    placement=placements[agentId].item(), base_balance=total_base_balance, quote_balance=total_quote_balance,
+                    placement=placements[agentId].item(), 
+                    base_balance=total_base_balance, base_loan=total_base_loan, base_collateral=total_base_collateral,
+                    quote_balance=total_quote_balance, quote_loan=total_quote_loan, quote_collateral=total_quote_collateral,
                     inventory_value=total_inventory_history[agentId][-1], inventory_value_change=total_inventory_history[agentId][-1] - total_inventory_history[agentId][-2] if len(total_inventory_history[agentId]) > 1 else 0.0,
                     pnl=pnl[agentId], pnl_change=pnl[agentId] - (total_inventory_history[agentId][-2] - total_inventory_history[agentId][0]) if len(total_inventory_history[agentId]) > 1 else 0.0,
                     min_daily_volume=min_daily_volume['total'], 

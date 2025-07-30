@@ -46,6 +46,8 @@ public:
     std::map<OrderID, Loan> m_loans;
     decimal_t m_quoteLoan{};
     decimal_t m_baseLoan{};
+    decimal_t m_quoteCollateral{};
+    decimal_t m_baseCollateral{};
     uint32_t m_baseDecimals;
     uint32_t m_quoteDecimals;
     RoundParams m_roundParams;
@@ -63,7 +65,7 @@ public:
         decimal_t amount, decimal_t leverage, OrderDirection direction);
     [[nodiscard]] std::vector<std::pair<OrderID, decimal_t>> commit(
         OrderID orderId, OrderDirection direction, decimal_t amount, decimal_t counterAmount, decimal_t fee,
-        decimal_t bestBid, decimal_t bestAsk, decimal_t marginCallPrice);
+        decimal_t bestBid, decimal_t bestAsk, decimal_t marginCallPrice, SettleFlag settleFlag = SettleType::FIFO);
 
     [[nodiscard]] decimal_t getLeverage(OrderID id, OrderDirection direction) const noexcept;
     [[nodiscard]] decimal_t getWealth(decimal_t price) const noexcept;
@@ -82,7 +84,7 @@ public:
 
 private:
     [[nodiscard]] std::vector<std::pair<OrderID, decimal_t>> settleLoan(
-        OrderDirection direction, decimal_t amount, decimal_t price);
+        OrderDirection direction, decimal_t amount, decimal_t price, std::optional<OrderID> marginOrderId = {});
 
     void borrow(
         OrderID id,

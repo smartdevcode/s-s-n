@@ -22,7 +22,8 @@ public:
         Timestamp timestamp,
         taosim::decimal_t volume,
         taosim::decimal_t leverage = 0_dec,
-        taosim::STPFlag stpFlag = taosim::STPFlag::CO) const noexcept;
+        taosim::STPFlag stpFlag = taosim::STPFlag::CO,
+        taosim::SettleFlag settleFlag = taosim::SettleType::FIFO) const noexcept;
 
     [[nodiscard]] LimitOrder::Ptr makeLimitOrder(
         OrderDirection direction,
@@ -30,7 +31,8 @@ public:
         taosim::decimal_t volume,
         taosim::decimal_t price,
         taosim::decimal_t leverage = 0_dec,
-        taosim::STPFlag stpFlag = taosim::STPFlag::CO) const noexcept;
+        taosim::STPFlag stpFlag = taosim::STPFlag::CO,
+        taosim::SettleFlag settleFlag = taosim::SettleType::FIFO) const noexcept;
 
     virtual void checkpointSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;

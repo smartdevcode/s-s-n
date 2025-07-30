@@ -9,7 +9,8 @@ LOG_LEVEL=info
 PD_KEY="\"\""
 PROM_PORT=9001
 TIMEOUT=3.0
-while getopts e:p:w:h:u:l:d:o:t: flag
+PRESERVE_SIMULATOR=0
+while getopts e:p:w:h:u:l:d:o:t:s: flag
 do
     case "${flag}" in
         e) ENDPOINT=${OPTARG};;
@@ -21,6 +22,7 @@ do
         d) PD_KEY=${OPTARG};;
         o) PROM_PORT=${OPTARG};;
         t) TIMEOUT=${OPTARG};;
+        s) PRESERVE_SIMULATOR=${OPTARG};;
         # c) CHECKPOINT=${OPTARG};;
     esac
 done
@@ -33,49 +35,60 @@ echo "CHECKPOINT: $CHECKPOINT"
 echo "PAGERDUTY KEY: $PD_KEY"
 echo "PROMETHEUS PORT: $PROM_PORT"
 echo "TIMEOUT: $TIMEOUT"
+echo "PRESERVE_SIMULATOR: $PRESERVE_SIMULATOR"
 
-pm2 delete simulator validator
-tmux kill-session -t taos
+if [ $PRESERVE_SIMULATOR = 0 ]; then
+    pm2 delete simulator validator
+    tmux kill-session -t taos
+else
+    pm2 delete validator
+fi
 
 echo "Updating Validator"
 git pull
 pip install -e .
 
-echo "Updating Simulator"
-export LD_LIBRARY_PATH="/usr/local/gcc-14.1.0/lib/../lib64:$LD_LIBRARY_PATH"
-cd simulate/trading
-if ! g++ -dumpversion | grep -q "14"; then
-	cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "$(nproc)"
+if [ $PRESERVE_SIMULATOR = 0 ]; then
+    echo "Updating Simulator"
+    export LD_LIBRARY_PATH="/usr/local/gcc-14.1.0/lib/../lib64:$LD_LIBRARY_PATH"
+    cd simulate/trading
+    if ! g++ -dumpversion | grep -q "14"; then
+        cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "$(nproc)"
+    else
+        cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D .. && cmake --build . -j "$(nproc)"
+    fi
+    cd ../../../taos/im/neurons
 else
-	cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D .. && cmake --build . -j "$(nproc)"
+    cd taos/im/neurons
 fi
 
 echo "Starting Validator"
-cd ../../../taos/im/neurons
 pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY --prometheus.port $PROM_PORT --neuron.timeout $TIMEOUT"
 
-echo "Starting Simulator"
-cd ../../../simulate/trading/run
-# if [ $CHECKPOINT = 0 ]; then
-	pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -f config/simulation_0.xml"
-# else
-	# pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -c $CHECKPOINT"
-# fi
-pm2 save
-pm2 startup
+if [ $PRESERVE_SIMULATOR = 0 ]; then
+    echo "Starting Simulator"
+    cd ../../../simulate/trading/run
+    # if [ $CHECKPOINT = 0 ]; then
+        pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -f config/simulation_0.xml"
+    # else
+        # pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -c $CHECKPOINT"
+    # fi
+    pm2 save
+    pm2 startup
 
-echo "Setting Up Tmux Session"
-# Start a new tmux session and open htop for validator process monitoring in the first pane
-tmux new-session -d -s taos -n 'validator' 'htop -F validator.py'    
-# Split the window horizontally and open htop for simulator resource usage monitoring
-tmux split-window -h -t taos:validator 'htop -F taosim'
-# Focus the first pane
-tmux select-pane -t 0
-# Split vertically and open the validator logs in the third pane
-tmux split-window -v -t taos:validator 'pm2 logs validator'
-# Focus the second pane
-tmux select-pane -t 2
-# Split the window and open the simulator logs in the new pane
-tmux split-window -v -t taos:validator 'pm2 logs simulator'
+    echo "Setting Up Tmux Session"
+    # Start a new tmux session and open htop for validator process monitoring in the first pane
+    tmux new-session -d -s taos -n 'validator' 'htop -F validator.py'    
+    # Split the window horizontally and open htop for simulator resource usage monitoring
+    tmux split-window -h -t taos:validator 'htop -F taosim'
+    # Focus the first pane
+    tmux select-pane -t 0
+    # Split vertically and open the validator logs in the third pane
+    tmux split-window -v -t taos:validator 'pm2 logs validator'
+    # Focus the second pane
+    tmux select-pane -t 2
+    # Split the window and open the simulator logs in the new pane
+    tmux split-window -v -t taos:validator 'pm2 logs simulator'
+fi
 # Attach to the new tmux session
 tmux attach-session -t taos

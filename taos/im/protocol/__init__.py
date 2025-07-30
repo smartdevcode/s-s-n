@@ -42,7 +42,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         config (MarketSimulationConfig | str | None): Details of the simulation configuration run by the sending validator.
         books (dict[int, Book] | None): Mapping from orderbook IDs to Book objects containing state information.
         accounts (dict[int, dict[int, Account]] | None): Mapping from agent IDs to dictionaries associating orderbook IDs with agent account states.
-        notices (dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | None):
+        notices (dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | ClosePositionsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | None):
             Mapping from agent IDs to lists of market events relevant to them since the last state update.
         response (Optional[FinanceAgentResponse] | None): Mutable field to be populated by the miner agent with instructions to execute.
         compressed (str | dict | None): Compressed format of the state data to reduce message size during transmission.
@@ -53,7 +53,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
     config : MarketSimulationConfig | str | None = None
     books : dict[int,Book] | None = None
     accounts : dict[int,dict[int, Account]] | None = None
-    notices : dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | None = None
+    notices : dict[int, list[SimulationStartEvent | LimitOrderPlacementEvent | MarketOrderPlacementEvent | OrderCancellationsEvent | ClosePositionsEvent | TradeEvent | ResetAgentsEvent | SimulationEndEvent]] | None = None
     response: Optional[FinanceAgentResponse] | None  = None
     compressed : str | dict | None = None
     compression_engine : str = "lz4"
@@ -95,14 +95,15 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         for sagentId, account in payload['accounts'].items():
             agentId = int(sagentId)
             if agentId >= 0:
-                for book_id, balances in enumerate(account['balances']['holdings']):
+                for book_id, balances in enumerate(account['holdings']):
                     if not agentId in accounts:
                         accounts[agentId] = {}
                     accounts[agentId][book_id] = Account(
                         agent_id=account['agentId'],book_id=book_id,
                         base_balance=Balance.from_json(currency='BASE', json=balances['base']),
                         quote_balance=Balance.from_json(currency='QUOTE', json=balances['quote']),
-                        orders=[Order.from_account(order) for order in account['orders'][book_id]] if account['orders'] and account['orders'][book_id] else [],
+                        orders=[Order.from_json(order) for order in account['orders'][book_id]] if account['orders'] and account['orders'][book_id] else [],
+                        loans={int(id) : Loan.from_json(loan) for id, loan in account['loans'][book_id].items()} if account['loans'] and account['loans'][book_id] else {},
                         fees=Fees.from_json(account['fees'][str(book_id)]) if account['fees'] else None
                     )
         bt.logging.debug(f"Accounts populated ({time.time()-start:.4f}s).")
@@ -134,14 +135,19 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         for sagentId, account in payload['accounts']:
             agentId = int(sagentId)
             if agentId >= 0:
-                for book_id, balances in enumerate(account['balances']['holdings']):
+                for book_id, balances in enumerate(account['holdings']):
                     if not agentId in accounts:
                         accounts[agentId] = {}
                     accounts[agentId][book_id] = Account(
                         agent_id=account['agentId'],book_id=book_id,
                         base_balance=Balance.from_json(currency='BASE', json=balances['base']),
                         quote_balance=Balance.from_json(currency='QUOTE', json=balances['quote']),
-                        orders=[Order.from_account(order) for order in account['orders'][book_id]] if account['orders'] and account['orders'][book_id] else [],
+                        base_loan=balances['baseLoan'],
+                        quote_loan=balances['quoteLoan'],
+                        base_collateral=balances['baseCollateral'],                        
+                        quote_collateral=balances['quoteCollateral'],
+                        orders=[Order.from_json(order) for order in account['orders'][book_id]] if account['orders'] and account['orders'][book_id] else [],
+                        loans={int(id) : Loan.from_json(loan) for id, loan in account['loans'][book_id]} if account['loans'] and account['loans'][book_id] else {},
                         fees=Fees.from_json(account['fees'][str(book_id)]) if account['fees'] else None
                     )
         bt.logging.debug(f"Accounts populated ({time.time()-start:.4f}s).")

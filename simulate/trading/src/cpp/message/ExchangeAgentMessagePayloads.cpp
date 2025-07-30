@@ -52,6 +52,18 @@ void PlaceOrderMarketPayload::jsonSerialize(
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
             allocator);
+        json.AddMember("leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
+        std::visit([&](auto&& flag) {
+            using T = std::decay_t<decltype(flag)>;
+            if constexpr (std::is_same_v<T, SettleType>) {
+                json.AddMember(
+                    "settleFlag",
+                    rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                    allocator);
+            } else if constexpr (std::is_same_v<T, OrderID>) {
+                json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+            }
+        }, settleFlag);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -73,6 +85,18 @@ void PlaceOrderMarketPayload::checkpointSerialize(
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
             allocator);
+        json.AddMember("leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
+        std::visit([&](auto&& flag) {
+            using T = std::decay_t<decltype(flag)>;
+            if constexpr (std::is_same_v<T, SettleType>) {
+                json.AddMember(
+                    "settleFlag",
+                    rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                    allocator);
+            } else if constexpr (std::is_same_v<T, OrderID>) {
+                json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+            }
+        }, settleFlag);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -84,6 +108,9 @@ PlaceOrderMarketPayload::Ptr PlaceOrderMarketPayload::fromJson(const rapidjson::
     return MessagePayload::create<PlaceOrderMarketPayload>(
         OrderDirection{json["direction"].GetUint()},
         taosim::json::getDecimal(json["volume"]),
+        json.HasMember("leverage")
+            ? taosim::json::getDecimal(json["leverage"])
+            : 0_dec,
         json["bookId"].GetUint(),
         Currency{json["currency"].GetUint()},
         !json["clientOrderId"].IsNull()
@@ -92,7 +119,12 @@ PlaceOrderMarketPayload::Ptr PlaceOrderMarketPayload::fromJson(const rapidjson::
         json.HasMember("stpFlag")
             ? magic_enum::enum_cast<STPFlag>(json["stpFlag"].GetUint())
                 .value_or(STPFlag::CO)
-            : STPFlag::CO
+            : STPFlag::CO,
+        json.HasMember("settleFlag")
+            ? (json["settleFlag"].IsInt() && magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).has_value()
+                ? SettleFlag(magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).value())
+                : SettleFlag(static_cast<OrderID>(json["settleFlag"].GetUint())))
+            : SettleFlag(SettleType::FIFO)
         );
 }
 
@@ -197,6 +229,17 @@ void PlaceOrderLimitPayload::jsonSerialize(
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
             allocator);
+        std::visit([&](auto&& flag) {
+            using T = std::decay_t<decltype(flag)>;
+            if constexpr (std::is_same_v<T, SettleType>) {
+                json.AddMember(
+                    "settleFlag",
+                    rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                    allocator);
+            } else if constexpr (std::is_same_v<T, OrderID>) {
+                json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+            }
+        }, settleFlag);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -226,6 +269,17 @@ void PlaceOrderLimitPayload::checkpointSerialize(
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
             allocator);
+        std::visit([&](auto&& flag) {
+            using T = std::decay_t<decltype(flag)>;
+            if constexpr (std::is_same_v<T, SettleType>) {
+                json.AddMember(
+                    "settleFlag",
+                    rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                    allocator);
+            } else if constexpr (std::is_same_v<T, OrderID>) {
+                json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+            }
+        }, settleFlag);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -259,7 +313,13 @@ PlaceOrderLimitPayload::Ptr PlaceOrderLimitPayload::fromJson(const rapidjson::Va
         json.HasMember("stpFlag")
             ? magic_enum::enum_cast<STPFlag>(json["stpFlag"].GetUint())
                 .value_or(STPFlag::CO)
-            : STPFlag::CO);
+            : STPFlag::CO,
+        json.HasMember("settleFlag")
+            ? (json["settleFlag"].IsInt() && magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).has_value()
+                ? SettleFlag(magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).value())
+                : SettleFlag(static_cast<OrderID>(json["settleFlag"].GetUint())))
+            : SettleFlag(SettleType::FIFO)
+        );
 }
 
 //-------------------------------------------------------------------------
@@ -592,6 +652,168 @@ CancelOrdersErrorResponsePayload::Ptr CancelOrdersErrorResponsePayload::fromJson
     return MessagePayload::create<CancelOrdersErrorResponsePayload>(
         std::move(orderIds),
         CancelOrdersPayload::fromJson(json["requestPayload"]),
+        ErrorResponsePayload::fromJson(json["errorPayload"]));
+}
+
+//-------------------------------------------------------------------------
+
+void ClosePositionsPayload::jsonSerialize(
+    rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        rapidjson::Value closePositionsJson{rapidjson::kArrayType};
+        for (const ClosePosition& closePosition : closePositions) {
+            rapidjson::Document closePositionJson{rapidjson::kObjectType, &allocator};
+            closePosition.jsonSerialize(closePositionJson);
+            closePositionsJson.PushBack(closePositionJson, allocator);
+        }
+        json.AddMember("closePositions", closePositionsJson, allocator);
+        json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
+void ClosePositionsPayload::checkpointSerialize(
+    rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        rapidjson::Value closePositionsJson{rapidjson::kArrayType};
+        for (const ClosePosition& closePosition : closePositions) {
+            rapidjson::Document closePositionJson{rapidjson::kObjectType, &allocator};
+            closePosition.checkpointSerialize(closePositionJson);
+            closePositionsJson.PushBack(closePositionJson, allocator);
+        }
+        json.AddMember("closePositions", closePositionsJson, allocator);
+        json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
+ClosePositionsPayload::Ptr ClosePositionsPayload::fromJson(const rapidjson::Value& json)
+{
+    return MessagePayload::create<ClosePositionsPayload>(
+        [&json] {
+            std::vector<ClosePosition> ClosePositions;
+            for (const auto& closePositionJson : json["closePositions"].GetArray()) {
+                ClosePositions.emplace_back(
+                    closePositionJson["orderId"].GetUint(),
+                    !closePositionJson["volume"].IsNull()
+                        ? std::make_optional(taosim::json::getDecimal(json["volume"]))
+                        : std::nullopt);
+            }
+            return ClosePositions;
+        }(),
+        json["bookId"].GetUint());
+}
+
+//-------------------------------------------------------------------------
+
+void ClosePositionsResponsePayload::jsonSerialize(
+    rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        rapidjson::Value orderIdsJson{rapidjson::kArrayType};
+        for (OrderID orderId : orderIds) {
+            orderIdsJson.PushBack(orderId, allocator);
+        }
+        json.AddMember("orderIds", orderIdsJson, allocator);
+        requestPayload->jsonSerialize(json, "requestPayload");
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
+void ClosePositionsResponsePayload::checkpointSerialize(
+    rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        rapidjson::Value orderIdsJson{rapidjson::kArrayType};
+        for (OrderID orderId : orderIds) {
+            orderIdsJson.PushBack(orderId, allocator);
+        }
+        json.AddMember("orderIds", orderIdsJson, allocator);
+        requestPayload->checkpointSerialize(json, "requestPayload");
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
+ClosePositionsResponsePayload::Ptr ClosePositionsResponsePayload::fromJson(
+    const rapidjson::Value& json)
+{
+    std::vector<OrderID> orderIds;
+    for (const auto& orderId : json["orderIds"].GetArray()) {
+        orderIds.push_back(orderId.GetUint());
+    }
+    return MessagePayload::create<ClosePositionsResponsePayload>(
+        std::move(orderIds),
+        ClosePositionsPayload::fromJson(json["requestPayload"]));
+}
+
+//-------------------------------------------------------------------------
+
+void ClosePositionsErrorResponsePayload::jsonSerialize(
+    rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        rapidjson::Value orderIdsJson{rapidjson::kArrayType};
+        for (OrderID orderId : orderIds) {
+            orderIdsJson.PushBack(orderId, allocator);
+        }
+        json.AddMember("orderIds", orderIdsJson, allocator);
+        requestPayload->jsonSerialize(json, "requestPayload");
+        errorPayload->jsonSerialize(json, "errorPayload");
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
+void ClosePositionsErrorResponsePayload::checkpointSerialize(
+    rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        rapidjson::Value orderIdsJson{rapidjson::kArrayType};
+        for (OrderID orderId : orderIds) {
+            orderIdsJson.PushBack(orderId, allocator);
+        }
+        json.AddMember("orderIds", orderIdsJson, allocator);
+        requestPayload->checkpointSerialize(json, "requestPayload");
+        errorPayload->checkpointSerialize(json, "errorPayload");
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
+ClosePositionsErrorResponsePayload::Ptr ClosePositionsErrorResponsePayload::fromJson(
+    const rapidjson::Value& json)
+{
+    std::vector<OrderID> orderIds;
+    for (const auto& orderId : json["orderIds"].GetArray()) {
+        orderIds.push_back(orderId.GetUint());
+    }
+    return MessagePayload::create<ClosePositionsErrorResponsePayload>(
+        std::move(orderIds),
+        ClosePositionsPayload::fromJson(json["requestPayload"]),
         ErrorResponsePayload::fromJson(json["errorPayload"]));
 }
 

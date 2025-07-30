@@ -77,6 +77,7 @@ private:
     void handleDistributedPlaceLimitOrder(Message::Ptr msg);
     void handleDistributedRetrieveOrders(Message::Ptr msg);
     void handleDistributedCancelOrders(Message::Ptr msg);
+    void handleDistributedClosePositions(Message::Ptr msg);
     void handleDistributedUnknownMessage(Message::Ptr msg);
 
     void handleLocalMessage(Message::Ptr msg);
@@ -84,6 +85,7 @@ private:
     void handleLocalPlaceLimitOrder(Message::Ptr msg);
     void handleLocalRetrieveOrders(Message::Ptr msg);
     void handleLocalCancelOrders(Message::Ptr msg);
+    void handleLocalClosePositions(Message::Ptr msg);
     void handleLocalRetrieveL1(Message::Ptr msg);
     void handleLocalRetrieveBookAsk(Message::Ptr msg);
     void handleLocalRetrieveBookBid(Message::Ptr msg);

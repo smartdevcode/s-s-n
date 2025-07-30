@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
-from pydantic import PositiveFloat, NonNegativeInt, PositiveInt
+from pydantic import PositiveFloat, NonNegativeInt, PositiveInt, NonNegativeFloat
 from typing import Literal
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentInstruction, BaseModel
-from taos.im.protocol.models import OrderDirection, STP, TimeInForce, OrderCurrency
+from taos.im.protocol.models import OrderDirection, STP, TimeInForce, OrderCurrency, LoanSettlementOption
 
 """
 Classes representing instructions that may be submitted by miner agents in a intelligent market simulation are defined here.
@@ -19,12 +19,12 @@ class FinanceAgentInstruction(AgentInstruction):
         delay (NonNegativeInt): The processing delay to be assigned to the instruction. 
             This is set by validators based on the actual response time of the miner, and determines 
             how many simulation steps will elapse after submission before the agent instruction is processed.
-        type (Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "RESET_AGENT"]): 
+        type (Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "CLOSE_POSITIONS", "RESET_AGENT"]): 
             String identifier for the type of the submitted instruction in the simulator.
     """
     agentId: int
     delay: NonNegativeInt = 0
-    type: Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "RESET_AGENT"]
+    type: Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "CLOSE_POSITIONS", "RESET_AGENT"]
     
     def serialize(self) -> dict:
         return {
@@ -49,6 +49,13 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
         stp (Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL]): 
             Self-trade prevention strategy to be applied for the order.
         currency (Literal[OrderCurrency.BASE, OrderCurrency.QUOTE]): Currency in which the quantity is specified (BASE or QUOTE).
+        leverage (NonNegativeFloat) : The amount of leverage to take for a margin order; the effective order quantity will be `(1+leverage)`
+            e.g. an order placed for 1.0 BASE with 0.5 leverage will be placed for a total quantity of 1.5 BASE, where 0.5 is borrowed from the exchange.
+        settleFlag (Literal[LoanSettlementOption.NONE, LoanSettlementOption.FIFO] | NonNegativeInt):
+            Strategy for settling outstanding margin loans using the proceeds of this order
+            LoanSettlementOption.NONE : No loan repayments
+            LoanSettlementOption.FIFO : Loans will be repaid, starting from the oldest
+            NonNegativeInt : Specify a specific order id for which the associated loan will be repaid
     """
     bookId: NonNegativeInt
     direction: Literal[OrderDirection.BUY, OrderDirection.SELL]
@@ -56,6 +63,8 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
     clientOrderId: int | None
     stp: Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
     currency: Literal[OrderCurrency.BASE, OrderCurrency.QUOTE] = OrderCurrency.BASE
+    leverage: NonNegativeFloat = 0.0
+    settleFlag: Literal[LoanSettlementOption.NONE, LoanSettlementOption.FIFO] | NonNegativeInt = LoanSettlementOption.NONE
 
     
     def __str__(self):
@@ -77,11 +86,13 @@ class PlaceMarketOrderInstruction(PlaceOrderInstruction):
             "bookId":self.bookId,
             "clientOrderId":self.clientOrderId,
             "stpFlag":self.stp,
-            "currency":self.currency
+            "currency":self.currency,
+            "leverage":self.leverage,
+            "settleFlag":self.settleFlag
         }
     
     def __str__(self):
-        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {self.quantity}{'' if self.currency==OrderCurrency.BASE else 'QUOTE'}@MARKET ON BOOK {self.bookId}"
+        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {f'{1+self.leverage}x' if self.leverage > 0 else ''}{self.quantity}{'' if self.currency==OrderCurrency.BASE else 'QUOTE'}@MARKET ON BOOK {self.bookId}"
         
 class PlaceLimitOrderInstruction(PlaceOrderInstruction):
     """
@@ -112,11 +123,13 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
             "postOnly" : self.postOnly,
             "timeInForce" : self.timeInForce,
             "expiryPeriod" : self.expiryPeriod,
-            "stpFlag" : self.stp
+            "stpFlag" : self.stp,
+            "leverage":self.leverage,
+            "settleFlag":self.settleFlag
         }
     
     def __str__(self):
-        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {self.quantity}@{self.price} ON BOOK {self.bookId}"
+        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {f'{1+self.leverage}x' if self.leverage > 0 else ''}{self.quantity}@{self.price} ON BOOK {self.bookId}"
     
 class CancelOrderInstruction(BaseModel):
     """
@@ -160,6 +173,49 @@ class CancelOrdersInstruction(FinanceAgentInstruction):
     
     def __str__(self):
         return "\n".join([f"{c} ON BOOK {self.bookId}" for c in self.cancellations])
+    
+class ClosePositionInstruction(BaseModel):
+    """
+    Class representing an instruction by an agent to close a margin position.
+
+    Attributes:
+        orderId (int): The simulator-assigned ID of the order for which position is to be closed.
+        volume (PositiveFloat | None): The quantity to be closed
+            (`None` to close entire remaining position).
+    """
+    orderId: int
+    volume: PositiveFloat | None
+
+    def serialize(self) -> dict:
+        return {
+            "orderId" : self.orderId,
+            "volume" : self.volume
+        }
+    
+    def __str__(self):
+        return f"CLOSE POSITION FOR ORDER #{self.orderId}{' FOR ' + str(self.volume) if self.volume else ''}"
+        
+class ClosePositionsInstruction(FinanceAgentInstruction):
+    """
+    Class representing an instruction by an agent to close margin positions associated with a list of orders.
+
+    Attributes:
+        type (Literal['CLOSE_POSITIONS']): Fixed to 'CLOSE_POSITIONS'.
+        bookId (NonNegativeInt): The ID of the book on which closures are to be performed.
+        closes (list[ClosePositionInstruction]): A list of ClosePositionInstruction objects.
+    """
+    type: Literal['CLOSE_POSITIONS'] = 'CLOSE_POSITIONS'
+    bookId: NonNegativeInt
+    closes: list[ClosePositionInstruction]
+
+    def payload(self) -> dict:
+        return {
+            "closePositions": [close_position.serialize() for close_position in self.closes],
+            "bookId": self.bookId
+        }
+    
+    def __str__(self):
+        return "\n".join([f"{c} ON BOOK {self.bookId}" for c in self.closes])
         
 class ResetAgentsInstruction(FinanceAgentInstruction):
     """

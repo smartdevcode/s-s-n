@@ -456,6 +456,7 @@ class Order(BaseModel):
     q : float = Field(alias='quantity')
     s : int = Field(alias='side')
     p : float | None = Field(alias='price')
+    l : float = Field(alias="leverage", default=0.0)
 
     @property
     def type(self) -> str:
@@ -484,20 +485,28 @@ class Order(BaseModel):
     @property
     def price(self) -> float | None:
         return self.p
+    
+    @property
+    def leverage(self) -> float:
+        return self.l
 
     @classmethod
     def from_event(self, event : dict):
         """
         Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Order(id=event['orderId'],client_id=event['clientOrderId'], timestamp=event['timestamp'],quantity=event['volume'],side=event['direction'],order_type="limit" if event['price'] else 'market',price=event['price'])
+        return Order(order_type="limit" if event['price'] else 'market', id=event['orderId'],client_id=event['clientOrderId'], timestamp=event['timestamp'],
+                     quantity=event['volume'], side=event['direction'], price=event['price'], 
+                     leverage=event['leverage'])
 
     @classmethod
-    def from_account(self, acc_order : dict):
+    def from_json(self, json : dict):
         """
         Method to extract model data from simulation account representation in the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Order(id=acc_order['orderId'],client_id=acc_order['clientOrderId'], timestamp=acc_order['timestamp'],quantity=acc_order['volume'],side=acc_order['direction'],order_type="limit",price=acc_order['price'])
+        return Order(order_type="limit", id=json['orderId'], client_id=json['clientOrderId'], timestamp=json['timestamp'],
+                     quantity=json['volume'], side=json['direction'], price=json['price'], 
+                     leverage=json['leverage'])
 
 class LevelInfo(BaseModel):
     """
@@ -1431,6 +1440,63 @@ class Fees(BaseModel):
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
         return Fees(volume_traded=json['volume'],maker_fee_rate=json['makerFeeRate'],taker_fee_rate=json['takerFeeRate'])
+    
+class OrderCurrency(IntEnum):
+    """
+    Enum to represent the currency in which the quantity of an order is specified.
+
+    Attributes:
+        BASE (int): Quantity is specified in BASE currency.
+        BASE (int): Quantity is specified in QUOTE currency.
+    """
+    BASE=0
+    QUOTE=1
+    
+class Loan(BaseModel):
+    """
+    Represents a loan associated with am open position for the agent.
+
+    Attributes:
+        currency (str): String identifier for the currency (e.g., "USD", "BTC").
+        total (float): Total currency balance in the account.
+        free (float): Free currency balance available for order placement.
+        reserved (float): Reserved currency balance tied up in resting orders.
+    """
+    i : int = Field(alias="order_id")
+    a : float = Field(alias="amount")
+    c : OrderCurrency = Field(alias="currency")    
+    bc : float = Field(alias="base_collateral")    
+    qc : float = Field(alias="quote_collateral")
+
+    @property
+    def order_id(self) -> int:
+        return self.i
+
+    @property
+    def amount(self) -> float:
+        return self.a
+
+    @property
+    def currency(self) -> OrderCurrency:
+        return self.c
+
+    @property
+    def base_collateral(self) -> float:
+        return self.bc
+
+    @property
+    def quote_collateral(self) -> float:
+        return self.qc
+
+    @classmethod
+    def from_json(self, json : dict):
+        """
+        Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
+        """
+        return Loan(order_id=json['id'],amount=json['amount'],currency=json['currency'],base_collateral=json['baseCollateral'],quote_collateral=json['quoteCollateral'])
+    
+    def __str__(self):
+        return f"{self.amount} {self.currency.name} [COLLAT : {self.base_collateral} BASE | {self.quote_collateral} QUOTE]"
 
 class Account(BaseModel):
     """
@@ -1448,7 +1514,12 @@ class Account(BaseModel):
     b : int = Field(alias="book_id")
     bb : Balance = Field(alias="base_balance")
     qb : Balance = Field(alias="quote_balance")
+    bl : float = Field(alias="base_loan", default=0.0)
+    ql : float = Field(alias="quote_loan", default=0.0)
+    bc : float = Field(alias="base_collateral", default=0.0)
+    qc : float = Field(alias="quote_collateral", default=0.0)    
     o : list[Order] = Field(alias="orders", default=[])
+    l : dict[int, Loan] = Field(alias="loans", default={})
     f : Fees | None = Field(alias="fees")
 
     @property
@@ -1468,16 +1539,48 @@ class Account(BaseModel):
         return self.qb
 
     @property
+    def base_loan(self) -> float:
+        return self.bl
+
+    @property
+    def quote_loan(self) -> float:
+        return self.ql
+
+    @property
+    def base_collateral(self) -> float:
+        return self.bc
+
+    @property
+    def quote_collateral(self) -> float:
+        return self.qc
+
+    @property
     def orders(self) -> list[Order]:
         return self.o
 
     @property
+    def loans(self) -> dict[int, Loan]:
+        return self.l
+
+    @property
     def fees(self) -> Fees | None:
         return self.f
+    
+    @property
+    def own_quote(self) -> float:
+        return self.quote_balance.total - self.quote_loan + self.quote_collateral
+    
+    @property
+    def own_base(self) -> float:
+        return self.base_balance.total - self.base_loan + self.base_collateral
 
 class OrderDirection(IntEnum):
     """
     Enum to represent order direction.
+
+    Attributes:
+        BUY (int): Associated with an order placed in the BUY direction.
+        SELL (int): Associated with an order placed in the SELL direction.
     """
     BUY=0
     SELL=1
@@ -1485,24 +1588,59 @@ class OrderDirection(IntEnum):
 class STP(IntEnum):
     """
     Enum to represent self-trade prevention options.
+
+    Attributes:
+        NO_STP (int): No self-trade prevention.
+        CANCEL_OLDEST (int): If self-trade would occur when placing an order, cancel the resting order.
+        CANCEL_NEWEST (int): If self-trade would occur when placing an order, cancel the aggressive order.
+        CANCEL_BOTH (int): If self-trade would occur when placing an order, cancel both orders.
+        DECREASE_CANCEL (int): If self-trade would occur when placing an order, cancel the quantity of the smaller order from the larger.
     """
-    NO_STP=0 # No self-trade prevention
-    CANCEL_OLDEST=1 # If self-trade would occur when placing an order, cancel the resting order
-    CANCEL_NEWEST=2 # If self-trade would occur when placing an order, cancel the aggressive order
-    CANCEL_BOTH=3 # If self-trade would occur when placing an order, cancel both orders
-    DECREASE_CANCEL=4 # If self-trade would occur when placing an order, cancel the quantity of the smaller order from the larger
+    NO_STP=0
+    CANCEL_OLDEST=1
+    CANCEL_NEWEST=2
+    CANCEL_BOTH=3
+    DECREASE_CANCEL=4
 
 class TimeInForce(IntEnum):
     """
     Enum to represent order time-in-force options.
+
+    Attributes:
+        GTC (int): Order remains on the book until cancelled by the agent, or executed in a trade.
+        GTT (int): Order remains on the book until specified expiry period elapses, unless traded or cancelled before expiry.
+        IOC (int): Any part of the order which is not immediately traded will be cancelled.
+        FOK (int): If the order will not be executed in its entirety immediately upon receipt by the simulator, the order will be rejected.
     """
-    GTC=0 # Order remains on the book until cancelled by the agent, or executed in a trade.
-    GTT=1 # Order remains on the book until specified expiry period elapses, unless traded or cancelled before expiry.
-    IOC=2 # Any part of the order which is not immediately traded will be cancelled.
-    FOK=3 # If the order will not be executed in its entirety immediately upon receipt by the simulator, the order will be rejected.
-class OrderCurrency(IntEnum):
+    GTC=0
+    GTT=1
+    IOC=2
+    FOK=3
+    
+class LoanSettlementOption(IntEnum):
     """
-    Enum to represent the currency in which the quantity of an order is specified.
+    Enum to represent options for repayment of margin loans when submitting an order.
+
+    Attributes:
+        NONE (int): Do not settle outstanding margin loans with proceeds from this order.
+        FIFO (int): Settle outstanding margin loans in a FIFO (First-In-First-Out) manner
+                    using proceeds from this order.
     """
-    BASE=0
-    QUOTE=1
+    NONE = -2
+    FIFO = -1
+    
+    @classmethod
+    def from_string(cls, name):
+        match name:
+            case 'NONE':
+                return LoanSettlementOption.NONE
+            case 'FIFO':
+                return LoanSettlementOption.FIFO
+            case _:
+                try:
+                    order_id = int(name)
+                    return order_id
+                except:
+                    return None
+                    
+                

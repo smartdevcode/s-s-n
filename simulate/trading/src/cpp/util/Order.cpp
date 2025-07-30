@@ -115,9 +115,10 @@ Order::Order(
     taosim::decimal_t volume,
     OrderDirection direction,
     taosim::decimal_t leverage,
-    STPFlag stpFlag) noexcept
+    STPFlag stpFlag,
+    SettleFlag settleFlag) noexcept
     : BasicOrder(orderId, timestamp, volume, leverage),
-      m_direction{direction}, m_stpFlag{stpFlag}
+      m_direction{direction}, m_stpFlag{stpFlag}, m_settleFlag{settleFlag}
 {}
 
 //-------------------------------------------------------------------------
@@ -133,6 +134,17 @@ void Order::jsonSerialize(rapidjson::Document& json, const std::string& key) con
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
             allocator);
+        std::visit([&](auto&& flag) {
+            using T = std::decay_t<decltype(flag)>;
+            if constexpr (std::is_same_v<T, SettleType>) {
+                json.AddMember(
+                    "settleFlag",
+                    rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                    allocator);
+            } else if constexpr (std::is_same_v<T, OrderID>) {
+                json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+            }
+        }, m_settleFlag);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -150,6 +162,17 @@ void Order::checkpointSerialize(rapidjson::Document& json, const std::string& ke
             "stpFlag",
             rapidjson::Value{magic_enum::enum_name(m_stpFlag).data(), allocator},
             allocator);
+        std::visit([&](auto&& flag) {
+            using T = std::decay_t<decltype(flag)>;
+            if constexpr (std::is_same_v<T, SettleType>) {
+                json.AddMember(
+                    "settleFlag",
+                    rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                    allocator);
+            } else if constexpr (std::is_same_v<T, OrderID>) {
+                json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+            }
+        }, m_settleFlag);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -162,8 +185,9 @@ MarketOrder::MarketOrder(
     taosim::decimal_t volume,
     OrderDirection direction,
     taosim::decimal_t leverage,
-    STPFlag stpFlag) noexcept
-    : Order(orderId, timestamp, volume, direction, leverage, stpFlag)
+    STPFlag stpFlag,
+    SettleFlag settleFlag) noexcept
+    : Order(orderId, timestamp, volume, direction, leverage, stpFlag, settleFlag)
 {}
 
 //-------------------------------------------------------------------------
@@ -200,7 +224,11 @@ MarketOrder::Ptr MarketOrder::fromJson(const rapidjson::Value& json)
         taosim::json::getDecimal(json["volume"]),
         OrderDirection{json["direction"].GetUint()},
         taosim::json::getDecimal(json["leverage"]),
-        STPFlag{json["stpFlag"].GetUint()})};
+        STPFlag{json["stpFlag"].GetUint()},
+        json["settleFlag"].IsInt() && magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).has_value()
+            ? SettleFlag(magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).value())
+            : SettleFlag(static_cast<OrderID>(json["settleFlag"].GetUint()))
+    )};
 }
 
 //-------------------------------------------------------------------------
@@ -212,8 +240,9 @@ LimitOrder::LimitOrder(
     OrderDirection direction,
     taosim::decimal_t price,
     taosim::decimal_t leverage,
-    STPFlag stpFlag) noexcept
-    : Order(orderId, timestamp, volume, direction, leverage, stpFlag),
+    STPFlag stpFlag,
+    SettleFlag settleFlag) noexcept
+    : Order(orderId, timestamp, volume, direction, leverage, stpFlag, settleFlag),
       m_price{price}
 {}
 
@@ -266,7 +295,11 @@ LimitOrder::Ptr LimitOrder::fromJson(
         OrderDirection{json["direction"].GetUint()},
         taosim::json::getDecimal(json["price"]),
         taosim::json::getDecimal(json["leverage"]),
-        STPFlag{json["stpFlag"].GetUint()})};
+        STPFlag{json["stpFlag"].GetUint()},
+        json["settleFlag"].IsInt() && magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).has_value()
+            ? SettleFlag(magic_enum::enum_cast<SettleType>(json["settleFlag"].GetInt()).value())
+            : SettleFlag(static_cast<OrderID>(json["settleFlag"].GetUint()))
+    )};
 }
 
 //-------------------------------------------------------------------------

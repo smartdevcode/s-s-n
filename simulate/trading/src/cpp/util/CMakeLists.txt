@@ -1,5 +1,6 @@
 add_library(util STATIC
     Cancellation.cpp
+    ClosePosition.cpp
     EventRecord.cpp
     GBMValuationModel.hpp
     Order.cpp

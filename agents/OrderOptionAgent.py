@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+import bittensor as bt
+
 from taos.common.agents import launch
 from taos.im.agents import FinanceSimulationAgent
 from taos.im.protocol.models import *
 from taos.im.protocol.instructions import *
+from taos.im.protocol.events import *
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 
 import random
@@ -25,11 +28,14 @@ class OrderOptionAgent(FinanceSimulationAgent):
             'GTT' : bool(self.config.GTT) if hasattr(self.config, 'GTT') else False,
             'IOC' : bool(self.config.IOC) if hasattr(self.config, 'IOC') else False,
             'FOK' : bool(self.config.FOK) if hasattr(self.config, 'FOK') else False,
-            'QUOTE' : bool(self.config.QUOTE) if hasattr(self.config, 'QUOTE') else False
+            'QUOTE' : bool(self.config.QUOTE) if hasattr(self.config, 'QUOTE') else False,
+            'MARGIN' : bool(self.config.MARGIN) if hasattr(self.config, 'MARGIN') else False,
         }
         # If no tests explicitly specified in launch parameters, assume all tests should be run
         if not any(self.tests.values()):
             self.tests = {k : True for k in self.tests}
+        self.round = 0
+        self.response = None
 
     def quantity(self):
         """
@@ -43,11 +49,11 @@ class OrderOptionAgent(FinanceSimulationAgent):
         Analyses the latest market state data and generates instructions to be submitted.
 
         Args:
-            state (MarketSimulationStateUpdate): The current market state data 
+            state (MarketSimulationStateUpdate): The current market state data
                 provided by the simulation validator.
 
         Returns:
-            FinanceAgentResponse: A response object containing the list of 
+            FinanceAgentResponse: A response object containing the list of
                 instructions (e.g., limit orders) to submit to the market.
         """
         # Initialize a response class associated with the current miner
@@ -60,13 +66,13 @@ class OrderOptionAgent(FinanceSimulationAgent):
             askvol = book.asks[0].quantity
             # Obtain a random quantity
             quantity = self.quantity()
-            
-            if self.tests['QUOTE']:                
+
+            if self.tests['QUOTE']:
                 response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=round(ask * (askvol / 2),self.simulation_config.quoteDecimals), currency=OrderCurrency.QUOTE)
                 response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=round(ask * askvol,self.simulation_config.quoteDecimals), currency=OrderCurrency.QUOTE)
                 response.market_order(book_id=book_id, direction=OrderDirection.SELL, quantity=round(bid * (bidvol / 2),self.simulation_config.quoteDecimals), currency=OrderCurrency.QUOTE)
                 response.market_order(book_id=book_id, direction=OrderDirection.SELL, quantity=round(bid * bidvol,self.simulation_config.quoteDecimals), currency=OrderCurrency.QUOTE)
-            
+
             if self.tests['PO']:
                 # Populate prices which are expected to trigger key scenarios in Post-Only handling
                 bidpricePO = bid
@@ -81,18 +87,18 @@ class OrderOptionAgent(FinanceSimulationAgent):
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askpricePO, postOnly=True)
                 # Place a sell order which is expected to be rejected due to post-only limitation
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askpricePOFail, postOnly=True)
-            
+
             if self.tests['GTT']:
                 # Place a buy order with expiry in 10 seconds
                 response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bid, timeInForce=TimeInForce.GTT, expiryPeriod=10_000_000_000)
                 # Place a sell order with expiry in 10 seconds
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=ask, timeInForce=TimeInForce.GTT, expiryPeriod=10_000_000_000)
-                
+
                 # Place a sell order with TimeInForce.GTT and no expiry (INVALID)
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=ask, timeInForce=TimeInForce.GTT)
                 # Place a sell order without TimeInForce.GTT and expiry given (WARNING)
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=ask, timeInForce=TimeInForce.GTC, expiryPeriod=10000000000)
-            
+
             if self.tests['IOC']:
                 # Populate prices which are expected to trigger key scenarios in Immediate-or-cancel order handling
                 bidpriceIOCFull = ask + 10
@@ -102,7 +108,7 @@ class OrderOptionAgent(FinanceSimulationAgent):
                 askpriceIOCFull = bid - 10
                 askpriceIOCPartial = bid
                 askqtyIOCPartial = bidvol * 2
-                askpriceIOCCancel = ask            
+                askpriceIOCCancel = ask
                 # Place a buy IOC order which is expected to be traded in full when processed by the simulator
                 response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bidpriceIOCFull, timeInForce=TimeInForce.IOC)
                 # Place a buy IOC order which is expected to be partially traded when processed by the simulator
@@ -115,10 +121,10 @@ class OrderOptionAgent(FinanceSimulationAgent):
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=askqtyIOCPartial, price=askpriceIOCPartial, timeInForce=TimeInForce.IOC)
                 # Place a sell IOC order which is expected not to be matched (therefore rejected in full due to IOC flag)
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askpriceIOCCancel, timeInForce=TimeInForce.IOC)
-                
+
                 # Place an IOC order with postOnly=True (INVALID)
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askpricePOFail, postOnly=True, timeInForce=TimeInForce.IOC)
-            
+
             if self.tests['FOK']:
                 # Populate prices and quantities which are expected to trigger key scenarios in Fill-or-kill order handling
                 bidpriceFOKFull = ask + 10
@@ -128,7 +134,7 @@ class OrderOptionAgent(FinanceSimulationAgent):
                 askpriceFOKFull = bid - 10
                 askpriceFOKPartial = bid
                 askqtyFOKPartial = book.bids[0].quantity * 2
-                askpriceFOKCancel = ask            
+                askpriceFOKCancel = ask
                 # Place a buy FOK order which is expected to be traded in full when processed by the simulator
                 response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bidpriceFOKFull, timeInForce=TimeInForce.FOK)
                 # Place a buy FOK order which is expected to attempt partial trade when processed by the simulator (therefore rejected in full due to FOK flag)
@@ -141,14 +147,75 @@ class OrderOptionAgent(FinanceSimulationAgent):
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=askqtyFOKPartial, price=askpriceFOKPartial, timeInForce=TimeInForce.FOK)
                 # Place a sell FOK order which is expected not to be matched (therefore rejected in full due to FOK flag)
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askpriceFOKCancel, timeInForce=TimeInForce.FOK)
-                
+
                 # Place an FOK order with postOnly=True (INVALID)
                 response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=askpricePOFail, postOnly=True, timeInForce=TimeInForce.FOK)
-            
-            
+                
+            if self.tests['MARGIN']:                
+                bt.logging.info(f"BOOK {book_id} ROUND {self.round} : QUOTE : {self.accounts[book_id].quote_balance.total} [LOAN {self.accounts[book_id].quote_loan} | COLLAT {self.accounts[book_id].quote_collateral}]")
+                bt.logging.info(f"BOOK {book_id} ROUND {self.round} : BASE : {self.accounts[book_id].base_balance.total} [LOAN {self.accounts[book_id].base_loan} | COLLAT {self.accounts[book_id].base_collateral}]")
+                match self.round:
+                    case 0:
+                        response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, leverage=1.0)
+                    case 1:
+                        loan = list(self.accounts[book_id].loans.values())[0]
+                        bt.logging.info(f"CLOSING POSITION FOR ORDER #{loan.order_id} | {loan}")
+                        response.close_position(book_id=book_id, order_id=loan.order_id)
+                    case 2:
+                        response.market_order(book_id=book_id, direction=OrderDirection.SELL, quantity=0.01, leverage=1.0)
+                    case 3:
+                        loan = list(self.accounts[book_id].loans.values())[0]
+                        bt.logging.info(f"CLOSING POSITION FOR ORDER #{loan.order_id} | {loan}")
+                        response.close_position(book_id=book_id, order_id=loan.order_id)
+                    case 4:
+                        response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, leverage=1.0)
+                        response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, leverage=1.0)
+                    case 5:
+                        for order_id, loan in self.accounts[book_id].loans.items():
+                            bt.logging.info(f"CLOSING POSITION FOR ORDER #{order_id} | {loan}")
+                        response.close_positions(book_id=book_id, order_ids=[order_id for order_id in self.accounts[book_id].loans])
+                    case 6:
+                        response.market_order(book_id=book_id, direction=OrderDirection.SELL, quantity=0.01, leverage=1.0)
+                        response.market_order(book_id=book_id, direction=OrderDirection.SELL, quantity=0.01, leverage=1.0)
+                    case 7:
+                        for order_id, loan in self.accounts[book_id].loans.items():
+                            bt.logging.info(f"CLOSING POSITION FOR ORDER #{order_id} | {loan}")
+                        response.close_positions(book_id=book_id, order_ids=[order_id for order_id in self.accounts[book_id].loans])
+                    case 8:
+                        response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, price=ask-0.01, leverage=1.0, clientOrderId=1000 + book_id)
+        
+        if self.response:
+            response = self.response.model_copy()
+            self.response = None
+        self.round += 1
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response
+    
+    def onTrade(self, event : TradeEvent) -> None:
+        """
+        Handler for event where an order is traded in the simulator.  To be implemented by subclasses.
+
+        Args:
+            event (taos.im.protocol.events.TradeEvent): The event class representing a trade.
+
+        Returns:
+            None
+        """
+        if event.clientOrderId == 1000 + event.bookId:            
+            for order_id, loan in self.accounts[event.bookId].loans.items():
+                if order_id == event.makerOrderId:
+                    self.response = FinanceAgentResponse(agent_id=self.uid)
+                    self.response.close_position(book_id=event.bookId, order_id=order_id)
+                    self.response.limit_order(book_id=event.bookId, direction=OrderDirection.SELL, quantity=0.01, price=self.history[-1].books[event.bookId].bids[0].price+0.01, leverage=1.0, clientOrderId=2000 + event.bookId)
+                    bt.logging.info(f"CLOSING POSITION FOR BUY LIMIT ORDER #{order_id} | {loan}")
+        if event.clientOrderId == 2000 + event.bookId:            
+            for order_id, loan in self.accounts[event.bookId].loans.items():
+                if order_id == event.makerOrderId:
+                    self.response = FinanceAgentResponse(agent_id=self.uid)
+                    self.response.close_position(book_id=event.bookId, order_id=order_id)
+                    bt.logging.info(f"CLOSING POSITION FOR SELL LIMIT ORDER #{order_id} | {loan}")
+            
 
 if __name__ == "__main__":
     """

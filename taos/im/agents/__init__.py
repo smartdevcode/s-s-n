@@ -81,8 +81,8 @@ class FinanceSimulationAgent(SimulationAgent):
             debug_text += '-' * 50 + "\n"
             debug_text += 'BALANCES' + "\n"
             debug_text += '-' * 50 + "\n"
-            debug_text += f"BASE  : TOTAL={account.base_balance.total:.8f} FREE={account.base_balance.free:.8f} RESERVED={account.base_balance.reserved:.8f}" + "\n"
-            debug_text += f"QUOTE : TOTAL={account.quote_balance.total:.8f} FREE={account.quote_balance.free:.8f} RESERVED={account.quote_balance.reserved:.8f}" + "\n"
+            debug_text += f"BASE  : TOTAL={account.base_balance.total:.8f} FREE={account.base_balance.free:.8f} RESERVED={account.base_balance.reserved:.8f} | LOAN={account.base_loan:.8f} COLLATERAL={account.base_collateral}" + "\n"
+            debug_text += f"QUOTE : TOTAL={account.quote_balance.total:.8f} FREE={account.quote_balance.free:.8f} RESERVED={account.quote_balance.reserved:.8f} | LOAN={account.quote_loan:.8f} COLLATERAL={account.quote_collateral}" + "\n"
             debug_text += '-' * 50 + "\n"
             debug_text += 'EVENTS' + "\n"
             debug_text += '-' * 50 + "\n"
@@ -102,6 +102,12 @@ class FinanceSimulationAgent(SimulationAgent):
                         case "ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "ERDCO":
                             for cancellation in event.cancellations:
                                 self.onOrderCancellationFailed(cancellation)
+                        case "RESPONSE_DISTRIBUTED_CLOSE_POSITIONS" | "RDCP":
+                            for close in event.closes:
+                                self.onPositionClosed(close)
+                        case "ERROR_RESPONSE_DISTRIBUTED_CLOSE_POSITIONS" | "ERDCP":
+                            for close in event.closes:
+                                self.onPositionCloseFailed(close)
                         case "EVENT_TRADE" | "ET":
                             role = "taker" if self.uid == event.takerAgentId else "maker"
                             trade_text = f"{'BUY ' if event.side == 0 else 'SELL'} TRADE #{event.tradeId} : YOUR {'AGGRESSIVE' if role=='taker' else 'PASSIVE'} " + \
@@ -118,13 +124,17 @@ class FinanceSimulationAgent(SimulationAgent):
                 debug_text += 'ORDERS' + "\n"
                 debug_text += '-' * 50 + "\n"
                 for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
+                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {f'{1+order.leverage}x' if order.leverage > 0 else ''}{order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
+            if len(account.loans) > 0:
+                debug_text += '-' * 50 + "\n"
+                debug_text += 'LOANS' + "\n"
+                debug_text += '-' * 50 + "\n"
+                for order_id, loan in account.loans.items():
+                    debug_text += f"#{order_id} : {loan}\n"
             if account.fees:
                 debug_text += '-' * 50 + "\n"
                 debug_text += f'FEES : TRADED {account.fees.volume_traded} | MAKER {account.fees.maker_fee_rate * 100}% | TAKER {account.fees.taker_fee_rate * 100}%' + "\n"
                 debug_text += '-' * 50 + "\n"
-                for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
             debug_text += '-' * 50 + "\n"
         if simulation_ended:
             update_text += f"{event}" + "\n"
@@ -170,7 +180,11 @@ class FinanceSimulationAgent(SimulationAgent):
         """
         match event.message:
             case 'EXCEEDING_MAX_ORDERS':
-                bt.logging.warning(f"FAILED TO PLACE {'BUY' if event.side == 0 else 'SELL'} ORDER FOR {event.quantity}@{event.price} ON BOOK {event.bookId} : You already have the maximum allowed number of open orders ({self.simulation_config.max_open_orders}) on this book.  You will not be able to place any more orders until you either cancel existing orders, or they are traded.")
+                bt.logging.warning(f"FAILED TO PLACE {'BUY' if event.side == 0 else 'SELL'} ORDER FOR {event.quantity}@{event.price if event.type.endswith('L') else 'MARKET'} ON BOOK {event.bookId} : You already have the maximum allowed number of open orders ({self.simulation_config.max_open_orders}) on this book.  You will not be able to place any more orders until you either cancel existing orders, or they are traded.")
+            case 'EXCEEDING_LOAN':
+                bt.logging.warning(f"FAILED TO PLACE {'BUY' if event.side == 0 else 'SELL'} ORDER FOR {event.quantity}@{event.price if event.type.endswith('L') else 'MARKET'} ON BOOK {event.bookId} : You have exceeded the maximum allowed loan value ({self.simulation_config.max_loan}) on this book.  You need to close positions using the close_position method to repay some of the loan amount before you can place more leveraged orders.")
+            case 'DUAL_POSITION':
+                bt.logging.warning(f"FAILED TO PLACE {'BUY' if event.side == 0 else 'SELL'} ORDER FOR {event.quantity}@{event.price if event.type.endswith('L') else 'MARKET'} ON BOOK {event.bookId} : You already have a margin position in the opposite direction.  You must close this position before you can take leverage on this side of the book.")
             case _:
                 pass
 
@@ -192,6 +206,30 @@ class FinanceSimulationAgent(SimulationAgent):
 
         Args:
             event (taos.im.protocol.events.OrderCancellationEvent): The event class representing order cancellation.
+
+        Returns:
+            None
+        """
+        pass
+    
+    def onPositionClosed(self, event : ClosePositionEvent) -> None:
+        """
+        Handler for event where position is closed in the simulator.  To be implemented by subclasses.
+
+        Args:
+            event (taos.im.protocol.events.ClosePositionEvent): The event class representing position closure.
+
+        Returns:
+            None
+        """
+        pass
+
+    def onPositionCloseFailed(self, event : ClosePositionEvent) -> None:
+        """
+        Handler for event where close position request is rejected by the simulator.  To be implemented by subclasses.
+
+        Args:
+            event (taos.im.protocol.events.ClosePositionEvent): The event class representing position closure.
 
         Returns:
             None

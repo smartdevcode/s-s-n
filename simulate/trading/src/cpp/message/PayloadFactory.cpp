@@ -6,6 +6,7 @@
 
 #include "Balance.hpp"
 #include "Cancellation.hpp"
+#include "ClosePosition.hpp"
 #include "MultiBookMessagePayloads.hpp"
 #include "Order.hpp"
 
@@ -43,6 +44,9 @@ MessagePayload::Ptr PayloadFactory::createFromJsonMessage(const rapidjson::Value
     }
     else if (type == "CANCEL_ORDERS") {
         return CancelOrdersPayload::fromJson(payloadJson);
+    }
+    else if (type == "CLOSE_POSITIONS") {
+        return ClosePositionsPayload::fromJson(payloadJson);
     }
     else if (type == "RESPONSE_CANCEL_ORDERS") {
         return CancelOrdersResponsePayload::fromJson(payloadJson);

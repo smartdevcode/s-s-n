@@ -252,6 +252,9 @@ rapidjson::Document SimulationManager::makeCollectiveBookStateJson() const
             auto& allocator = json.GetAllocator();
             const auto& representativeSimulation = m_simulations.front();
             for (AgentId agentId : views::keys(representativeSimulation->exchange()->accounts())) {
+                if (agentId < 0) {
+                    continue;
+                }
                 const auto agentIdStr = std::to_string(agentId);
                 const char* agentIdCStr = agentIdStr.c_str();
                 json.AddMember(
@@ -266,21 +269,9 @@ rapidjson::Document SimulationManager::makeCollectiveBookStateJson() const
                             representativeSimulation->exchange()->accounts().idBimap().right.at(agentId).c_str(), allocator}.Move()
                         : rapidjson::Value{}.SetNull(),
                     allocator);
-                json[agentIdCStr].AddMember(
-                    "balances",
-                    [&] {
-                        rapidjson::Document balancesJson{rapidjson::kObjectType, &allocator};
-                        balancesJson.AddMember(
-                            "holdings", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
-                        balancesJson.AddMember(
-                            "activeOrders", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
-                        return balancesJson;
-                    }().Move(),
-                    allocator);
-                json[agentIdCStr].AddMember(
-                    "orders",
-                    rapidjson::Document{rapidjson::kArrayType, &allocator}.Move(),
-                    allocator);
+                json[agentIdCStr].AddMember("holdings", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
+                json[agentIdCStr].AddMember("orders", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
+                json[agentIdCStr].AddMember("loans", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
                 rapidjson::Document feesJson{rapidjson::kObjectType, &allocator};
                 for (const auto& [blockIdx, simulation] : views::enumerate(m_simulations)) {
                     const auto exchange = simulation->exchange();
@@ -291,22 +282,30 @@ rapidjson::Document SimulationManager::makeCollectiveBookStateJson() const
                         const BookId bookIdCanon = blockIdx * m_blockInfo.dimension + book->id();
                         json[agentIdCStr]["orders"].PushBack(
                             rapidjson::Document{rapidjson::kArrayType, &allocator}.Move(), allocator);
-                        json[agentIdCStr]["balances"]["holdings"].PushBack(
+                        json[agentIdCStr]["holdings"].PushBack(
                             [&] {
                                 rapidjson::Document holdingsJson{&allocator};
                                 account.at(book->id()).jsonSerialize(holdingsJson);
                                 return holdingsJson;
                             }().Move(),
                             allocator);
-                        json[agentIdCStr]["balances"]["activeOrders"].PushBack(
+                        json[agentIdCStr]["loans"].PushBack(
                             [&] {
-                                rapidjson::Document orderArrayJson{rapidjson::kArrayType, &allocator};
-                                for (const auto order : account.activeOrders().at(book->id())) {
-                                    rapidjson::Document orderJson{&allocator};
-                                    order->jsonSerialize(orderJson);
-                                    orderArrayJson.PushBack(orderJson, allocator);
+                                rapidjson::Document loansObjectJson{rapidjson::kObjectType, &allocator};
+                                for (const auto& [id, loan] : account.at(book->id()).m_loans) {
+                                    rapidjson::Document loanJson{rapidjson::kObjectType, &allocator};
+                                    loanJson.AddMember("id", rapidjson::Value{id}, allocator);
+                                    loanJson.AddMember("amount", rapidjson::Value{taosim::util::decimal2double(loan.amount())}, allocator);
+                                    loanJson.AddMember("currency", rapidjson::Value{
+                                        std::to_underlying(loan.direction() == OrderDirection::BUY ? Currency::QUOTE : Currency::BASE)
+                                    }, allocator);
+                                    loanJson.AddMember("baseCollateral", rapidjson::Value{taosim::util::decimal2double(loan.collateral().base())}, allocator);
+                                    loanJson.AddMember("quoteCollateral", rapidjson::Value{taosim::util::decimal2double(loan.collateral().quote())}, allocator);
+                                    const auto idStr = std::to_string(id);
+                                    const char* idCStr = idStr.c_str();
+                                    loansObjectJson.AddMember(rapidjson::Value{idCStr, allocator}, loanJson, allocator);
                                 }
-                                return orderArrayJson;
+                                return loansObjectJson;
                             }().Move(),
                             allocator);
                         json::serializeHelper(
@@ -345,6 +344,9 @@ rapidjson::Document SimulationManager::makeCollectiveBookStateJson() const
                             for (const auto tick : level) {
                                 const auto [agentId, clientOrderId] =
                                     books[book->id()]->orderClientContext(tick->id());
+                                if (agentId < 0) {
+                                    continue;
+                                }
                                 const auto agentIdStr = std::to_string(agentId);
                                 const char* agentIdCStr = agentIdStr.c_str();
                                 rapidjson::Document orderJson{&allocator};
@@ -425,7 +427,11 @@ std::unique_ptr<SimulationManager> SimulationManager::fromConfig(const fs::path&
         .host = node.attribute("host").as_string(),
         .port = node.attribute("port").as_string(),
         .bookStateEndpoint = node.attribute("bookStateEndpoint").as_string("/"),
-        .generalMsgEndpoint = node.attribute("generalMsgEndpoint").as_string("/")
+        .generalMsgEndpoint = node.attribute("generalMsgEndpoint").as_string("/"),
+        .resolveTimeout = node.attribute("resolveTimeout").as_llong(1),
+        .connectTimeout = node.attribute("connectTimeout").as_llong(3),
+        .writeTimeout = node.attribute("writeTimeout").as_llong(15),
+        .readTimeout = node.attribute("readTimeout").as_llong(60)
     };
 
     mngr->m_stepSignal.connect([&] {
@@ -587,18 +593,21 @@ net::awaitable<void> SimulationManager::asyncSendOverNetwork(
 {
     const auto& representativeSimulation = m_simulations.front();
 
+retry:
     auto resolver =
         use_nothrow_awaitable.as_default_on(tcp::resolver{co_await this_coro::executor});
     auto tcp_stream =
         use_nothrow_awaitable.as_default_on(beast::tcp_stream{co_await this_coro::executor});
-retry:
+
     int attempts = 0;
     // Resolve.
-    auto endpointsVariant = co_await (resolver.async_resolve(m_netInfo.host, m_netInfo.port) || timeout(1s));
+    auto endpointsVariant = co_await (
+        resolver.async_resolve(m_netInfo.host, m_netInfo.port) || timeout(m_netInfo.resolveTimeout));
     while (endpointsVariant.index() == 1) {
         fmt::println("tcp::resolver timed out on {}:{}", m_netInfo.host, m_netInfo.port);
         std::this_thread::sleep_for(10s);
-        endpointsVariant = co_await (resolver.async_resolve(m_netInfo.host, m_netInfo.port) || timeout(1s));
+        endpointsVariant = co_await (
+            resolver.async_resolve(m_netInfo.host, m_netInfo.port) || timeout(m_netInfo.resolveTimeout));
     }
     auto [e1, endpoints] = std::get<0>(endpointsVariant);
     while (e1) {
@@ -607,7 +616,7 @@ retry:
         attempts++;
         fmt::println("Unable to resolve connection to validator at {}:{}{} - Retrying (Attempt {})", m_netInfo.host, m_netInfo.port, endpoint, attempts);
         std::this_thread::sleep_for(10s);
-        endpointsVariant = co_await (resolver.async_resolve(m_netInfo.host, m_netInfo.port) || timeout(1s));
+        endpointsVariant = co_await (resolver.async_resolve(m_netInfo.host, m_netInfo.port) || timeout(m_netInfo.resolveTimeout));
         auto [e11, endpoints1] = std::get<0>(endpointsVariant);
         e1 = e11;
         endpoints = endpoints1;
@@ -615,11 +624,11 @@ retry:
 
     // Connect.
     attempts = 0;
-    auto connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(3s));
+    auto connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(m_netInfo.connectTimeout));
     while (connectVariant.index() == 1) {
         fmt::println("tcp_stream::async_connect timed out on {}:{}", m_netInfo.host, m_netInfo.port);
         std::this_thread::sleep_for(10s);
-        connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(3s));
+        connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(m_netInfo.connectTimeout));
     }
     auto [e2, _2] = std::get<0>(connectVariant);
     while (e2) {
@@ -628,7 +637,7 @@ retry:
         attempts++;
         fmt::println("Unable to connect to validator at {}:{}{} - Retrying (Attempt {})", m_netInfo.host, m_netInfo.port, endpoint, attempts);
         std::this_thread::sleep_for(10s);
-        connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(3s));
+        connectVariant = co_await (tcp_stream.async_connect(endpoints) || timeout(m_netInfo.connectTimeout));
         auto [e21, _21] = std::get<0>(connectVariant);
         e2 = e21;
         _2 = _21;
@@ -639,11 +648,11 @@ retry:
 
     // Send the request.
     attempts = 0;
-    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(15s));
+    auto writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(m_netInfo.writeTimeout));
     while (writeVariant.index() == 1) {
         fmt::println("http::async_write timed out on {}:{}", m_netInfo.host, m_netInfo.port);
         std::this_thread::sleep_for(5s);
-        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(15s));
+        writeVariant = co_await (http::async_write(tcp_stream, req) || timeout(m_netInfo.writeTimeout));
     }
     auto [e3, _3] = std::get<0>(writeVariant);
     while (e3) {
@@ -657,11 +666,13 @@ retry:
     // Receive the response.
     attempts = 0;
     beast::flat_buffer buf;
-    http::response<http::string_body> res;
-    auto readVariant = co_await (http::async_read(tcp_stream, buf, res) || timeout(60s));
-    while (readVariant.index() == 1) {
+    http::response_parser<http::string_body> parser{http::response<http::string_body>{}};
+    parser.eager(true);
+    parser.body_limit(std::numeric_limits<size_t>::max());
+    auto readVariant = co_await (http::async_read(tcp_stream, buf, parser) || timeout(m_netInfo.readTimeout));
+    if (readVariant.index() == 1) {
         fmt::println("http::async_read timed out on {}:{}", m_netInfo.host, m_netInfo.port);
-        readVariant = co_await (http::async_read(tcp_stream, buf, res) || timeout(60s));
+        goto retry;
     }
     auto [e4, _4] = std::get<0>(readVariant);
     while (e4) {
@@ -672,6 +683,7 @@ retry:
         goto retry;
     }
 
+    http::response<http::string_body> res = parser.release();
     resJson.Parse(res.body().c_str());
 }
 

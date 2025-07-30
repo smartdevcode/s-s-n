@@ -35,5 +35,6 @@ inline constexpr auto use_nothrow_awaitable = net::experimental::as_tuple(use_aw
 //-------------------------------------------------------------------------
 
 net::awaitable<void> timeout(std::chrono::steady_clock::duration duration);
+net::awaitable<void> timeout(int64_t duration);
 
 //-------------------------------------------------------------------------

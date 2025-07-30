@@ -69,7 +69,8 @@ public:
         taosim::decimal_t volume,
         taosim::decimal_t leverage,
         OrderClientContext ctx,
-        std::optional<STPFlag> stpFlag = STPFlag::CO);
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO);
 
     LimitOrder::Ptr placeLimitOrder(
         OrderDirection direction,
@@ -78,7 +79,9 @@ public:
         taosim::decimal_t price,
         taosim::decimal_t leverage,
         OrderClientContext ctx,
-        std::optional<STPFlag> stpFlag = STPFlag::CO);
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO);
+        
     bool cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volumeToCancel = {});
 
     bool tryGetOrder(OrderID id, LimitOrder::Ptr& orderPtr) const;

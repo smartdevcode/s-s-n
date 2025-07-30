@@ -11,9 +11,10 @@
 
 //-------------------------------------------------------------------------
 
-using OrderID = uint32_t;
 using ClientOrderID = std::decay_t<OrderID>;
 using STPFlag = taosim::STPFlag;
+using SettleFlag = taosim::SettleFlag;
+using SettleType = taosim::SettleType;
 
 enum class OrderDirection : uint32_t
 {
@@ -59,7 +60,8 @@ enum class OrderErrorCode : uint32_t
     INVALID_LEVERAGE,
     INVALID_VOLUME,
     INVALID_PRICE,
-    EXCEEDING_MAX_ORDERS
+    EXCEEDING_MAX_ORDERS,
+    DUAL_POSITION
 };
 
 [[nodiscard]] constexpr std::string_view OrderErrorCode2StrView(OrderErrorCode ec) noexcept
@@ -125,6 +127,7 @@ public:
 
     [[nodiscard]] OrderDirection direction() const noexcept { return m_direction; }
     [[nodiscard]] STPFlag stpFlag() const noexcept { return m_stpFlag; }
+    [[nodiscard]] SettleFlag settleFlag() const noexcept { return m_settleFlag; }
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
@@ -138,11 +141,13 @@ protected:
         taosim::decimal_t volume,
         OrderDirection direction,
         taosim::decimal_t leverage = 0_dec,
-        STPFlag stpFlag = STPFlag::CO) noexcept;
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO) noexcept;
 
 private:
     OrderDirection m_direction;
     STPFlag m_stpFlag;
+    SettleFlag m_settleFlag;
 };
 
 //-------------------------------------------------------------------------
@@ -158,7 +163,8 @@ public:
         taosim::decimal_t volume,
         OrderDirection direction,
         taosim::decimal_t leverage = 0_dec,
-        STPFlag stpFlag = STPFlag::CO) noexcept;
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO) noexcept;
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
@@ -182,7 +188,8 @@ public:
         OrderDirection direction,
         taosim::decimal_t price,
         taosim::decimal_t leverage = 0_dec,
-        STPFlag stpFlag = STPFlag::CO) noexcept;
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO) noexcept;
 
     [[nodiscard]] taosim::decimal_t price() const noexcept { return m_price; };
 

@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include "common.hpp"
+
 //-------------------------------------------------------------------------
 
 namespace taosim
@@ -31,6 +33,18 @@ enum class TimeInForce : uint32_t
 };
 
 //-------------------------------------------------------------------------
+
+enum class SettleType: int32_t 
+{
+    NONE = -2,
+    FIFO = -1
+};
+
+using SettleFlag = std::variant<SettleType, OrderID>;
+
+//-------------------------------------------------------------------------
+
+
 
 }  // namespace taosim
 

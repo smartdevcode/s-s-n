@@ -67,10 +67,11 @@ MarketOrder::Ptr Book::placeMarketOrder(
     taosim::decimal_t volume,
     taosim::decimal_t leverage,
     OrderClientContext clientCtx,
-    std::optional<STPFlag> stpFlag)
+    STPFlag stpFlag,
+    SettleFlag settleFlag)
 {
     const auto marketOrder = m_orderFactory.makeMarketOrder(
-        direction, timestamp, volume, leverage, stpFlag.value());
+        direction, timestamp, volume, leverage, stpFlag, settleFlag);
     m_order2clientCtx.insert({marketOrder->id(), clientCtx});
     m_signals.orderCreated(
         marketOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});
@@ -90,10 +91,11 @@ LimitOrder::Ptr Book::placeLimitOrder(
     taosim::decimal_t price,
     taosim::decimal_t leverage,
     OrderClientContext clientCtx,
-    std::optional<STPFlag> stpFlag)
+    STPFlag stpFlag,
+    SettleFlag settleFlag)
 {
     const auto limitOrder = m_orderFactory.makeLimitOrder(
-        direction, timestamp, volume, price, leverage, stpFlag.value());
+        direction, timestamp, volume, price, leverage, stpFlag, settleFlag);
     m_order2clientCtx.insert({limitOrder->id(), clientCtx});
     m_signals.orderCreated(
         limitOrder, OrderContext{clientCtx.agentId, m_id, clientCtx.clientOrderId});

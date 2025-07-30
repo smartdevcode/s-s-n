@@ -47,9 +47,9 @@ def get_inventory_value(account : Account, book : Book, method='midquote') -> fl
     """
     match method:
         case "best_bid":
-            return account.quote_balance.total + (book.bids[0].price if len(book.asks) > 0 and len(book.bids) > 0 else 0.0) * account.base_balance.total
+            return account.own_quote + (book.bids[0].price if len(book.asks) > 0 and len(book.bids) > 0 else 0.0) * account.own_base
         case "midquote":
-            return account.quote_balance.total + ((book.asks[0].price + book.bids[0].price) / 2 if len(book.asks) > 0 and len(book.bids) > 0 else 0.0) * account.base_balance.total
+            return account.own_quote + ((book.asks[0].price + book.bids[0].price) / 2 if len(book.asks) > 0 and len(book.bids) > 0 else 0.0) * account.own_base
         case "liquidation":
             liq_value = 0
             to_liquidate = account.base_balance.total
@@ -59,7 +59,7 @@ def get_inventory_value(account : Account, book : Book, method='midquote') -> fl
                 to_liquidate -= level_liq
                 if to_liquidate == 0:
                     break
-            return account.quote_balance.total + liq_value
+            return account.own_quote + liq_value
 
 def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,float]]) -> float:
     """
@@ -74,7 +74,6 @@ def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[i
         float: The new score value for the given UID.
     """
     if not self.sharpe_values[uid]: return 0.0
-    if uid in self.deregistered_uids: return 0.0
     sharpes = self.sharpe_values[uid]['books']
     normalized_sharpes = {book_id : normalize(self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, sharpe) for book_id, sharpe in sharpes.items()}
     # The maximum volume to be traded by a miner in a `trade_volume_assessment_period` (24H) is `capital_turnover_cap` (10) times the initial miner capital
@@ -127,7 +126,7 @@ def score_inventory_values(self, inventory_values):
     else:
         num_processes = self.config.scoring.sharpe.parallel_workers
         batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0,256,int(256/num_processes))]
-        self.sharpe_values = batch_sharpe(inventory_values, batches, self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.simulation.grace_period)
+        self.sharpe_values = batch_sharpe(inventory_values, batches, self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.simulation.grace_period, self.deregistered_uids)
 
     inventory_scores = {uid : score_inventory_value(self, uid, self.inventory_history[uid]) for uid in self.metagraph.uids}
     return inventory_scores

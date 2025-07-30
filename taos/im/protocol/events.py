@@ -5,6 +5,7 @@ from pydantic import Field
 from taos.im.protocol.simulator import *
 from taos.common.protocol import SimulationEvent
 from taos.im.utils import duration_from_timestamp
+from taos.im.protocol.models import LoanSettlementOption, OrderCurrency
 
 """
 Classes representing events occurring in the simulation are defined here.
@@ -32,6 +33,8 @@ class FinanceEvent(SimulationEvent):
                 return TradeEvent.from_json(json)
             case "RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS":
                 return OrderCancellationsEvent.from_json(json)
+            case "RESPONSE_DISTRIBUTED_CLOSE_POSITIONS" | "ERROR_RESPONSE_DISTRIBUTED_CLOSE_POSITIONS":
+                return ClosePositionsEvent.from_json(json)
             case "RESPONSE_DISTRIBUTED_RESET_AGENT" | "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT":
                 return ResetAgentsEvent.from_json(json)
             case "EVENT_SIMULATION_END":
@@ -98,6 +101,8 @@ class OrderPlacementEvent(FinanceEvent):
     q : float = Field(alias="quantity")
     u : bool = Field(alias="success")
     m : str = Field(alias="message")
+    l : float = Field(alias="leverage", default=0.0)
+    f : int = Field(alias="settleFlag", default=-2)
     
     @property
     def bookId(self) -> int | None:
@@ -126,6 +131,14 @@ class OrderPlacementEvent(FinanceEvent):
     @property
     def message(self) -> str:
         return self.m
+    
+    @property
+    def leverage(self) -> str:
+        return self.l
+    
+    @property
+    def settleFlag(self) -> str:
+        return self.f
 
 class LimitOrderPlacementEvent(OrderPlacementEvent):
     """
@@ -152,6 +165,7 @@ class LimitOrderPlacementEvent(OrderPlacementEvent):
                 orderId=json['payload']['payload']['orderId'],clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
                 side=json['payload']['payload']['requestPayload']['direction'],
                 price=json['payload']['payload']['requestPayload']['price'],quantity=json['payload']['payload']['requestPayload']['volume'],
+                leverage=json['payload']['payload']['requestPayload']['leverage'], settleFlag=LoanSettlementOption.from_string(json['payload']['payload']['requestPayload']['settleFlag']),
                 success=True,message=''
             )
         elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT':
@@ -161,16 +175,26 @@ class LimitOrderPlacementEvent(OrderPlacementEvent):
                 orderId=None,clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
                 side=json['payload']['payload']['requestPayload']['direction'],
                 price=json['payload']['payload']['requestPayload']['price'],quantity=json['payload']['payload']['requestPayload']['volume'],
+                leverage=json['payload']['payload']['requestPayload']['leverage'], settleFlag=LoanSettlementOption.from_string(json['payload']['payload']['requestPayload']['settleFlag']),
                 success=False,message=json['payload']['payload']['errorPayload']['message']
             )
         
     def __str__(self):
-        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} LIMIT ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+self.clientOrderId+')' if self.clientOrderId else ''} FOR {self.quantity}@{self.price} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
+        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} LIMIT ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+str(self.clientOrderId)+')' if self.clientOrderId else ''} FOR {f'{1+self.leverage}x' if self.leverage > 0 else ''}{self.quantity}@{self.price} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
         
 class MarketOrderPlacementEvent(OrderPlacementEvent):
     """
     Represents the event generated on placement of a Market Order in the simulation.
+
+    Attributes:
+        currency (OrderCurrency): Indicator for the currecy used to specify the market order quantity
     """            
+    r : OrderCurrency = Field(alias="currency")
+    
+    @property
+    def currency(self) -> OrderCurrency:
+        return self.r
+
     @classmethod
     def from_json(self, json : dict):
         """
@@ -181,7 +205,9 @@ class MarketOrderPlacementEvent(OrderPlacementEvent):
                 type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'],
                 bookId=json['payload']['payload']['requestPayload']['bookId'],
                 orderId=json['payload']['payload']['orderId'],clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
-                side=json['payload']['payload']['requestPayload']['direction'],quantity=json['payload']['payload']['requestPayload']['volume'],
+                side=json['payload']['payload']['requestPayload']['direction'],
+                currency=json['payload']['payload']['requestPayload']['currency'],quantity=json['payload']['payload']['requestPayload']['volume'],
+                leverage=json['payload']['payload']['requestPayload']['leverage'], settleFlag=LoanSettlementOption.from_string(json['payload']['payload']['requestPayload']['settleFlag']),
                 success=True,message=''
             )
         elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET':
@@ -189,12 +215,14 @@ class MarketOrderPlacementEvent(OrderPlacementEvent):
                 type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'],
                 bookId=json['payload']['payload']['requestPayload']['bookId'],
                 orderId=None,clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
-                side=json['payload']['payload']['requestPayload']['direction'],quantity=json['payload']['payload']['requestPayload']['volume'],
+                side=json['payload']['payload']['requestPayload']['direction'],
+                currency=json['payload']['payload']['requestPayload']['currency'],quantity=json['payload']['payload']['requestPayload']['volume'],
+                leverage=json['payload']['payload']['requestPayload']['leverage'], settleFlag=LoanSettlementOption.from_string(json['payload']['payload']['requestPayload']['settleFlag']),
                 success=False,message=json['payload']['payload']['errorPayload']['message']
             )
         
     def __str__(self):
-        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} MARKET ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+self.clientOrderId+')' if self.clientOrderId else ''} FOR {self.quantity} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
+        return f"{'PLACED' if self.success else 'FAILED TO PLACE'} {'BUY ' if self.side == 0 else 'SELL'} MARKET ORDER{' #'+str(self.orderId) if self.orderId else ''}{' ('+str(self.clientOrderId)+')' if self.clientOrderId else ''} FOR {f'{1+self.leverage}x' if self.leverage > 0 else ''}{self.quantity}{'' if self.currency==OrderCurrency.BASE else ' QUOTE'} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
         
 class OrderCancellationEvent(BaseModel):
     """
@@ -287,6 +315,98 @@ class OrderCancellationsEvent(FinanceEvent):
     
     def __str__(self):
         return "\n".join([f"{c}" for c in self.cancellations])
+    
+class ClosePositionEvent(BaseModel):
+    """
+    Represents closing the leveraged position associated with a single order.
+
+    Attributes:
+        timestamp (int): The timestamp at which closing was attempted.
+        bookId (int): The ID of the orderbook on which the position was attempted to be closed.
+        orderId (int): The ID of the order associated with the position attempted to be closed.
+        quantity (float | None): The quantity of the position to be closed, in base currency. If `None`, the entire remaining position was closed.
+        success (bool): Flag indicating if the position was successfully closed.
+        message (str): The message associated with failure in case of unsuccessful closure.
+    """
+    t : int = Field(alias="timestamp")
+    b : int = Field(alias="bookId")
+    o : int = Field(alias="orderId")
+    q : float | None = Field(alias="quantity")
+    u : bool = Field(alias="success")
+    m : str = Field(alias="message")
+    
+    @property
+    def timestamp(self) -> int:
+        return self.t
+    
+    @property
+    def bookId(self) -> int:
+        return self.b
+    
+    @property
+    def orderId(self) -> int:
+        return self.o
+    
+    @property
+    def quantity(self) -> float | None:
+        return self.q
+    
+    @property
+    def success(self) -> bool:
+        return self.u
+    
+    @property
+    def message(self) -> str:
+        return self.m
+
+    def __str__(self):
+        return f"{'CLOSED' if self.success else 'FAILED TO CLOSE'} POSITION FOR ORDER #{self.orderId}{' FOR ' + str(self.quantity) if self.quantity else ''} AT {duration_from_timestamp(self.timestamp)} (T={self.timestamp}){' : ' + self.message if not self.success else ''}"
+        
+class ClosePositionsEvent(FinanceEvent):
+    """
+    Represents the event generated on closing positions for a list of orders.
+
+    Attributes:
+        bookId (int | None): The ID of the orderbook on which the positions were attempted to be closed.
+        closes (list[ClosePositionEvent]): A list of individual order position closure events.
+    """
+    b : int | None = Field(alias="bookId", default=None)
+    o : list[ClosePositionEvent] = Field(alias="closes", default=[])
+    
+    @property
+    def bookId(self) -> int | None:
+        return self.b
+    
+    @property
+    def closes(self) -> list[ClosePositionEvent]:
+        return self.o
+    
+    @classmethod
+    def from_json(self, json : dict):
+        """
+        Method to transform simulator format event message to the format required by the MarketSimulationStateUpdate synapse.
+        """
+        event = ClosePositionsEvent(type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'], bookId=json['payload']['payload']['requestPayload']['bookId'])
+        if json['type'] == 'RESPONSE_DISTRIBUTED_CLOSE_POSITIONS':
+            for close in json['payload']['payload']['requestPayload']['closePositions']:
+                event.closes.append(
+                    ClosePositionEvent( timestamp=event.timestamp,
+                        bookId=event.bookId, orderId=close['orderId'],quantity=close['volume'],
+                        success=True,message=''
+                    )
+                )
+        elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_CLOSE_POSITIONS':
+            for close in json['payload']['payload']['requestPayload']['closePositions']:
+                event.closes.append(
+                    ClosePositionEvent( timestamp=event.timestamp,
+                        bookId=event.bookId, orderId=close['orderId'],quantity=close['volume'],
+                        success=False,message=json['payload']['payload']['errorPayload']['message']
+                    )
+                )
+        return event
+    
+    def __str__(self):
+        return "\n".join([f"{c}" for c in self.closes])
     
 class TradeEvent(FinanceEvent):
     """

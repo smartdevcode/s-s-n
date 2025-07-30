@@ -47,6 +47,14 @@ struct CancelOrderDesc
     decimal_t volumeToCancel;
 };
 
+struct ClosePositionDesc
+{
+    BookId bookId;
+    AgentId agentId;
+    OrderID orderId;
+    std::optional<decimal_t> volumeToClose;
+};
+
 struct OrderResult
 {
     OrderErrorCode ec;
@@ -80,6 +88,7 @@ public:
 
     [[nodiscard]] OrderResult handleOrder(const OrderDesc& orderDesc);
     void handleCancelOrder(const CancelOrderDesc& cancelDesc);
+    bool handleClosePosition(const ClosePositionDesc& closeDesc);
     Fees handleTrade(const TradeDesc& tradeDesc);
     void updateFeeTiers(Timestamp time) noexcept;
 

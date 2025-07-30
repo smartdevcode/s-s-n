@@ -124,6 +124,7 @@ public:
     [[nodiscard]] bool debug() const noexcept { return m_debug; }
 
     void saveCheckpoint();
+    void step();
 
     [[nodiscard]] static std::unique_ptr<Simulation> fromXML(pugi::xml_node node);
     [[nodiscard]] static std::unique_ptr<Simulation> fromCheckpoint(const fs::path& path);
@@ -133,7 +134,6 @@ private:
     void configureLogging(pugi::xml_node node);
     void deliverMessage(Message::Ptr msg);
     void start();
-    void step();
     void stop();
 
     void updateTime(Timestamp newTime)

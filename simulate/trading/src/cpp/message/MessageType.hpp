@@ -16,6 +16,7 @@ enum class MessageType : uint8_t
     PLACE_ORDER_LIMIT,
     RETRIEVE_ORDERS,
     CANCEL_ORDERS,
+    CLOSE_POSITIONS,
     RETRIEVE_L1,
     RETRIEVE_BOOK_ASK,
     RETRIEVE_BOOK_BID,
@@ -36,6 +37,8 @@ enum class MessageType : uint8_t
             return "RETRIEVE_ORDERS";
         case MessageType::CANCEL_ORDERS:
             return "CANCEL_ORDERS";
+        case MessageType::CLOSE_POSITIONS:
+            return "CLOSE_POSITIONS";
         case MessageType::RETRIEVE_L1:
             return "RETRIEVE_L1";
         case MessageType::RETRIEVE_BOOK_ASK:

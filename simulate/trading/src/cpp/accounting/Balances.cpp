@@ -173,7 +173,8 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
     decimal_t fee,
     decimal_t bestBid,
     decimal_t bestAsk,
-    decimal_t marginCallPrice)
+    decimal_t marginCallPrice,
+    SettleFlag settleFlag)
 {
     
     amount = roundAmount(amount, direction);
@@ -198,14 +199,30 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
         }
     }
 
-    const auto& ids = settleLoan(direction, 
-        direction == OrderDirection::BUY ? counterAmount : counterAmount - fee, 
-        direction == OrderDirection::BUY ? bestAsk : bestBid);
+    if (std::holds_alternative<SettleType>(settleFlag)) {
+        SettleType type = std::get<SettleType>(settleFlag);
+        if (type == SettleType::NONE) {
+            base.checkConsistency(std::source_location::current());
+            quote.checkConsistency(std::source_location::current());
+            return {};
+        } else if (type == SettleType::FIFO) {
+            const auto& ids = settleLoan(
+                direction, 
+                direction == OrderDirection::BUY ? counterAmount : counterAmount - fee, 
+                direction == OrderDirection::BUY ? bestAsk : bestBid);
+            return ids;
+        }
+    } else if (std::holds_alternative<OrderID>(settleFlag)) {
+        OrderID marginOrderId = std::get<OrderID>(settleFlag);
+        const auto& ids = settleLoan(
+            direction, 
+            direction == OrderDirection::BUY ? counterAmount : counterAmount - fee, 
+            direction == OrderDirection::BUY ? bestAsk : bestBid, 
+            marginOrderId);
+        return ids;
+    }
 
-    base.checkConsistency(std::source_location::current());
-    quote.checkConsistency(std::source_location::current());
-
-    return ids;
+    return {};
 }
 
 //-------------------------------------------------------------------------
@@ -266,9 +283,30 @@ void Balances::jsonSerialize(rapidjson::Document& json, const std::string& key) 
         auto& allocator = json.GetAllocator();
         json.AddMember("baseDecimals", rapidjson::Value{m_baseDecimals}, allocator);
         json.AddMember("quoteDecimals", rapidjson::Value{m_quoteDecimals}, allocator);
+        json.AddMember("quoteLoan", rapidjson::Value{taosim::util::decimal2double(m_quoteLoan)}, allocator);
+        json.AddMember("baseLoan", rapidjson::Value{taosim::util::decimal2double(m_baseLoan)}, allocator);
+        json.AddMember("quoteCollateral", rapidjson::Value{taosim::util::decimal2double(m_quoteCollateral)}, allocator);
+        json.AddMember("baseCollateral", rapidjson::Value{taosim::util::decimal2double(m_baseCollateral)}, allocator);
         base.jsonSerialize(json, "base");
         quote.jsonSerialize(json, "quote");
-        
+        json::serializeHelper(
+            json,
+            "Loans",
+            [this](rapidjson::Document& json) {
+                json.SetArray();
+                auto& allocator = json.GetAllocator();
+                for (const auto& [id, loan] : m_loans) {
+                    rapidjson::Document loanJson{rapidjson::kObjectType, &allocator};
+                    loanJson.AddMember("id", rapidjson::Value{id}, allocator);
+                    loanJson.AddMember("amount", rapidjson::Value{taosim::util::decimal2double(loan.amount())}, allocator);
+                    loanJson.AddMember("currency", rapidjson::Value{
+                        std::to_underlying(loan.direction() == OrderDirection::BUY ? Currency::QUOTE : Currency::BASE)
+                    }, allocator);
+                    loanJson.AddMember("baseCollateral", rapidjson::Value{taosim::util::decimal2double(loan.collateral().base())}, allocator);
+                    loanJson.AddMember("quoteCollateral", rapidjson::Value{taosim::util::decimal2double(loan.collateral().quote())}, allocator);
+                }
+            }
+        );
     };
     json::serializeHelper(json, key, serialize);
 }
@@ -283,8 +321,30 @@ void Balances::checkpointSerialize(
         auto& allocator = json.GetAllocator();
         json.AddMember("baseDecimals", rapidjson::Value{m_baseDecimals}, allocator);
         json.AddMember("quoteDecimals", rapidjson::Value{m_quoteDecimals}, allocator);
+        json.AddMember("quoteLoan", rapidjson::Value{taosim::util::decimal2double(m_quoteLoan)}, allocator);
+        json.AddMember("baseLoan", rapidjson::Value{taosim::util::decimal2double(m_baseLoan)}, allocator);
+        json.AddMember("quoteCollateral", rapidjson::Value{taosim::util::decimal2double(m_quoteCollateral)}, allocator);
+        json.AddMember("baseCollateral", rapidjson::Value{taosim::util::decimal2double(m_baseCollateral)}, allocator);
         base.checkpointSerialize(json, "base");
         quote.checkpointSerialize(json, "quote");
+        json::serializeHelper(
+            json,
+            "Loans",
+            [this](rapidjson::Document& json) {
+                json.SetArray();
+                auto& allocator = json.GetAllocator();
+                for (const auto& [id, loan] : m_loans) {
+                    rapidjson::Document loanJson{rapidjson::kObjectType, &allocator};
+                    loanJson.AddMember("id", rapidjson::Value{id}, allocator);
+                    loanJson.AddMember("amount", rapidjson::Value{taosim::util::decimal2double(loan.amount())}, allocator);
+                    loanJson.AddMember("currency", rapidjson::Value{
+                        std::to_underlying(loan.direction() == OrderDirection::BUY ? Currency::QUOTE : Currency::BASE)
+                    }, allocator);
+                    loanJson.AddMember("baseCollateral", rapidjson::Value{taosim::util::decimal2double(loan.collateral().base())}, allocator);
+                    loanJson.AddMember("quoteCollateral", rapidjson::Value{taosim::util::decimal2double(loan.collateral().quote())}, allocator);
+                }
+            }
+        );
     };
     json::serializeHelper(json, key, serialize);
 }
@@ -355,29 +415,31 @@ Balances Balances::fromXML(pugi::xml_node node, const RoundParams& roundParams)
 //-------------------------------------------------------------------------
 
 std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
-    OrderDirection direction, decimal_t amount, decimal_t price)
+    OrderDirection direction, decimal_t amount, decimal_t price, std::optional<OrderID> marginOrderId)
 {
     /*
         Settles the loan based on FIFO by default, unless the marginOrderId is specified
     */
 
-    std::vector<std::pair<OrderID, decimal_t>> ids;
+    if (m_loans.empty() || amount <= 0_dec) return {};
 
-    if (m_loans.empty()) return {};
+    std::vector<std::pair<OrderID, decimal_t>> settledLoanIds;
 
-    auto it = m_loans.begin();
-    while (amount > 0_dec && it != m_loans.end() && !m_loans.empty()) {
+    auto settleSingleLoan = [&](auto it) {
         auto& loan = it->second;
-        if (loan.direction() == direction) {
-            ++it;
-            continue; // should settle the reverse direction
-        }
-        const decimal_t settleAmount = std::min(loan.amount(), amount);
-        const auto collateral = loan.settle(
+        if (loan.direction() == direction) return false;
+
+        decimal_t settleAmount = std::min(loan.amount(), amount);
+        auto collateral = loan.settle(
             settleAmount,
             price,
-            {.baseDecimals = m_baseDecimals, .quoteDecimals = m_quoteDecimals});            
+            {.baseDecimals = m_baseDecimals, .quoteDecimals = m_quoteDecimals}
+        );
+
         amount = roundAmount(amount - settleAmount, loan.direction());
+        m_baseCollateral -= collateral.base();
+        m_quoteCollateral -= collateral.quote();
+
         if (direction == OrderDirection::BUY) {
             base.deposit(collateral.base() - settleAmount);
             quote.deposit(collateral.quote());
@@ -389,21 +451,39 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
         }
 
         if (loan.amount() == 0_dec) {
-            ids.push_back(std::make_pair(it->first, loan.marginCallPrice()));
+            settledLoanIds.emplace_back(it->first, loan.marginCallPrice());
+
             if (getReservationInQuote(it->first, price) == 0_dec) {
-                (direction == OrderDirection::BUY ? m_sellLeverages : m_buyLeverages).erase(it->first);
+                auto& leverages = (direction == OrderDirection::BUY ? m_sellLeverages : m_buyLeverages);
+                leverages.erase(it->first);
             }
-            it = m_loans.erase(it);
-        } else {
-            ++it;
+            m_loans.erase(it);
+        }
+
+        return true;
+    };
+
+    if (marginOrderId) {
+        auto it = m_loans.find(*marginOrderId);
+        if (it != m_loans.end()) {
+            settleSingleLoan(it);
+        }
+    } else {
+        for (auto it = m_loans.begin(); it != m_loans.end() && amount > 0_dec;) {
+            if (settleSingleLoan(it)) {
+                it = m_loans.begin();
+            } else {
+                ++it;
+            }
         }
     }
 
     base.checkConsistency(std::source_location::current());
     quote.checkConsistency(std::source_location::current());
 
-    return ids;
+    return settledLoanIds;
 }
+
 
 //-------------------------------------------------------------------------
 
@@ -438,6 +518,9 @@ void Balances::borrow(
             collateral.quote() = remainingQuote;
         }
     }
+
+    m_baseCollateral += collateral.base();
+    m_quoteCollateral += collateral.quote();
 
     decimal_t loanAmount = [&] {
         if (direction == OrderDirection::BUY) {

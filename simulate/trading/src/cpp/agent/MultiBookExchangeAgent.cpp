@@ -109,19 +109,52 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                     remainingVolume
                                 );
 
-                                simulation()->dispatchMessageWithPriority(
-                                    simulation()->currentTimestamp(),
-                                    0,
-                                    accounts().idBimap().right.at(idIt->agentId),
-                                    name(),
-                                    "PLACE_ORDER_MARKET",
-                                    MessagePayload::create<PlaceOrderMarketPayload>(
-                                        OrderDirection::SELL,
-                                        remainingVolume,
-                                        bookId,
-                                        Currency::QUOTE),
-                                    m_marginCallCounter++
-                                );
+                                if (idIt->agentId < 0){
+
+                                    simulation()->dispatchMessageWithPriority(
+                                        simulation()->currentTimestamp(),
+                                        0,
+                                        accounts().idBimap().right.at(idIt->agentId),
+                                        name(),
+                                        "PLACE_ORDER_MARKET",
+                                        MessagePayload::create<PlaceOrderMarketPayload>(
+                                            OrderDirection::SELL,
+                                            remainingVolume,
+                                            bookId,
+                                            Currency::QUOTE,
+                                            std::nullopt,
+                                            STPFlag::CO,
+                                            idIt->orderId
+                                        ),
+                                        m_marginCallCounter++
+                                    );
+
+                                } else {
+
+                                    simulation()->dispatchMessageWithPriority(
+                                        simulation()->currentTimestamp(),
+                                        0,
+                                        "DISTRIBUTED_PROXY_AGENT",
+                                        name(),
+                                        "DISTRIBUTED_PLACE_ORDER_MARKET",
+                                        MessagePayload::create<DistributedAgentResponsePayload>(
+                                            idIt->agentId,
+                                            MessagePayload::create<PlaceOrderMarketPayload>(
+                                                OrderDirection::SELL,
+                                                remainingVolume,
+                                                bookId,
+                                                Currency::QUOTE,
+                                                std::nullopt,
+                                                STPFlag::CO,
+                                                idIt->orderId
+                                            )
+                                        ),
+                                        m_marginCallCounter++
+                                    );
+
+                                }
+
+                                
 
                                 // throw std::runtime_error("\n#################    CHECK THE RESULT     ##################\n");
                             }
@@ -176,18 +209,50 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                     remainingVolume
                                 );
                                 
-                                simulation()->dispatchMessageWithPriority(
-                                    simulation()->currentTimestamp(),
-                                    0,
-                                    accounts().idBimap().right.at(idIt->agentId),
-                                    name(),
-                                    "PLACE_ORDER_MARKET",
-                                    MessagePayload::create<PlaceOrderMarketPayload>(
-                                        OrderDirection::BUY,
-                                        remainingVolume,
-                                        bookId),
-                                    m_marginCallCounter++
-                                );
+                                if (idIt->agentId < 0){
+                                    
+                                    simulation()->dispatchMessageWithPriority(
+                                        simulation()->currentTimestamp(),
+                                        0,
+                                        accounts().idBimap().right.at(idIt->agentId),
+                                        name(),
+                                        "PLACE_ORDER_MARKET",
+                                        MessagePayload::create<PlaceOrderMarketPayload>(
+                                            OrderDirection::BUY,
+                                            remainingVolume,
+                                            bookId,
+                                            Currency::BASE,
+                                            std::nullopt,
+                                            STPFlag::CO,
+                                            idIt->orderId
+                                        ),
+                                        m_marginCallCounter++
+                                    );
+
+                                } else {
+
+                                    simulation()->dispatchMessageWithPriority(
+                                        simulation()->currentTimestamp(),
+                                        0,
+                                        "DISTRIBUTED_PROXY_AGENT",
+                                        name(),
+                                        "DISTRIBUTED_PLACE_ORDER_MARKET",
+                                        MessagePayload::create<DistributedAgentResponsePayload>(
+                                            idIt->agentId,
+                                            MessagePayload::create<PlaceOrderMarketPayload>(
+                                                OrderDirection::BUY,
+                                                remainingVolume,
+                                                bookId,
+                                                Currency::BASE,
+                                                std::nullopt,
+                                                STPFlag::CO,
+                                                idIt->orderId
+                                            )
+                                        ),
+                                        m_marginCallCounter++
+                                    );
+
+                                }
 
                             }
                             
@@ -598,6 +663,9 @@ void MultiBookExchangeAgent::handleDistributedMessage(Message::Ptr msg)
     else if (msg->type.ends_with("CANCEL_ORDERS")) {
         handleDistributedCancelOrders(msg);
     }
+    else if (msg->type.ends_with("CLOSE_POSITIONS")) {
+        handleDistributedClosePositions(msg);
+    }
     else if (msg->type.ends_with("RESET_AGENT")) {
         handleDistributedAgentReset(msg);
     }
@@ -725,7 +793,8 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
         orderResult.orderSize,
         subPayload->leverage,
         OrderClientContext{payload->agentId, subPayload->clientOrderId},
-        subPayload->stpFlag
+        subPayload->stpFlag,
+        subPayload->settleFlag
     );
 
     const auto retSubPayload =
@@ -783,7 +852,8 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
         subPayload->price,
         subPayload->leverage,
         OrderClientContext{payload->agentId, subPayload->clientOrderId},
-        subPayload->stpFlag
+        subPayload->stpFlag,
+        subPayload->settleFlag
     );
 
     const auto retSubPayload =
@@ -895,6 +965,73 @@ void MultiBookExchangeAgent::handleDistributedCancelOrders(Message::Ptr msg)
 
 //-------------------------------------------------------------------------
 
+void MultiBookExchangeAgent::handleDistributedClosePositions(Message::Ptr msg)
+{
+    const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
+    const auto subPayload = std::dynamic_pointer_cast<ClosePositionsPayload>(payload->payload);
+
+    const auto bookId = subPayload->bookId;
+    const auto book = m_books[bookId];
+
+    std::vector<ClosePosition> closes;
+    std::vector<ClosePosition> failures;
+    for (const auto& close : subPayload->closePositions) {        
+        if (m_clearingManager->handleClosePosition(ClosePositionDesc{
+                .bookId = bookId,
+                .agentId = payload->agentId,
+                .orderId = close.id,
+                .volumeToClose = close.volume
+            })
+        ) {
+            closes.push_back(close);
+            // m_signals[bookId]->cancelLog(CancellationWithLogContext(
+            //     cancellation,
+            //     std::make_shared<CancellationLogContext>(
+            //         payload->agentId, bookId, simulation()->currentTimestamp())));
+        }
+        else {
+            failures.push_back(close);
+        }
+    }
+
+    if (!closes.empty()) {        
+        std::vector<OrderID> orderIds;
+        for (const ClosePosition& close : closes) {
+            orderIds.push_back(close.id);
+        }
+        respondToMessage(
+            msg,
+            MessagePayload::create<DistributedAgentResponsePayload>(
+                payload->agentId,
+                MessagePayload::create<ClosePositionsResponsePayload>(
+                    std::move(orderIds),
+                    MessagePayload::create<ClosePositionsPayload>(
+                        std::move(closes), bookId)))
+            );
+    }
+
+    if (!failures.empty()) {
+        std::vector<OrderID> orderIds = failures
+            | views::transform([](const ClosePosition& c) { return c.id; })
+            | ranges::to<std::vector>();
+        auto errorMsg = fmt::format("Order IDs {} do not exist.", fmt::join(orderIds, ", "));
+        auto retSubPayload = MessagePayload::create<ClosePositionsErrorResponsePayload>(
+            std::move(orderIds),
+            MessagePayload::create<ClosePositionsPayload>(std::move(failures), bookId), 
+            MessagePayload::create<ErrorResponsePayload>(std::move(errorMsg))
+        );
+        respondToMessage(
+            msg,
+            "ERROR",
+            MessagePayload::create<DistributedAgentResponsePayload>(
+                payload->agentId,
+                retSubPayload),
+            0);
+    }
+}
+
+//-------------------------------------------------------------------------
+
 void MultiBookExchangeAgent::handleDistributedUnknownMessage(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
@@ -924,6 +1061,9 @@ void MultiBookExchangeAgent::handleLocalMessage(Message::Ptr msg)
         handleLocalRetrieveOrders(msg);
     }
     else if (msg->type == "CANCEL_ORDERS") {
+        handleLocalCancelOrders(msg);
+    }
+    else if (msg->type == "CLOSE_POSITIONS") {
         handleLocalCancelOrders(msg);
     }
     else if (msg->type == "RETRIEVE_L1") {
@@ -994,7 +1134,8 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
         orderResult.orderSize,
         payload->leverage,
         OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
-        payload->stpFlag
+        payload->stpFlag,
+        payload->settleFlag
     );
 
     respondToMessage(
@@ -1048,7 +1189,8 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
         payload->price,
         payload->leverage,
         OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
-        payload->stpFlag
+        payload->stpFlag,
+        payload->settleFlag
     );
 
     respondToMessage(
@@ -1138,6 +1280,63 @@ void MultiBookExchangeAgent::handleLocalCancelOrders(Message::Ptr msg)
             | ranges::to<std::vector>();
         auto errorMsg = fmt::format("Order IDs {} do not exist.", fmt::join(orderIds, ", "));
         auto retSubPayload = MessagePayload::create<CancelOrdersErrorResponsePayload>(
+            std::move(orderIds),
+            payload,
+            MessagePayload::create<ErrorResponsePayload>(std::move(errorMsg))
+        );
+        respondToMessage(msg, "ERROR", retSubPayload);
+    }
+}
+
+//-------------------------------------------------------------------------
+
+void MultiBookExchangeAgent::handleLocalClosePositions(Message::Ptr msg)
+{
+    const auto& payload = std::dynamic_pointer_cast<ClosePositionsPayload>(msg->payload);
+
+    const auto bookId = payload->bookId;
+    const auto book = m_books[bookId];
+    const auto agentId = accounts().idBimap().left.at(msg->source);
+
+    std::vector<ClosePosition> closes;
+    std::vector<ClosePosition> failures;
+    for (const auto& close : payload->closePositions) {        
+        if (m_clearingManager->handleClosePosition(ClosePositionDesc{
+                .bookId = bookId,
+                .agentId = agentId,
+                .orderId = close.id,
+                .volumeToClose = close.volume
+            })
+        ) {
+            closes.push_back(close);
+            // m_signals[bookId]->cancelLog(CancellationWithLogContext(
+            //     cancellation,
+            //     std::make_shared<CancellationLogContext>(
+            //         payload->agentId, bookId, simulation()->currentTimestamp())));
+        }
+        else {
+            failures.push_back(close);
+        }
+    }
+
+    if (!closes.empty()) {   
+        respondToMessage(
+            msg,
+            MessagePayload::create<ClosePositionsResponsePayload>(
+                closes
+                    | views::transform([](const ClosePosition& c) { return c.id; })
+                    | ranges::to<std::vector>(),
+                MessagePayload::create<ClosePositionsPayload>(
+                    std::move(closes), bookId)),
+            0);
+    }
+
+    if (!failures.empty()) {
+        std::vector<OrderID> orderIds = failures
+            | views::transform([](const ClosePosition& c) { return c.id; })
+            | ranges::to<std::vector>();
+        auto errorMsg = fmt::format("Order IDs {} do not exist.", fmt::join(orderIds, ", "));
+        auto retSubPayload = MessagePayload::create<ClosePositionsErrorResponsePayload>(
             std::move(orderIds),
             payload,
             MessagePayload::create<ErrorResponsePayload>(std::move(errorMsg))

@@ -6,13 +6,13 @@ import time
 import pandas as pd
 import bittensor as bt
 
-from typing import Callable
+from typing import Callable, Tuple
 from threading import Thread
 from binance.websocket.spot.websocket_stream import SpotWebsocketStreamClient as BinanceClient
 from taos.im.utils.coinbase import CoinbaseClient
 from coinbase.websocket import WSClientConnectionClosedException, WSClientException
 
-def connect_coinbase(symbols: list[str], on_trade: Callable[[dict], None]) -> CoinbaseClient:
+def connect_coinbase(symbols: list[str], on_trade: Callable[[dict], None]) -> Tuple[CoinbaseClient | None, Exception | None]:
     """
     Establishes a WebSocket connection to Coinbase and subscribes to trade events for the given symbols.
 
@@ -51,10 +51,10 @@ def connect_coinbase(symbols: list[str], on_trade: Callable[[dict], None]) -> Co
         client.open()
         client.subscribe(product_ids=symbols, channels=["market_trades"])
         bt.logging.success(f"Subscribed to Coinbase Trades Stream! {symbols}")
-        return client
+        return client, None
     except Exception as ex:
         bt.logging.warning(f"Unable to connect to Coinbase Trades Stream! {ex}.")
-        return None
+        return None, ex
 
 def maintain_coinbase(client: CoinbaseClient, reconnect: Callable[[], None], check: Callable[[], bool], interval=10):
     """
@@ -140,7 +140,12 @@ def subscribe_coinbase_trades(
 
         def connect():
             global client
-            client = connect_coinbase([symbol], _on_trade)
+            while True:
+                client, ex = connect_coinbase([symbol], _on_trade)
+                if not client:
+                    bt.logging.error(f"Failed to connect to coinbase trades stream : {ex}")
+                else:
+                    break
 
         connect()
         # Continuously monitor the stream in a background thread.
@@ -153,7 +158,7 @@ def subscribe_coinbase_trades(
     # Start monitoring in a background thread.
     Thread(target=monitor_stream, args=(), daemon=True, name=f'trades_{symbol}').start()
 
-def connect_binance(symbols, on_trade: Callable[[dict], None]) -> BinanceClient:
+def connect_binance(symbols, on_trade: Callable[[dict], None]) -> Tuple[BinanceClient | None, Exception | None]:
     """
     Connects to Binance WebSocket stream for real-time trades on given symbols.
 
@@ -189,10 +194,10 @@ def connect_binance(symbols, on_trade: Callable[[dict], None]) -> BinanceClient:
         for symbol in symbols:
             client.trade(symbol=symbol)
         bt.logging.success(f"Subscribed to Binance Trades Stream! {symbols}")
-        return client
+        return client, None
     except Exception as ex:
         bt.logging.warning(f"Unable to connect to Binance Trades Stream! {ex}.")
-        return None
+        return None, ex
 
 def maintain_binance(client: BinanceClient, reconnect: Callable[[], None], check: Callable[[], bool]):
     """

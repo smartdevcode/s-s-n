@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+import bittensor as bt
 from taos.common.agents import launch
 from taos.im.agents import FinanceSimulationAgent
 from taos.im.protocol.models import *
@@ -19,6 +20,8 @@ class RandomTakerAgent(FinanceSimulationAgent):
         """
         self.min_quantity = self.config.min_quantity
         self.max_quantity = self.config.max_quantity
+        self.min_leverage = self.config.min_leverage if hasattr(self.config, 'min_leverage') else 0.0
+        self.max_leverage = self.config.max_leverage if hasattr(self.config, 'max_leverage') else 0.0
         # Initialize a variable which allows to maintain the same direction of trade for a defined period
         self.direction = {}
 
@@ -27,6 +30,12 @@ class RandomTakerAgent(FinanceSimulationAgent):
         Obtains a random quantity for order placement within the bounds defined by the agent strategy parameters.
         """
         return round(random.uniform(self.min_quantity,self.max_quantity),self.simulation_config.volumeDecimals)
+
+    def leverage(self):
+        """
+        Obtains a random quantity for order placement within the bounds defined by the agent strategy parameters.
+        """
+        return round(random.uniform(self.min_leverage,self.max_leverage),2) if self.min_leverage != self.max_leverage else self.max_leverage
 
     def respond(self, state : MarketSimulationStateUpdate) -> FinanceAgentResponse:
         """
@@ -50,7 +59,27 @@ class RandomTakerAgent(FinanceSimulationAgent):
                 # Randomly select a new trade direction for the agent on this book
                 self.direction[book_id] = random.choice([OrderDirection.BUY,OrderDirection.SELL])
             # Attach a market order instruction in the current trade direction for a random quantity within bounds defined by the parameters
-            response.market_order(book_id=book_id, direction=self.direction[book_id], quantity=self.quantity(), stp=random.choice([STP.DECREASE_CANCEL, STP.CANCEL_OLDEST]))
+            bt.logging.info(f"BOOK {book_id} | QUOTE : {self.accounts[book_id].quote_balance.total} [LOAN {self.accounts[book_id].quote_loan} | COLLAT {self.accounts[book_id].quote_collateral}]")
+            bt.logging.info(f"BOOK {book_id} | BASE : {self.accounts[book_id].base_balance.total} [LOAN {self.accounts[book_id].base_loan} | COLLAT {self.accounts[book_id].base_collateral}]")
+            if self.direction[book_id] == OrderDirection.BUY:
+                # If in the BUY regime, we place orders randomly with leverage selected from the configured range
+                response.market_order(
+                    book_id=book_id, 
+                    direction=self.direction[book_id], 
+                    quantity=self.quantity(), 
+                    stp=random.choice([STP.DECREASE_CANCEL, STP.CANCEL_OLDEST]),
+                    leverage=self.leverage()
+                )
+            else:
+                # If in the SELL regime, we place orders randomly without leverage, but with quantity increased to match the amounts placed on buy side.
+                # By setting LoanSettlementOption.FIFO, these orders will repay the loans taken in executing the BUY orders.
+                response.market_order(
+                    book_id=book_id, 
+                    direction=self.direction[book_id], 
+                    quantity=round(self.quantity() * 1 + self.leverage(), self.simulation_config.volumeDecimals), 
+                    stp=random.choice([STP.DECREASE_CANCEL, STP.CANCEL_OLDEST]),
+                    settlement_option=LoanSettlementOption.FIFO
+                )
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response
@@ -58,6 +87,6 @@ class RandomTakerAgent(FinanceSimulationAgent):
 if __name__ == "__main__":
     """
     Example command for local standalone testing execution using Proxy:
-    python RandomTakerAgent.py --port 8888 --agent_id 0 --params min_quantity=0.1 max_quantity=1.0
+    python RandomTakerAgent.py --port 8888 --agent_id 0 --params min_quantity=0.1 max_quantity=1.0 min_leverage=0.0 max_leverage=1.0
     """
     launch(RandomTakerAgent)
