@@ -432,7 +432,8 @@ TEST_P(CommitTest, WorksCorrectly)
         params.commitPrice, // bestBid
         params.commitPrice, // bestAsk
         calculateMarginCallPrice(
-            params.commitPrice, params.leverage, params.direction, DEC(0.25)));
+            params.commitPrice, params.leverage, params.direction, DEC(0.25)),
+        0);
     
     const decimal_t leverage = balances.getLeverage(params.orderId, params.direction);
     const decimal_t baseTotal = balances.base.getTotal();

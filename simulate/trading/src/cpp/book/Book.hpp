@@ -70,7 +70,8 @@ public:
         taosim::decimal_t leverage,
         OrderClientContext ctx,
         STPFlag stpFlag = STPFlag::CO,
-        SettleFlag settleFlag = SettleType::FIFO);
+        SettleFlag settleFlag = SettleType::FIFO,
+        Currency currency = Currency::BASE);
 
     LimitOrder::Ptr placeLimitOrder(
         OrderDirection direction,
@@ -80,7 +81,11 @@ public:
         taosim::decimal_t leverage,
         OrderClientContext ctx,
         STPFlag stpFlag = STPFlag::CO,
-        SettleFlag settleFlag = SettleType::FIFO);
+        SettleFlag settleFlag = SettleType::FIFO,
+        bool postOnly = false,
+        taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
+        std::optional<Timestamp> expiryPeriod = std::nullopt,
+        Currency currency = Currency::BASE);
         
     bool cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volumeToCancel = {});
 

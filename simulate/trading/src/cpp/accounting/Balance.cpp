@@ -171,7 +171,9 @@ decimal_t Balance::freeReservation(OrderID id, std::optional<decimal_t> amount)
     amount = roundAmount(amount);
 
     if (FreeInfo info = canFree(id, amount); info.status != FreeStatus::FREEABLE) {
-        throw FreeException{fmt::format("{}: {}", ctx, info.toString())};
+        if (info.status != FreeStatus::AMOUNT_EXCEEDS_RESERVATION) {
+            throw FreeException{fmt::format("{}: {}", ctx, info.toString())};
+        }
     }
 
     if (!amount.has_value()) {

@@ -128,6 +128,7 @@ public:
     [[nodiscard]] OrderDirection direction() const noexcept { return m_direction; }
     [[nodiscard]] STPFlag stpFlag() const noexcept { return m_stpFlag; }
     [[nodiscard]] SettleFlag settleFlag() const noexcept { return m_settleFlag; }
+    [[nodiscard]] Currency currency() const noexcept { return m_currency; }
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
@@ -142,12 +143,14 @@ protected:
         OrderDirection direction,
         taosim::decimal_t leverage = 0_dec,
         STPFlag stpFlag = STPFlag::CO,
-        SettleFlag settleFlag = SettleType::FIFO) noexcept;
+        SettleFlag settleFlag = SettleType::FIFO,
+        Currency currency = Currency::BASE) noexcept;
 
 private:
     OrderDirection m_direction;
     STPFlag m_stpFlag;
     SettleFlag m_settleFlag;
+    Currency m_currency;
 };
 
 //-------------------------------------------------------------------------
@@ -164,7 +167,8 @@ public:
         OrderDirection direction,
         taosim::decimal_t leverage = 0_dec,
         STPFlag stpFlag = STPFlag::CO,
-        SettleFlag settleFlag = SettleType::FIFO) noexcept;
+        SettleFlag settleFlag = SettleType::FIFO,
+        Currency currency = Currency::BASE) noexcept;
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
@@ -189,9 +193,16 @@ public:
         taosim::decimal_t price,
         taosim::decimal_t leverage = 0_dec,
         STPFlag stpFlag = STPFlag::CO,
-        SettleFlag settleFlag = SettleType::FIFO) noexcept;
+        SettleFlag settleFlag = SettleType::FIFO,
+        bool postOnly = false,
+        taosim::TimeInForce timeInForce = taosim::TimeInForce::GTC,
+        std::optional<Timestamp> expiryPeriod = std::nullopt,
+        Currency currency = Currency::BASE) noexcept;
 
     [[nodiscard]] taosim::decimal_t price() const noexcept { return m_price; };
+    [[nodiscard]] bool postOnly() const noexcept { return m_postOnly; }
+    [[nodiscard]] taosim::TimeInForce timeInForce() const noexcept { return m_timeInForce; }
+    [[nodiscard]] std::optional<Timestamp> expiryPeriod() const noexcept { return m_expiryPeriod; }
 
     void setPrice(taosim::decimal_t newPrice);
 
@@ -204,6 +215,9 @@ public:
 
 private:
     taosim::decimal_t m_price;
+    bool m_postOnly;
+    taosim::TimeInForce m_timeInForce;
+    std::optional<Timestamp> m_expiryPeriod;
 };
 
 //-------------------------------------------------------------------------
@@ -259,6 +273,10 @@ struct OrderEvent : public JsonSerializable
     STPFlag stpFlag;
     std::optional<taosim::decimal_t> price{};
     OrderContext ctx;
+    std::optional<bool> postOnly{};
+    std::optional<taosim::TimeInForce> timeInForce{};
+    std::optional<std::optional<Timestamp>> expiryPeriod{};
+    Currency currency{Currency::BASE};
 
     OrderEvent(Order::Ptr order, OrderContext ctx) noexcept
         : id{order->id()},
@@ -271,6 +289,9 @@ struct OrderEvent : public JsonSerializable
     {
         if (auto limitOrder = std::dynamic_pointer_cast<LimitOrder>(order)) {
             price = limitOrder->price();
+            postOnly = std::make_optional(limitOrder->postOnly());
+            timeInForce = std::make_optional(limitOrder->timeInForce());
+            expiryPeriod = std::make_optional(limitOrder->expiryPeriod());
         }
     }
 

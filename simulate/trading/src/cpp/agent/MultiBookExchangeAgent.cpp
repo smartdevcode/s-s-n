@@ -794,7 +794,8 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
         subPayload->leverage,
         OrderClientContext{payload->agentId, subPayload->clientOrderId},
         subPayload->stpFlag,
-        subPayload->settleFlag
+        subPayload->settleFlag,
+        subPayload->currency
     );
 
     const auto retSubPayload =
@@ -853,7 +854,11 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
         subPayload->leverage,
         OrderClientContext{payload->agentId, subPayload->clientOrderId},
         subPayload->stpFlag,
-        subPayload->settleFlag
+        subPayload->settleFlag,
+        subPayload->postOnly,
+        subPayload->timeInForce,
+        subPayload->expiryPeriod,
+        subPayload->currency
     );
 
     const auto retSubPayload =
@@ -1135,7 +1140,8 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
         payload->leverage,
         OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
         payload->stpFlag,
-        payload->settleFlag
+        payload->settleFlag,
+        payload->currency
     );
 
     respondToMessage(
@@ -1190,7 +1196,11 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
         payload->leverage,
         OrderClientContext{accounts().idBimap().left.at(msg->source), payload->clientOrderId},
         payload->stpFlag,
-        payload->settleFlag
+        payload->settleFlag,
+        payload->postOnly,
+        payload->timeInForce,
+        payload->expiryPeriod,
+        payload->currency
     );
 
     respondToMessage(

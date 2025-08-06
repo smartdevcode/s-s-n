@@ -328,6 +328,7 @@ class StateHistoryManager:
 
         self.last_snapshot: dict[str, dict[int, L2Snapshot]] = {}  # Last known snapshot per validator/book
         self.history: dict[str, dict[int, L2History]] = {}  # Full history per validator/book
+        self.publish_interval: int = None # Publishing interval
 
         self.load()  # Attempt to load existing history from disk
 
@@ -339,6 +340,7 @@ class StateHistoryManager:
             state (MarketSimulationStateUpdate): The latest simulation state to process.
         """
         self.updating = True
+        self.publish_interval = state.config.publish_interval
         try:
             validator: str = state.dendrite.hotkey  # Validator identifier
 
@@ -579,6 +581,7 @@ class StateHistoryManager:
             dict[str, Any]: Serialized representation of the state history.
         """
         return {
+            "publish_interval" : self.publish_interval,
             "last_snapshot": {
                 validator: {book_id: snapshot.model_dump() for book_id, snapshot in validator_snapshot.items()}
                 for validator, validator_snapshot in self.last_snapshot.items()
@@ -611,7 +614,8 @@ class StateHistoryManager:
                 book_id: L2History(
                     snapshots={t: L2Snapshot.model_validate(snapshot) for t, snapshot in history_data["snapshots"].items()},
                     trades={t: TradeInfo.model_validate(trade) for t, trade in history_data["trades"].items()},
-                    retention_mins=self.history_retention_mins
+                    retention_mins=self.history_retention_mins,
+                    publish_interval=serialized["history"]["publish_interval"]
                 )
                 for book_id, history_data in validator_history.items()
             }

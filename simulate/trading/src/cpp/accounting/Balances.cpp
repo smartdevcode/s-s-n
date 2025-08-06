@@ -54,6 +54,14 @@ bool Balances::canFree(OrderID id, OrderDirection direction) const noexcept
 ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decimal_t bestBid, decimal_t bestAsk,
     OrderDirection direction, std::optional<decimal_t> amount)
 {
+    if (amount.has_value()){
+        if (direction == OrderDirection::BUY){
+            amount = roundQuote(bestAsk * roundBase(amount.value() / bestAsk));
+        } else{
+            amount = roundBase(roundQuote(amount.value() * bestBid) / bestBid);
+        }
+    }
+    
     if (getLeverage(id, direction) == 0_dec) {
         if (direction == OrderDirection::BUY) {
             const auto freed = ReservationAmounts{.quote = quote.freeReservation(id, amount)};
@@ -174,6 +182,7 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
     decimal_t bestBid,
     decimal_t bestAsk,
     decimal_t marginCallPrice,
+    BookId bookId,
     SettleFlag settleFlag)
 {
     
@@ -191,10 +200,10 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
         }
     } else {
         if (direction == OrderDirection::BUY) {
-            borrow(id, direction, amount + fee, leverage, bestBid, bestAsk, marginCallPrice);
+            borrow(id, direction, amount + fee, leverage, bestBid, bestAsk, marginCallPrice, bookId);
             base.deposit(counterAmount);
         } else {
-            borrow(id, direction, amount, leverage, bestBid, bestAsk, marginCallPrice);
+            borrow(id, direction, amount, leverage, bestBid, bestAsk, marginCallPrice, bookId);
             quote.deposit(counterAmount - fee);
         }
     }
@@ -494,7 +503,8 @@ void Balances::borrow(
     decimal_t leverage,
     decimal_t bestBid,
     decimal_t bestAsk,
-    decimal_t marginCallPrice)
+    decimal_t marginCallPrice,
+    BookId bookId)
 {
     Collateral collateral;
     const decimal_t collateralAmount = roundUpAmount(amount / util::dec1p(leverage), direction);
@@ -504,7 +514,11 @@ void Balances::borrow(
         if (quoteReserved >= collateralAmount) {
             collateral.quote() = collateralAmount;
         } else {
-            const decimal_t remainingBase = roundUpBase((collateralAmount - quoteReserved) / bestAsk);
+            decimal_t remainingBase = roundUpBase((collateralAmount - quoteReserved) / bestAsk);
+            const auto baseReserved = base.getReservation(id).value_or(0_dec);
+            if (remainingBase > baseReserved) {
+                remainingBase = baseReserved;
+            }
             collateral.base() = remainingBase;
             collateral.quote() = quoteReserved;
         }
@@ -513,7 +527,14 @@ void Balances::borrow(
         if (baseReserved >= collateralAmount) {
             collateral.base() = collateralAmount;
         } else {
-            const decimal_t remainingQuote = roundUpQuote((collateralAmount - baseReserved) * bestBid);
+            decimal_t remainingQuote = roundUpQuote((collateralAmount - baseReserved) * bestBid);
+            const auto quoteReserved = quote.getReservation(id).value_or(0_dec);
+            if (remainingQuote > quoteReserved) {
+                fmt::println(
+                    "BOOK : {}, ORDER {}: borrow with amount={} and leverage={}, baseReserved={}, quoteReserved={}; remainingQuote ({}) exceeded quoteReserved ({})",
+                    bookId, id, amount, leverage, baseReserved, quoteReserved, remainingQuote, quoteReserved);
+                remainingQuote = quoteReserved;
+            }
             collateral.base() = baseReserved;
             collateral.quote() = remainingQuote;
         }

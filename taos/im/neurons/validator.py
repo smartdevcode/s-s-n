@@ -180,9 +180,9 @@ if __name__ != "__mp_main__":
                                     bt.logging.success(f"Deleted {output_dir.name}.")
                                 except Exception as ex:
                                     self.pagerduty_alert(f"Failed to remove compressed folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
-                    if psutil.disk_usage('/').percent > 90:
+                    if psutil.disk_usage('/').percent > 85:
                         first_day_of_month = int(datetime.today().replace(day=1).strftime("%Y%m%d"))
-                        bt.logging.warning(f"Disk usage > 90% - cleaning up old archives...")
+                        bt.logging.warning(f"Disk usage > 85% - cleaning up old archives...")
                         for output_archive in sorted(log_root.iterdir(), key=lambda f: f.name[:13]):
                             try:
                                 archive_date = int(output_archive.name[:8])

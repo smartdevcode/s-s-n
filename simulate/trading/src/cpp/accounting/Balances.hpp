@@ -65,7 +65,7 @@ public:
         decimal_t amount, decimal_t leverage, OrderDirection direction);
     [[nodiscard]] std::vector<std::pair<OrderID, decimal_t>> commit(
         OrderID orderId, OrderDirection direction, decimal_t amount, decimal_t counterAmount, decimal_t fee,
-        decimal_t bestBid, decimal_t bestAsk, decimal_t marginCallPrice, SettleFlag settleFlag = SettleType::FIFO);
+        decimal_t bestBid, decimal_t bestAsk, decimal_t marginCallPrice, BookId bookId, SettleFlag settleFlag = SettleType::FIFO);
 
     [[nodiscard]] decimal_t getLeverage(OrderID id, OrderDirection direction) const noexcept;
     [[nodiscard]] decimal_t getWealth(decimal_t price) const noexcept;
@@ -93,7 +93,8 @@ private:
         decimal_t leverage,
         decimal_t bestBid,
         decimal_t bestAsk,
-        decimal_t marginCallPrice);
+        decimal_t marginCallPrice,
+        BookId bookId);
 
     [[nodiscard]] decimal_t roundAmount(decimal_t amount, OrderDirection direction) const noexcept;
     [[nodiscard]] std::optional<decimal_t> roundAmount(

@@ -170,6 +170,7 @@ cmd.txt
 reuse_annot.py
 setup.sh
 agents/MaliciousAgent.py
+agents/data
 simulate/trading/src/python
 simulate/trading/run/GBM.py
 simulate/trading/run/HighFrequencyTraderAgent.py
@@ -179,3 +180,4 @@ simulate/trading/run/TraderLogger.py
 simulate/trading/run/TraderReporting.py
 
 testing/
+scripts/

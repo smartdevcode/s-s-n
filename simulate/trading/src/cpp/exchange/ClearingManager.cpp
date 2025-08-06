@@ -234,7 +234,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
                 // volumeToCancel < order->totalVolume()
                 volumeToCancel < order->volume()
                     ? std::make_optional(
-                        util::round(volumeToCancel, m_exchange->config().parameters().volumeIncrementDecimals))
+                        util::round(volumeToCancel, m_exchange->config().parameters().baseIncrementDecimals))
                     : std::nullopt);
         }
     }();
@@ -417,6 +417,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             aggressingMarginCall,
+            bookId,
             aggressingOrder->settleFlag());
 
         m_exchange->simulation()->logDebug(
@@ -432,6 +433,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             restingMarginCall,
+            bookId,
             restingOrder->settleFlag());
 
         removeMarginOrders(bookId, OrderDirection::BUY, removedIdsMarginBuy);
@@ -504,6 +506,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             aggressingMarginCall,
+            bookId,
             aggressingOrder->settleFlag());
 
         m_exchange->simulation()->logDebug(
@@ -520,6 +523,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             restingMarginCall,
+            bookId,
             restingOrder->settleFlag());
 
         removeMarginOrders(bookId, OrderDirection::SELL, removedIdsShortSell);
