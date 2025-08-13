@@ -677,6 +677,7 @@ void StylizedTraderAgent::placeLimitBuy(
 
     m_orderFlag.at(bookId) = true;
 
+    const bool postOnly = std::bernoulli_distribution{m_alpha}(*m_rng);
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         orderPlacementLatency(),
@@ -687,7 +688,10 @@ void StylizedTraderAgent::placeLimitBuy(
             OrderDirection::BUY,
             taosim::util::double2decimal(volume),
             taosim::util::double2decimal(price),
-            bookId));
+            bookId,
+            Currency::BASE, //#
+            std::nullopt,
+            postOnly));
 }
 
 //-------------------------------------------------------------------------

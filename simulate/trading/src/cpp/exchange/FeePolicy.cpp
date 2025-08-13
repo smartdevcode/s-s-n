@@ -65,7 +65,7 @@ void FeePolicy::updateAgentsTiers() noexcept
             auto currentTier = findTierForAgent(bookId, agentId);
             if (currentTier.volumeRequired != initialTier.volumeRequired) {
                 m_simulation->logDebug("{} | AGENT #{} BOOK {} : VOL {} | FEE TIER UPDATED FROM [{},{},{}] -> [{},{},{}]",
-                    m_simulation->currentTimestamp(), agentId, bookId, totalVolume,
+                    m_simulation->currentTimestamp(), agentId, m_simulation->bookIdCanon(bookId), totalVolume,
                     initialTier.volumeRequired, initialTier.makerFeeRate, initialTier.takerFeeRate,
                     currentTier.volumeRequired, currentTier.makerFeeRate, currentTier.takerFeeRate
                 );

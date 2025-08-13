@@ -32,6 +32,7 @@ public:
         decimal_t amount;
         decimal_t leverage;
         decimal_t orderSize;
+        bool instantTrade;
     };
 
     struct Parameters
@@ -68,13 +69,13 @@ public:
 
 private:
     [[nodiscard]] bool checkTimeInForce(
-        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept;
     [[nodiscard]] bool checkIOC(
-        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept;
     [[nodiscard]] bool checkFOK(
-        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept;
     [[nodiscard]] bool checkPostOnly(
-        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept;
+        Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept;
 
     Parameters m_params;
     MultiBookExchangeAgent* m_exchange;

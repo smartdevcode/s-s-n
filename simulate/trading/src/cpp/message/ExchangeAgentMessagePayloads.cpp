@@ -54,7 +54,7 @@ void PlaceOrderMarketPayload::jsonSerialize(
             allocator);
         json.AddMember("leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
         std::visit([&](auto&& flag) {
-            using T = std::decay_t<decltype(flag)>;
+            using T = std::remove_cvref_t<decltype(flag)>;
             if constexpr (std::is_same_v<T, SettleType>) {
                 json.AddMember(
                     "settleFlag",
@@ -87,7 +87,7 @@ void PlaceOrderMarketPayload::checkpointSerialize(
             allocator);
         json.AddMember("leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
         std::visit([&](auto&& flag) {
-            using T = std::decay_t<decltype(flag)>;
+            using T = std::remove_cvref_t<decltype(flag)>;
             if constexpr (std::is_same_v<T, SettleType>) {
                 json.AddMember(
                     "settleFlag",
@@ -230,7 +230,7 @@ void PlaceOrderLimitPayload::jsonSerialize(
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
             allocator);
         std::visit([&](auto&& flag) {
-            using T = std::decay_t<decltype(flag)>;
+            using T = std::remove_cvref_t<decltype(flag)>;
             if constexpr (std::is_same_v<T, SettleType>) {
                 json.AddMember(
                     "settleFlag",
@@ -270,7 +270,7 @@ void PlaceOrderLimitPayload::checkpointSerialize(
             rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
             allocator);
         std::visit([&](auto&& flag) {
-            using T = std::decay_t<decltype(flag)>;
+            using T = std::remove_cvref_t<decltype(flag)>;
             if constexpr (std::is_same_v<T, SettleType>) {
                 json.AddMember(
                     "settleFlag",

@@ -59,6 +59,8 @@ public:
     void retainRecord(bool flag) noexcept;
     void checkMarginCall() noexcept;
 
+    void instructionLogCallback(const taosim::exchange::OrderDesc& orderDesc, OrderID orderId);
+
     virtual void configure(const pugi::xml_node& node) override;
     virtual void receiveMessage(Message::Ptr msg) override;
     virtual void checkpointSerialize(

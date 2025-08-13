@@ -1,4 +1,4 @@
-<Simulation id="{{BG_CONFIG}}" start="0" step="5000000000" duration="86400000000000" logWindow="10800000000000" timescale="ns" 
+<Simulation id="{{BG_CONFIG}}" start="0" step="1000000000" duration="86400000000000" logWindow="10800000000000" timescale="ns" 
     enableCheckpointing="0" traceTime="1" debug="0" blockCount="8" 
     host="localhost" port="8000" batchSize="10" bookStateEndpoint="/orderbook" generalMsgEndpoint="/account">
     <Agents>
@@ -45,22 +45,22 @@
         </InitializationAgent>
         <ALGOTraderAgent
             name="ALGO_TRADER_AGENT"
-            instanceCount="5"
+            instanceCount="1"
             exchange="EXCHANGE"
-            wakeupProb="0.30"
+            wakeupProb="0.08"
             buyProb="0.5"
-            volumeProp="0.05"
+            volumeProp="0.65"
             volumeStatsPeriod="120000000000"
             period="3600000000000"
             MFLmean="1500000000"
             MFLstd="250000000"
-            VBS="15000.0"
+            VBS="30000.0"
             minOPLatency="1000000"
             maxOPLatency="50000000">
             <VolumeDistribution type="lognormal" mu="1" sigma="1.0"/>
               <Balances>
-                <Base total="500.0" maxLeverage="1" maxLoan="10000"/>
-                <Quote total="150000.0" maxLeverage="1" maxLoan="10000"/>
+                <Base total="3000.0" maxLeverage="1" maxLoan="10000"/>
+                <Quote total="900000.0" maxLeverage="1" maxLoan="10000"/>
             </Balances>
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
                 <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0"/>
@@ -77,10 +77,10 @@
             opLatencyScaleRay="0.235"
             tau="3"
             delta="500000000"
-            psiHFT_constant="200"
-            gHFT="0.2"
+            psiHFT_constant="250"
+            gHFT="0.1"
             kappa="20"
-            spread="0.8"
+            spread="0.0025"
             orderMean="1.6"
             noiseRay="0.23"
             shiftPercentage="0.02">
@@ -141,7 +141,8 @@
             sigmaFRegime="4"
             sigmaCRegime="3.8"
             sigmaNRegime="0.7"
-            tauFRegime="15">
+            tauFRegime="15"
+            pO_alpha="0.65">
             <Balances
                 type="pareto-50"
                 scale="1.0"

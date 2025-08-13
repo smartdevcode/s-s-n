@@ -44,6 +44,11 @@ void L3EventLogger::log(taosim::L3LogEvent event)
         [&](auto&& item) {
             rapidjson::Document json;
             item.jsonSerialize(json);
+            using T = std::remove_cvref_t<decltype(item)>;
+            if constexpr (!std::same_as<T, taosim::InstructionLogContext>) {
+                json["logContext"]["bookId"].SetUint(
+                    m_simulation->bookIdCanon(json["logContext"]["bookId"].GetUint()));
+            }
             json.AddMember("eventId", rapidjson::Value{event.id}, json.GetAllocator());
             return json;
         },

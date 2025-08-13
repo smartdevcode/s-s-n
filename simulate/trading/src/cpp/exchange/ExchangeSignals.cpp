@@ -14,6 +14,9 @@ namespace taosim::exchange
 
 ExchangeSignals::ExchangeSignals() noexcept
 {
+    instructionLog.connect([this](InstructionLogContext item) {
+        L3({ .item = item, .id = eventCounter++ });
+    });
     orderLog.connect([this](OrderWithLogContext item) {
         L3({ .item = item, .id = eventCounter++ });
     });

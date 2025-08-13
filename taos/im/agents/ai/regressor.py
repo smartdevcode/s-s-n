@@ -169,8 +169,8 @@ Output Directory : {self.output_dir}
             bool: True if training was successful, False otherwise.
         """
         try:
-            if not self.model_trained[book_id] and len(self.predictors[book_id][self.predKeys[0]]) < self.train_n + 3:
-                bt.logging.info(f"BOOK {book_id} : MODEL UNTRAINED AND ONLY {len(self.target[book_id][self.targetKeys[0]])} / {self.train_n + 3} OBSERVATIONS AVAILABLE")
+            if len(self.predictors[book_id][self.predKeys[0]]) < self.train_n + 3:
+                bt.logging.info(f"BOOK {book_id} : ONLY {len(self.target[book_id][self.targetKeys[0]])} / {self.train_n + 3} OBSERVATIONS AVAILABLE FOR TRAINING")
                 return False
 
             X_data = pd.DataFrame(self.predictors[book_id])

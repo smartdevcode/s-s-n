@@ -324,9 +324,9 @@ INSTANTIATE_TEST_SUITE_P(
         },
         TestParams{
             .initOrders = {
-                OrderParams{.direction = OrderDirection::BUY, .price = DEC(299.95), .volume = DEC(44.5583), .leverage = DEC(0.)}
+                OrderParams{.direction = OrderDirection::BUY, .price = DEC(299.95), .volume = DEC(44.54), .leverage = DEC(0.)}
             },
-            .testOrder = OrderParams{.direction = OrderDirection::SELL, .price = DEC(299.95), .volume = DEC(22.27915), .leverage = DEC(0.)}
+            .testOrder = OrderParams{.direction = OrderDirection::SELL, .price = DEC(299.95), .volume = DEC(22.27), .leverage = DEC(0.)}
         }
         )
     );

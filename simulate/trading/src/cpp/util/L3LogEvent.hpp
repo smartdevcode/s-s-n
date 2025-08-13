@@ -7,6 +7,7 @@
 #include "Order.hpp"
 #include "Trade.hpp"
 #include "Cancellation.hpp"
+#include "InstructionLogger.hpp"
 
 #include <cstdint>
 #include <variant>
@@ -21,6 +22,7 @@ namespace taosim
 struct L3LogEvent
 {
     std::variant<
+        InstructionLogContext,
         OrderWithLogContext,
         TradeWithLogContext,
         CancellationWithLogContext> item;

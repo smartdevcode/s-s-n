@@ -169,8 +169,8 @@ struct FreeReservationTest : TestWithParam<FreeReservationTestParams>
         balances.makeReservation(
             params.orderId,
             params.reservationPrice,
-            0_dec, // bestBid
-            0_dec, // bestAsk
+            DEC(299.38), // bestBid
+            300_dec, // bestAsk
             params.reservationAmount,
             params.leverage,
             params.direction);
@@ -182,11 +182,33 @@ struct FreeReservationTest : TestWithParam<FreeReservationTestParams>
 
 TEST_P(FreeReservationTest, WorksCorrectly)
 {
+    fmt::println("*****Reservations #{}: {} | {} | b:{} q:{} | price:{} | pr:{}  am:{}", 
+        params.orderId,
+        balances.getReservationInBase(params.orderId, params.reservationPrice),
+        balances.getReservationInQuote(params.orderId, params.reservationPrice),
+        balances.base.getReservation(params.orderId).value_or(0_dec),
+        balances.quote.getReservation(params.orderId).value_or(0_dec),
+        params.reservationPrice,
+        params.freePrice,
+        params.freeAmount.value_or(0_dec)
+    );
     const auto freedAmount = balances.freeReservation(
         params.orderId, params.freePrice,
-        0_dec, // bestBid
-        0_dec, // bestAsk
+        params.reservationPrice, // bestBid
+        params.reservationPrice + 1_dec, // bestAsk
         params.direction, params.freeAmount);
+    
+    fmt::println("*****Reservations #{}: {} | {} | b:{} q:{} | price:{} | pr:{}  am:{}", 
+        params.orderId,
+        balances.getReservationInBase(params.orderId, params.reservationPrice),
+        balances.getReservationInQuote(params.orderId, params.reservationPrice),
+        balances.base.getReservation(params.orderId).value_or(0_dec),
+        balances.quote.getReservation(params.orderId).value_or(0_dec),
+        params.reservationPrice,
+        params.freePrice,
+        params.freeAmount.value_or(0_dec)
+    );
+    
     EXPECT_EQ(freedAmount.base, params.refFreedAmountBase);
     EXPECT_EQ(freedAmount.quote, params.refFreedAmountQuote);
     EXPECT_EQ(balances.base.getReserved(), params.refBaseReservedAfterFree);
@@ -256,7 +278,23 @@ INSTANTIATE_TEST_SUITE_P(
             .refFreedAmountQuote = DEC(13.190100),
             .refBaseReservedAfterFree = DEC(0.0339),
             .refQuoteReservedAfterFree = 0_dec
-        }));
+        },
+        FreeReservationTestParams{
+            .baseHeld = DEC(0.2404),
+            .quoteHeld = DEC(66.342608),
+            .orderId = 19,
+            .reservationPrice = DEC(299.38),
+            .reservationAmount = DEC(.462),
+            .leverage = DEC(1.79),
+            .direction = OrderDirection::SELL,
+            .freeAmount = DEC(.46209),
+            .freePrice = DEC(299.38),
+            .refFreedAmountBase = DEC(0.2404),
+            .refFreedAmountQuote = DEC(66.342608),
+            .refBaseReservedAfterFree = DEC(0.0),
+            .refQuoteReservedAfterFree = 0_dec
+        }
+    ));
 
 //-------------------------------------------------------------------------
 

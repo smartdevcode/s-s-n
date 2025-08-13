@@ -65,40 +65,64 @@ class RandomMakerAgent(FinanceSimulationAgent):
                 askprice = round(random.uniform(bidprice,100.05),self.simulation_config.priceDecimals)
             # If the bid and ask prices are different i.e the spread is not too small to place both orders at different prices
             if bidprice != askprice:
-                # Obtain a random quantity
-                quantity = self.quantity()
-                # Obtain a random leverage value
-                leverage = self.leverage()
+                # Select a random side of the book to place an order
+                direction = random.choice([OrderDirection.BUY, OrderDirection.SELL])
                 bt.logging.info(f"BOOK {book_id} | QUOTE : {self.accounts[book_id].quote_balance.total} [LOAN {self.accounts[book_id].quote_loan} | COLLAT {self.accounts[book_id].quote_collateral}]")
                 bt.logging.info(f"BOOK {book_id} | BASE : {self.accounts[book_id].base_balance.total} [LOAN {self.accounts[book_id].base_loan} | COLLAT {self.accounts[book_id].base_collateral}]")
-                # If the agent can afford to place the buy order
-                if self.accounts[book_id].quote_balance.free >= quantity * bidprice:
+                if direction == OrderDirection.BUY:
                     # Attach a buy limit order placement instruction to the response
                     # On the BUY side, we place leveraged orders according to the config
-                    response.limit_order(
-                        book_id=book_id, 
-                        direction=OrderDirection.BUY, 
-                        quantity=quantity, price=bidprice, 
-                        stp=STP.CANCEL_BOTH, 
-                        timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period,
-                        leverage=leverage)
-                else:
-                    print(f"Cannot place BUY order for {quantity}@{bidprice} : Insufficient quote balance!")
-                # If the agent can afford to place the sell order
-                if self.accounts[book_id].base_balance.free >= quantity:
+                    # Obtain a random leverage value if there is no open margin position on sell side
+                    leverage = self.leverage() if self.accounts[book_id].base_loan == 0 else 0.0
+                    # If an open opposite margin position exists, repay the corresponding loans in order 
+                    # from oldest to newest by setting LoanSettlementOption.FIFO
+                    settlement = LoanSettlementOption.NONE if self.accounts[book_id].base_loan == 0 else LoanSettlementOption.FIFO
+                    # If placing unleveraged order, increase the quantity to better match the average total size of 
+                    # leveraged orders on the other side.  This avoids accumulating too much inventory in one currency.
+                    quantity =  round(self.quantity() * (1 + self.leverage()), self.simulation_config.volumeDecimals)
+                    # If the agent can afford to place the buy order
+                    if self.accounts[book_id].quote_balance.free >= quantity * bidprice:
+                        response.limit_order(
+                            book_id=book_id, 
+                            direction=OrderDirection.BUY, 
+                            quantity=quantity, 
+                            price=bidprice, 
+                            stp=STP.CANCEL_BOTH, 
+                            timeInForce=TimeInForce.GTT, 
+                            expiryPeriod=self.expiry_period,
+                            leverage=leverage,
+                            settlement_option=settlement
+                        )
+                        bt.logging.info(f"SUBMITTING BUY LIMIT ORDER FOR {str(round(1+leverage,2))+'x' if leverage > 0 else ''}{quantity}@{bidprice}")
+                    else:
+                        print(f"CANNOT SUBMIT BUY ORDER FOR {str(round(1+leverage,2))+'x' if leverage > 0 else ''}{quantity}@{bidprice} : Insufficient quote balance!")
+                if direction == OrderDirection.SELL:
                     # Attach a sell limit order placement instruction to the response
                     # In the SELL case, the order quantity is adjusted to approximate that of the leveraged buy order
-                    # By setting LoanSettlementOption.FIFO, these orders will repay the loans taken in executing the BUY orders.
-                    response.limit_order(
-                        book_id=book_id, 
-                        direction=OrderDirection.SELL, 
-                        quantity=round(quantity * 1 + leverage, self.simulation_config.volumeDecimals), price=askprice, 
-                        stp=STP.CANCEL_NEWEST, 
-                        timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period,
-                        settlement_option=LoanSettlementOption.FIFO
-                    )
-                else:
-                    print(f"Cannot place SELL order for {quantity}@{askprice} : Insufficient base balance!")
+                    # Obtain a random leverage value if there is no open margin position on buy side
+                    leverage = self.leverage() if self.accounts[book_id].quote_loan == 0 else 0.0
+                    # If an open opposite margin position exists, repay the corresponding loans in order 
+                    # from oldest to newest by setting LoanSettlementOption.FIFO
+                    settlement = LoanSettlementOption.NONE if self.accounts[book_id].quote_loan == 0 else LoanSettlementOption.FIFO
+                    # If placing unleveraged order, increase the quantity to better match the average total size of 
+                    # leveraged orders on the other side.  This avoids accumulating too much inventory in one currency.
+                    quantity =  round(self.quantity() * (1 + self.leverage()), self.simulation_config.volumeDecimals)
+                    # If the agent can afford to place the sell order
+                    if self.accounts[book_id].base_balance.free >= quantity:
+                        response.limit_order(
+                            book_id=book_id, 
+                            direction=OrderDirection.SELL, 
+                            quantity=round(quantity * 1 + leverage, self.simulation_config.volumeDecimals), 
+                            price=askprice, 
+                            stp=STP.CANCEL_NEWEST, 
+                            timeInForce=TimeInForce.GTT, 
+                            expiryPeriod=self.expiry_period,
+                            leverage=leverage,
+                            settlement_option=settlement
+                        )
+                        bt.logging.info(f"SUBMITTING SELL LIMIT ORDER FOR {str(round(1+leverage,2))+'x' if leverage > 0 else ''}{quantity}@{askprice}")
+                    else:
+                        print(f"CANNOT SUBMIT SELL ORDER FOR {str(round(1+leverage,2))+'x' if leverage > 0 else ''}{quantity}@{askprice} : Insufficient base balance!")
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response

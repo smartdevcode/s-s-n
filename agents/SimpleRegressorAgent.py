@@ -8,6 +8,7 @@ import bittensor as bt
 from threading import Thread
 from copy import deepcopy
 from pathlib import Path
+from collections import defaultdict
 
 from taos.common.agents import launch
 from taos.im.agents.ai.regressor import FinanceSimulationAIRegressorAgent
@@ -29,8 +30,9 @@ class SimpleRegressorAgent(FinanceSimulationAIRegressorAgent):
 ---------------------------------------------------------------
 Strategy Config
 ---------------------------------------------------------------
-Order Quantity              : {self.quantity}
+Order Quantity             : {self.quantity}
 Order Expiry               : {self.expiry_period}ns
+Signal Threshold           : {self.signal_threshold}
 Model                      : {self.model}
 Model Parameters:
 """ + '\n'.join([f"\t{name} : {val}" for name, val in self.model_kwargs.items()]) + f"""
@@ -62,6 +64,12 @@ Output Directory           : {self.output_dir}
         # Define the list of variables which will be predicted by the model.  These are also defined and populated in the `update_predictors` method
         # A common and natural target is to predict the return for the next step.
         self.targetKeys = ['LogReturn']
+        
+        # Model threshold and signal threshold
+        # Signal threshold when the predicition is enough to place the orders
+        # Model threshold determines when we trust the model enough, otherwise max the signal at the signal threshold (no action)
+        self.signal_threshold = self.config.signal_threshold if hasattr(self.config,'signal_threshold') else 0.0025 
+        self.model_threshold = self.config.model_threshold if hasattr(self.config, 'model_threshold') else self.signal_threshold * 2
 
         # Prepare common variables and execute pretraining if specified
         # Allowed options fpr the `model` parameter for this example strategy are
@@ -87,89 +95,83 @@ Output Directory           : {self.output_dir}
 
         Args:
             book (Book): Book object from the state update.
-            timestamp (dict): Simulation timestamp of the associated state update.
+            timestamp (int): Simulation timestamp of the associated state update.
         """
         if not self.event_history:
-            lookback_minutes = max((self.simulation_config.publish_interval // 1_000_000_000) // 60, self.sampling_interval * 2 // 60, 1)
+            lookback_minutes = max(
+                (self.simulation_config.publish_interval // 1_000_000_000) // 60,
+                self.sampling_interval * 2 // 60,
+                1
+            )
             self.event_history = book.event_history(timestamp, self.simulation_config, lookback_minutes)
         else:
             book.append_to_event_history(timestamp, self.event_history, self.simulation_config)
 
-        # Aggregate data for features
-        ohlc = self.event_history.ohlc(self.sampling_interval)
-        sampled_mean_price = self.event_history.mean_trade_price(self.sampling_interval)
+        interval = self.sampling_interval
 
-        trade_buckets = self.event_history.bucket(self.event_history.trades, self.sampling_interval)
-        sampled_trade_volumes = {ts: sum(t.quantity for t in trades) for ts, trades in trade_buckets.items()}
-        sampled_trade_imb = {ts: sum(t.quantity for t in trades if t.side == OrderDirection.BUY) - sum(t.quantity for t in trades if t.side == OrderDirection.SELL) for ts, trades in trade_buckets.items()}
+        # Aggregate data
+        ohlc = self.event_history.ohlc(interval)
+        mean_price = self.event_history.mean_trade_price(interval)
+        trade_buckets = self.event_history.bucket(self.event_history.trades, interval)
+        order_buckets = self.event_history.bucket(self.event_history.orders, interval)
 
-        order_buckets = self.event_history.bucket(self.event_history.orders, self.sampling_interval)
-        sampled_order_volumes = {ts: sum(o.quantity for o in orders) for ts, orders in order_buckets.items()}
-        sampled_order_imbalances = {ts: sum(o.quantity for o in orders if o.side == OrderDirection.BUY) - sum(o.quantity for o in orders if o.side == OrderDirection.SELL) for ts, orders in order_buckets.items()}
-
-        # Determine the number of new data points in the history
-        n_new = max((self.simulation_config.publish_interval // 1_000_000_000) // self.sampling_interval, 1)
-        new_sampled_data = {
-            ts: {
-                "ohlc": ohlc[ts],
-                "mean_price": sampled_mean_price[ts],
-                "trade_volume": sampled_trade_volumes[ts],
-                "trade_imb": sampled_trade_imb[ts],
-                "order_volume": sampled_order_volumes[ts],
-                "order_imbalance": sampled_order_imbalances[ts]
-            } for ts in list(ohlc.keys())[-n_new:]
+        trade_volumes = {ts: sum(t.quantity for t in trades) for ts, trades in trade_buckets.items()}
+        trade_imbalance = {
+            ts: sum(t.quantity if t.side == OrderDirection.BUY else -t.quantity for t in trades)
+            for ts, trades in trade_buckets.items()
+        }
+        order_volumes = {ts: sum(o.quantity for o in orders) for ts, orders in order_buckets.items()}
+        order_imbalance = {
+            ts: sum(o.quantity if o.side == OrderDirection.BUY else -o.quantity for o in orders)
+            for ts, orders in order_buckets.items()
         }
 
-        # Calculate predictor and target values
-        new_predictors = {key: [] for key in self.predKeys}
-        new_targets = {key: [] for key in self.targetKeys}
+        n_new = max((self.simulation_config.publish_interval // 1_000_000_000) // interval, 1)
+        latest_timestamps = sorted(ohlc.keys())[-n_new:]
 
-        for ts, sampled in new_sampled_data.items():
-            if not sampled['ohlc']:
+        new_predictors = defaultdict(list)
+        new_targets = defaultdict(list)
+
+        for ts in latest_timestamps:
+            ohlc_data = ohlc.get(ts)
+            if not ohlc_data:
                 continue
-            new_predictors['Open'].append(sampled['ohlc']['open'])
-            new_predictors['Low'].append(sampled['ohlc']['low'])
-            new_predictors['High'].append(sampled['ohlc']['high'])
-            new_predictors['Close'].append(sampled['ohlc']['close'])
-            new_predictors['Direction'].append(
-                -1 if sampled['ohlc']['close'] < sampled['ohlc']['open']
-                else (1 if sampled['ohlc']['close'] > sampled['ohlc']['open'] else 0)
-            )
-            new_predictors['Volume'].append(sampled['order_volume'])
-            new_predictors['TradeImbalance'].append(
-                sampled['trade_imb'] / sampled['trade_volume'] if sampled['trade_volume'] else 0.0
-            )
-            new_predictors['OrderImbalance'].append(
-                sampled['order_imbalance'] / sampled['order_volume'] if sampled['order_volume'] else 0.0
-            )
-            new_predictors['AvgReturn'].append(
-                1 - sampled['mean_price'] / sampled['ohlc']['high']
-            )
 
-            new_targets['LogReturn'].append(
-                np.log(sampled['ohlc']['close'] / sampled['ohlc']['open'])
-            )
+            open_, high, low, close = ohlc_data.values()
+            mean = mean_price.get(ts)
+            t_vol = trade_volumes.get(ts, 0)
+            t_imb = trade_imbalance.get(ts, 0)
+            o_vol = order_volumes.get(ts, 0)
+            o_imb = order_imbalance.get(ts, 0)
 
-        # Update stored data
-        self.predictors[book.id] = {
-            key: self.predictors[book.id].get(key, []) + new_predictors[key]
-            for key in self.predKeys
+            new_predictors['Open'].append(open_)
+            new_predictors['High'].append(high)
+            new_predictors['Low'].append(low)
+            new_predictors['Close'].append(close)
+            new_predictors['Volume'].append(o_vol)
+            new_predictors['Direction'].append(np.sign(close - open_))
+            new_predictors['TradeImbalance'].append(t_imb / t_vol if t_vol else 0.0)
+            new_predictors['OrderImbalance'].append(o_imb / o_vol if o_vol else 0.0)
+            new_predictors['AvgReturn'].append(1 - mean / high if mean and high else 0.0)
+
+            new_targets['LogReturn'].append(np.log(close / open_) if open_ > 0 else 0.0)
+
+        book_id = book.id
+        self.predictors[book_id] = {
+            k: self.predictors.get(book_id, {}).get(k, []) + new_predictors[k] for k in self.predKeys
         }
-        self.target[book.id] = {
-            key: self.target[book.id].get(key, []) + new_targets[key]
-            for key in self.targetKeys
+        self.target[book_id] = {
+            k: self.target.get(book_id, {}).get(k, []) + new_targets[k] for k in self.targetKeys
         }
 
-        # Prune to recent history
-        self.predictors[book.id] = {
-            key: values[-self.train_n - 3:] for key, values in self.predictors[book.id].items()
-        }
-        self.target[book.id] = {
-            key: values[-self.train_n - 3:] for key, values in self.target[book.id].items()
-        }
+        max_len = self.train_n + 3
+        self.predictors[book_id] = {k: v[-max_len:] for k, v in self.predictors[book_id].items()}
+        self.target[book_id] = {k: v[-max_len:] for k, v in self.target[book_id].items()}
 
-        # Record for logging or training
-        self.record_data(book.id, {'predictors': new_predictors, 'target': new_targets})
+        self.record_data(book_id, {
+            "predictors": dict(new_predictors),
+            "target": dict(new_targets)
+        })
 
     def signal(self, predictions: dict[str, float]) -> float:
         """
@@ -180,8 +182,8 @@ Output Directory           : {self.output_dir}
             predictions (dict[str, float]): Dictionary mapping target name to the latest predicted value.
         """
         signal = predictions['LogReturn']
-        if abs(signal) > 0.5:
-            signal = 0.5 * np.sign(signal)
+        if abs(signal) > self.model_threshold:
+            signal = self.signal_threshold * np.sign(signal)
             bt.logging.info("Warning: Prediction magnitude exceeded threshold — more training required.")
         return signal
 
@@ -253,7 +255,7 @@ Output Directory           : {self.output_dir}
 
             # Trading logic
             dec = self.simulation_config.priceDecimals
-            if signal > 0:
+            if signal > self.signal_threshold:
                 # If the signal is positive, firstly place a buy order just above the current best bid level
                 response.limit_order(
                     book_id,
@@ -270,7 +272,7 @@ Output Directory           : {self.output_dir}
                     round(midquote*np.exp(signal),self.simulation_config.priceDecimals),
                     timeInForce=TimeInForce.GTT, expiryPeriod=self.expiry_period
                 )
-            elif signal < 0:
+            elif signal < -1* self.signal_threshold:
                 # If the signal is negative, firstly place a sell order just below the current best ask level
                 response.limit_order(
                     book_id,

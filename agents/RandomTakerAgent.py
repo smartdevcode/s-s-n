@@ -63,23 +63,42 @@ class RandomTakerAgent(FinanceSimulationAgent):
             bt.logging.info(f"BOOK {book_id} | BASE : {self.accounts[book_id].base_balance.total} [LOAN {self.accounts[book_id].base_loan} | COLLAT {self.accounts[book_id].base_collateral}]")
             if self.direction[book_id] == OrderDirection.BUY:
                 # If in the BUY regime, we place orders randomly with leverage selected from the configured range
+                # Obtain a random leverage value if there is no open margin position on sell side
+                leverage = self.leverage() if self.accounts[book_id].base_loan == 0 else 0.0
+                # If an open opposite margin position exists, repay the corresponding loans in order 
+                # from oldest to newest by setting LoanSettlementOption.FIFO
+                settlement = LoanSettlementOption.NONE if self.accounts[book_id].base_loan == 0 else LoanSettlementOption.FIFO
+                # If placing unleveraged order, increase the quantity to better match the average total size of 
+                # leveraged orders on the other side.  This avoids accumulating too much inventory in one currency.
+                quantity =  round(self.quantity() * (1 + self.leverage()), self.simulation_config.volumeDecimals)
                 response.market_order(
                     book_id=book_id, 
                     direction=self.direction[book_id], 
-                    quantity=self.quantity(), 
+                    quantity=quantity, 
                     stp=random.choice([STP.DECREASE_CANCEL, STP.CANCEL_OLDEST]),
-                    leverage=self.leverage()
+                    leverage=leverage,
+                    settlement_option=settlement
                 )
+                bt.logging.info(f"SUBMITTING BUY MARKET ORDER FOR {str(round(1+leverage,2))+'x' if leverage > 0 else ''}{quantity}")
             else:
                 # If in the SELL regime, we place orders randomly without leverage, but with quantity increased to match the amounts placed on buy side.
-                # By setting LoanSettlementOption.FIFO, these orders will repay the loans taken in executing the BUY orders.
+                # Obtain a random leverage value if there is no open margin position on sell side
+                leverage = self.leverage() if self.accounts[book_id].quote_loan == 0 else 0.0
+                # If an open opposite margin position exists, repay the corresponding loans in order 
+                # from oldest to newest by setting LoanSettlementOption.FIFO
+                settlement = LoanSettlementOption.NONE if self.accounts[book_id].quote_loan == 0 else LoanSettlementOption.FIFO
+                # If placing unleveraged order, increase the quantity to better match the average total size of 
+                # leveraged orders on the other side.  This avoids accumulating too much inventory in one currency.
+                quantity =  round(self.quantity() * (1 + self.leverage()), self.simulation_config.volumeDecimals)
                 response.market_order(
                     book_id=book_id, 
                     direction=self.direction[book_id], 
-                    quantity=round(self.quantity() * 1 + self.leverage(), self.simulation_config.volumeDecimals), 
+                    quantity=quantity, 
                     stp=random.choice([STP.DECREASE_CANCEL, STP.CANCEL_OLDEST]),
-                    settlement_option=LoanSettlementOption.FIFO
+                    leverage=leverage,
+                    settlement_option=settlement
                 )
+                bt.logging.info(f"SUBMITTING SELL MARKET ORDER FOR {str(round(1+leverage,2))+'x' if leverage > 0 else ''}{quantity}")
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response

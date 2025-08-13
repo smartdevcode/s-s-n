@@ -45,6 +45,7 @@ accounting::AccountRegistry& ClearingManager::accounts() noexcept
 
 OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
 {
+
     const auto [agentId, bookId, quantity, price, expectedValidationResult] =
         std::visit(
             [&](auto&& desc) {
@@ -94,13 +95,27 @@ OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
     const auto& validationResult = expectedValidationResult.value();
 
     auto& balances = accounts().at(agentId).at(bookId);
-
     const OrderID orderId = m_exchange->books()[bookId]->orderFactory().getCounterState();
+
+    if (validationResult.instantTrade){
+        m_exchange->instructionLogCallback(orderDesc, orderId);
+    }
+
     const decimal_t curPrice = validationResult.direction == OrderDirection::BUY ?
         m_exchange->books()[bookId]->bestAsk() : m_exchange->books()[bookId]->bestBid();
 
+    if (validationResult.amount < 0_dec) {
+        fmt::println("Negative validation results {} with lev {} at {} price for incoming order #{} in book #{}", 
+            validationResult.amount,
+            validationResult.leverage,
+            curPrice,
+            orderId,
+            m_exchange->simulation()->bookIdCanon(bookId)
+        );
+    }
+
     m_exchange->simulation()->logDebug("{} | AGENT #{} BOOK {} : MAKING RESERVATION {} {} WITH LEV {} FOR {} ORDER #{}", 
-        m_exchange->simulation()->currentTimestamp(), std::holds_alternative<LocalAgentId>(agentId) ? m_exchange->accounts().idBimap().left.at(std::get<LocalAgentId>(agentId)) : std::get<AgentId>(agentId), bookId,
+        m_exchange->simulation()->currentTimestamp(), std::holds_alternative<LocalAgentId>(agentId) ? m_exchange->accounts().idBimap().left.at(std::get<LocalAgentId>(agentId)) : std::get<AgentId>(agentId), m_exchange->simulation()->bookIdCanon(bookId),
         validationResult.amount, validationResult.direction == OrderDirection::BUY ? "QUOTE" : "BASE", validationResult.leverage, validationResult.direction == OrderDirection::BUY ? "BUY" : "SELL", orderId
     );
     auto reserved = balances.makeReservation(orderId, price > 0_dec ? price : curPrice,
@@ -109,7 +124,7 @@ OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
     
     m_exchange->simulation()->logDebug(
         "{} | AGENT #{} BOOK {} : RESERVATION OF {} BASE + {} QUOTE (={} {}) CREATED FOR {} ORDER #{} ({}x{}@{}) | BEST {} : {} | MAX LEV : {}", 
-        m_exchange->simulation()->currentTimestamp(), std::holds_alternative<LocalAgentId>(agentId) ? m_exchange->accounts().idBimap().left.at(std::get<LocalAgentId>(agentId)) : std::get<AgentId>(agentId), bookId,
+        m_exchange->simulation()->currentTimestamp(), std::holds_alternative<LocalAgentId>(agentId) ? m_exchange->accounts().idBimap().left.at(std::get<LocalAgentId>(agentId)) : std::get<AgentId>(agentId), m_exchange->simulation()->bookIdCanon(bookId),
         reserved.base, reserved.quote, validationResult.amount, validationResult.direction == OrderDirection::BUY ? "QUOTE" : "BASE",
         validationResult.direction == OrderDirection::BUY ? "BUY" : "SELL", orderId, 
         1_dec + validationResult.leverage, quantity, price > 0_dec ? fmt::format("{}", price) : "MARKET",
@@ -247,7 +262,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
         "{} | AGENT #{} BOOK {} : CANCELLED {} ORDER #{} ({}@{}) for {} (FREED {} BASE + {} QUOTE)",
         m_exchange->simulation()->currentTimestamp(),
         agentId,
-        bookId,
+        m_exchange->simulation()->bookIdCanon(bookId),
         order->direction(),
         orderId,
         order->leverage() > 0_dec ? fmt::format("{}x{}",1_dec + order->leverage(),order->volume()) : fmt::format("{}",order->volume()),
@@ -262,7 +277,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
             "{} | AGENT #{} BOOK {} | {}: Reserved quote balance {} < 0 after cancelling order #{}", 
             m_exchange->simulation()->currentTimestamp(),
             agentId,
-            bookId, std::source_location::current().function_name(),
+            m_exchange->simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
             balances.quote.getReserved(), agentId, orderId));
     }
     if (account.activeOrders().empty()) {
@@ -271,7 +286,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
                 "{} | AGENT #{} BOOK {} | {}: Reserved quote balance {} > 0 with no active orders after cancelling order #{}", 
                 m_exchange->simulation()->currentTimestamp(),
                 agentId,
-                bookId, std::source_location::current().function_name(),
+                m_exchange->simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
                 balances.quote.getReserved(), agentId, orderId));
         }
         if (balances.base.getReserved() > 0_dec) {
@@ -279,7 +294,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
                 "{} | AGENT #{} BOOK {} | {}: Reserved base balance {} > 0 with no active orders after cancelling order #{}", 
                 m_exchange->simulation()->currentTimestamp(),
                 agentId,
-                bookId, std::source_location::current().function_name(),
+                m_exchange->simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
                 balances.base.getReserved(), agentId, orderId));
         }
     }
@@ -309,7 +324,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             "{} | AGENT #{} BOOK {} : Resting order #{} not found in active orders while processing {} trade #{} against order #{} from {} for {}@{}.",
             m_exchange->simulation()->currentTimestamp(),
             restingAgentId,
-            bookId,
+            m_exchange->simulation()->bookIdCanon(bookId),
             restingOrderId,
             trade->direction() == OrderDirection::BUY ? "BUY" : "SELL",
             trade->id(),
@@ -330,7 +345,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             "{} | AGENT #{} BOOK {} : Aggressing order #{} not found in active orders.",
             m_exchange->simulation()->currentTimestamp(),
             aggressingAgentId,
-            bookId,
+            m_exchange->simulation()->bookIdCanon(bookId),
             aggressingOrderId)};
     }
     Order::Ptr aggressingOrder = *aggressingOrderIt;
@@ -362,14 +377,14 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
                     throw std::runtime_error{fmt::format(
                         "{} | AGENT #{} BOOK {} : No reservation for aggressing {} order #{}.",
                         m_exchange->simulation()->currentTimestamp(), 
-                        aggressingAgentId, bookId,
+                        aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
                         aggressingOrder->direction(), aggressingOrderId)};
                 }
                 if (aggressingOrder->totalVolume() == trade->volume()) {
                     m_exchange->simulation()->logDebug(
                         "{} | AGENT #{} BOOK {} : Committing reservation amount {} for trade volume {} in {} order #{}.",
                         m_exchange->simulation()->currentTimestamp(),
-                        aggressingAgentId, bookId,
+                        aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
                         util::round(reservation / util::dec1p(aggressingBalance.getLeverage(aggressingOrderId, aggressingOrder->direction())), m_exchange->config().parameters().quoteIncrementDecimals),
                         trade->volume(), aggressingOrder->direction(), aggressingOrderId);
                     return reservation - fees.taker;
@@ -406,7 +421,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
 
         m_exchange->simulation()->logDebug(
             "{} | AGENT #{} BOOK {} : COMMIT {} WITH FEE {} FOR AGG BUY ORDER #{} AGAINST {} FOR RESTING SELL ORDER #{} (BEST ASK {} | MARGIN={})",
-            m_exchange->simulation()->currentTimestamp(), aggressingAgentId, bookId,
+            m_exchange->simulation()->currentTimestamp(), aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
             aggressingVolume, fees.taker, aggressingOrderId, restingVolume, restingOrderId, bestAsk, aggressingMarginCall);
         auto removedIdsShortSell = aggressingBalance.commit(
             aggressingOrderId,
@@ -417,12 +432,12 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             aggressingMarginCall,
-            bookId,
+            m_exchange->simulation()->bookIdCanon(bookId),
             aggressingOrder->settleFlag());
 
         m_exchange->simulation()->logDebug(
             "{} | AGENT #{} BOOK {} : COMMIT {} WITH FEE {} FOR RESTING SELL ORDER #{} AGAINST {} FOR AGG BUY ORDER #{} (BEST BID {} | MARGIN={})",
-            m_exchange->simulation()->currentTimestamp(), restingAgentId, bookId,
+            m_exchange->simulation()->currentTimestamp(), restingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
             restingVolume, fees.maker, restingOrderId, aggressingVolume, aggressingOrderId, bestBid, restingMarginCall);
         auto removedIdsMarginBuy = restingBalance.commit(
             restingOrderId, 
@@ -433,14 +448,14 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             restingMarginCall,
-            bookId,
+            m_exchange->simulation()->bookIdCanon(bookId),
             restingOrder->settleFlag());
 
         removeMarginOrders(bookId, OrderDirection::BUY, removedIdsMarginBuy);
         removeMarginOrders(bookId, OrderDirection::SELL, removedIdsShortSell);
 
         exchange()->simulation()->logDebug("{} | AGENT #{} BOOK {} : AGG BUY ORDER #{} FROM AGENT #{} FOR {} TRADED AGAINST RESTING #{} {}@{} FROM AGENT #{} FOR {} (MAKER {} QUOTE | TAKER {} QUOTE)", 
-            exchange()->simulation()->currentTimestamp(), aggressingAgentId, bookId, 
+            exchange()->simulation()->currentTimestamp(), aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId), 
             aggressingOrder->id(), aggressingAgentId, aggressingOrder->leverage() > 0_dec ? fmt::format("{}x{}",1_dec + aggressingOrder->leverage(),aggressingOrder->volume()) : fmt::format("{}",aggressingOrder->volume()), 
             restingOrder->id(), restingOrder->leverage() > 0_dec ? fmt::format("{}x{}",1_dec + restingOrder->leverage(),restingOrder->volume()) : fmt::format("{}",restingOrder->volume()), restingOrder->price(), restingAgentId, trade->volume(), 
             fees.maker, fees.taker);
@@ -457,13 +472,13 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             throw std::runtime_error{fmt::format(
                 "{} | AGENT #{} BOOK {} : Trade volume {}, No reservation for resting {} order #{}.",
                 m_exchange->simulation()->currentTimestamp(),
-                restingAgentId, bookId, trade->volume(),
+                restingAgentId, m_exchange->simulation()->bookIdCanon(bookId), trade->volume(),
                 restingOrder->direction(), restingOrderId)};
         } else if (restingOrder->totalVolume() == trade->volume()) {
             m_exchange->simulation()->logDebug(
                 "{} | AGENT #{} BOOK {} : Committing reservation amount {} for trade volume {} in {} order #{}.",
                 m_exchange->simulation()->currentTimestamp(),
-                restingAgentId, bookId,
+                restingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
                 util::round(reservation / util::dec1p(restingBalance.getLeverage(restingOrderId, restingOrder->direction())), m_exchange->config().parameters().quoteIncrementDecimals), 
                 trade->volume(), restingOrder->direction(), restingOrderId);
         }
@@ -494,7 +509,7 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
         
         m_exchange->simulation()->logDebug(
             "{} | AGENT #{} BOOK {} : COMMIT {} WITH FEE {} FOR AGG SELL ORDER #{} AGAINST {} FOR RESTING BUY ORDER #{} (BEST ASK {} | MARGIN={})",
-            m_exchange->simulation()->currentTimestamp(), aggressingAgentId, bookId,
+            m_exchange->simulation()->currentTimestamp(), aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
             aggressingVolume, fees.taker, aggressingOrderId, restingVolume, restingOrderId, bestAsk, aggressingMarginCall);
 
         auto removedIdsMarginBuy = aggressingBalance.commit(
@@ -506,12 +521,12 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             aggressingMarginCall,
-            bookId,
+            m_exchange->simulation()->bookIdCanon(bookId),
             aggressingOrder->settleFlag());
 
         m_exchange->simulation()->logDebug(
             "{} | AGENT #{} BOOK {} : COMMIT {} WITH FEE {} FOR RESTING BUY ORDER #{} AGAINST {} FOR AGG SELL ORDER #{} (BEST BID {} | MARGIN={})",
-            m_exchange->simulation()->currentTimestamp(), restingAgentId, bookId,
+            m_exchange->simulation()->currentTimestamp(), restingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
             restingVolume, fees.maker, restingOrderId, aggressingVolume, aggressingOrderId, bestBid, restingMarginCall);
             
         auto removedIdsShortSell = restingBalance.commit(
@@ -523,14 +538,14 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             bestBid,
             bestAsk,
             restingMarginCall,
-            bookId,
+            m_exchange->simulation()->bookIdCanon(bookId),
             restingOrder->settleFlag());
 
         removeMarginOrders(bookId, OrderDirection::SELL, removedIdsShortSell);
         removeMarginOrders(bookId, OrderDirection::BUY, removedIdsMarginBuy);
 
         exchange()->simulation()->logDebug("{} | AGENT #{} BOOK {} : AGG SELL ORDER #{} FROM AGENT #{} FOR {} TRADED AGAINST RESTING #{} {}@{} FROM AGENT #{} FOR {} (MAKER {} QUOTE | TAKER {} QUOTE)", 
-            exchange()->simulation()->currentTimestamp(), aggressingAgentId, bookId, 
+            exchange()->simulation()->currentTimestamp(), aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId), 
             aggressingOrder->id(), aggressingAgentId, aggressingOrder->leverage() > 0_dec ? fmt::format("{}x{}",1_dec + aggressingOrder->leverage(),aggressingOrder->volume()) : fmt::format("{}",aggressingOrder->volume()), 
             restingOrder->id(), restingOrder->leverage() > 0_dec ? fmt::format("{}x{}",1_dec + restingOrder->leverage(),restingOrder->volume()) : fmt::format("{}",restingOrder->volume()), restingOrder->price(), restingAgentId, trade->volume(), 
             fees.maker, fees.taker);

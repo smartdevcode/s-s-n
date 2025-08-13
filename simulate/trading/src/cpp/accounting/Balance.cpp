@@ -219,6 +219,11 @@ decimal_t Balance::tryFreeReservation(OrderID orderId, std::optional<decimal_t> 
         return 0_dec;
     }
     catch (...) {
+        fmt::println(
+            "Trying to free (amount:{}) reservation for order {}", 
+            orderId, 
+            amount.value_or(0_dec)
+        );
         throw;
     }
 }

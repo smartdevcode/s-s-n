@@ -295,7 +295,7 @@ void Book::registerLimitOrder(LimitOrder::Ptr order)
         const auto ctx = m_order2clientCtx[order->id()];
         auto& balances = m_simulation->exchange()->accounts().at(ctx.agentId).at(m_id);
         fmt::println("{} | AGENT #{} BOOK {} : REGISTERED {} ORDER #{} FOR {}@{}| RESERVED {} QUOTE + {} BASE | BALANCES : QUOTE {}  BASE {}", m_simulation->currentTimestamp(), 
-            ctx.agentId, m_id, order->direction() == OrderDirection::BUY ? "BUY" : "SELL",
+            ctx.agentId, m_simulation->bookIdCanon(m_id), order->direction() == OrderDirection::BUY ? "BUY" : "SELL",
             order->id(), order->leverage() > 0_dec ? fmt::format("{}x{}",1_dec + order->leverage(),order->volume()) : fmt::format("{}",order->volume()), order->price(),
             balances.quote.getReservation(order->id()).value_or(0_dec), balances.base.getReservation(order->id()).value_or(0_dec),
             balances.quote, balances.base);

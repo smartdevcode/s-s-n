@@ -56,6 +56,7 @@ OrderPlacementValidator::ExpectedResult
     
     const Fees feeRates = feePolicy.getRates(book->id(), agentId);
     decimal_t orderSize{};
+    bool instantTrade = false;
 
     if (payload->direction == OrderDirection::BUY) {
         if (book->sellQueue().empty()) {
@@ -84,7 +85,7 @@ OrderPlacementValidator::ExpectedResult
                         volumeWeightedPrice += tradeCost;
                         m_exchange->simulation()->logDebug(
                             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY VOLUME-BASED ORDER {}x{}@MARKET AGAINST {}@{}",
-                            m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, partialVolume, tick->price(),
+                            m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), tradeCost, partialVolume, tick->price(),
                             util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, tickVolume, tick->price());
                         done = true;
                         break;
@@ -94,7 +95,7 @@ OrderPlacementValidator::ExpectedResult
                     volumeWeightedPrice += tradeCost;
                     m_exchange->simulation()->logDebug(
                         "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY VOLUME-BASED ORDER {}x{}@MARKET AGAINST {}@{}",
-                        m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, tickVolume, tick->price(),
+                        m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), tradeCost, tickVolume, tick->price(),
                         util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, tickVolume, tick->price());
                 }
                 if (done) break;
@@ -120,7 +121,7 @@ OrderPlacementValidator::ExpectedResult
                         volume += util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals);
                         // m_exchange->simulation()->logDebug(
                         //     "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY VOLUME-BASED ORDER {}x{}@MARKET AGAINST {}@{}",
-                        //     m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, partialQuote, tick->price(),
+                        //     m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), tradeCost, partialQuote, tick->price(),
                         //     util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, tickVolume, tick->price());
                         done = true;
                         break;
@@ -129,7 +130,7 @@ OrderPlacementValidator::ExpectedResult
                     volume += tickVolume;
                     // m_exchange->simulation()->logDebug(
                     //     "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY VOLUME-BASED ORDER {}x{}@MARKET AGAINST {}@{}",
-                    //     m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, tickVolume, tick->price(),
+                    //     m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), tradeCost, tickVolume, tick->price(),
                     //     util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, tickVolume, tick->price());
                 }
                 if (done) break;
@@ -141,14 +142,16 @@ OrderPlacementValidator::ExpectedResult
             // orderSize = util::round(volume * util::dec1p(feeRates.taker) / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
             // m_exchange->simulation()->logDebug(
             //     "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE FOR BUY QUOTE-BASED ORDER {}x{}x{}@MARKET",
-            //     m_exchange->simulation()->currentTimestamp(), agentId, book->id(), volumeWeightedPrice,
+            //     m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), volumeWeightedPrice,
             //     util::dec1p(payload->leverage), payload->volume, util::dec1p(feeRates.taker));
         }
 
         volumeWeightedPrice = util::round(volumeWeightedPrice, m_params.quoteIncrementDecimals);
+        if (volumeWeightedPrice > 0_dec) instantTrade = true;
 
         if (payload->leverage == 0_dec){
             if (!quoteBalance.canReserve(volumeWeightedPrice)) {
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::INSUFFICIENT_QUOTE};
             }
         } else {
@@ -156,6 +159,8 @@ OrderPlacementValidator::ExpectedResult
             const decimal_t price = book->bestAsk();
             if (!balances.canBorrow(volumeWeightedPrice, price, payload->direction) ||
                 volumeWeightedPrice * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
+
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::EXCEEDING_LOAN};
             }
         }
@@ -165,7 +170,8 @@ OrderPlacementValidator::ExpectedResult
                 .direction = payload->direction,
                 .amount = volumeWeightedPrice,
                 .leverage = payload->leverage,
-                .orderSize = orderSize
+                .orderSize = orderSize,
+                .instantTrade = instantTrade
             }
         };
 
@@ -182,7 +188,7 @@ OrderPlacementValidator::ExpectedResult
             orderSize = payload->volume;
             m_exchange->simulation()->logDebug(
                 "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE FOR SELL VOLUME-BASED ORDER {}x{}@MARKET",
-                m_exchange->simulation()->currentTimestamp(), agentId, book->id(), volume,
+                m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), volume,
                 util::dec1p(payload->leverage), payload->volume);
         } 
         else if (payload->currency == Currency::QUOTE){
@@ -203,7 +209,7 @@ OrderPlacementValidator::ExpectedResult
                         volume += util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals);
                         m_exchange->simulation()->logDebug(
                             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE ({}*{}) FOR TRADE OF SELL QUOTE-BASED ORDER {}x{}@MARKET AGAINST {}@{}",
-                            m_exchange->simulation()->currentTimestamp(), agentId, book->id(), 
+                            m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), 
                             util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals),
                             util::dec1p(payload->leverage), tick->volume(),
                             util::dec1p(payload->leverage), payload->volume, tickVolume, tick->price());
@@ -214,7 +220,7 @@ OrderPlacementValidator::ExpectedResult
                     volume += util::round(tickVolume, m_params.baseIncrementDecimals);
                     m_exchange->simulation()->logDebug(
                         "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE ({}*{}) FOR TRADE OF SELL QUOTE-BASED ORDER {}x{}@MARKET AGAINST {}@{}",
-                        m_exchange->simulation()->currentTimestamp(), agentId, book->id(), 
+                        m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), 
                         util::round(tickVolume, m_params.baseIncrementDecimals),
                         util::dec1p(payload->leverage), tick->volume(),
                         util::dec1p(payload->leverage), payload->volume, tickVolume, tick->price());
@@ -225,9 +231,11 @@ OrderPlacementValidator::ExpectedResult
         }
 
         volume = util::round(volume, m_params.baseIncrementDecimals);
+        if (volume > 0_dec) instantTrade = true;
 
         if (payload->leverage == 0_dec){
             if (!baseBalance.canReserve(volume)) {
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::INSUFFICIENT_BASE};
             }
         } else {
@@ -235,6 +243,8 @@ OrderPlacementValidator::ExpectedResult
             const decimal_t price = book->bestBid();
             if (!balances.canBorrow(volume, price, payload->direction) ||
                 volume * price * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
+
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::EXCEEDING_LOAN};
             }
         }
@@ -243,7 +253,8 @@ OrderPlacementValidator::ExpectedResult
                 .direction = payload->direction,
                 .amount = volume,
                 .leverage = payload->leverage,
-                .orderSize = orderSize
+                .orderSize = orderSize,
+                .instantTrade = instantTrade
             }
         };
         
@@ -286,10 +297,12 @@ OrderPlacementValidator::ExpectedResult
         payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
     payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);  
 
-    if (!checkTimeInForce(book, payload, agentId)) {
+    const auto takerFeeRate = feePolicy.getRates(book->id(), agentId).taker;
+
+    if (!checkTimeInForce(book, payload, agentId, takerFeeRate)) {
         return std::unexpected{OrderErrorCode::CONTRACT_VIOLATION};
     }
-    if (payload->postOnly && !checkPostOnly(book, payload, agentId)) {
+    if (payload->postOnly && !checkPostOnly(book, payload, agentId, takerFeeRate)) {
         return std::unexpected{OrderErrorCode::CONTRACT_VIOLATION};
     }
 
@@ -302,6 +315,7 @@ OrderPlacementValidator::ExpectedResult
 
     const Fees feeRates = feePolicy.getRates(book->id(), agentId);
     decimal_t orderSize{};
+    bool instantTrade = false;
 
     if (payload->direction == OrderDirection::BUY) {
         decimal_t volumeWeightedPrice{};
@@ -326,7 +340,7 @@ OrderPlacementValidator::ExpectedResult
                         takerTotalPrice += tradeCost;
                         m_exchange->simulation()->logDebug(
                             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY VOLUME-BASED ORDER {}x{}@{} AGAINST {}@{}",
-                            m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, partialVolume, tick->price(),
+                            m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), tradeCost, partialVolume, tick->price(),
                             util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, payload->price, tickVolume, tick->price());
                         done = true;
                         break;
@@ -336,18 +350,19 @@ OrderPlacementValidator::ExpectedResult
                     takerTotalPrice += tradeCost;
                     m_exchange->simulation()->logDebug(
                         "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY VOLUME-BASED ORDER {}x{}@{} AGAINST {}@{}",
-                        m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tradeCost, tickVolume, tick->price(), 
+                        m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), tradeCost, tickVolume, tick->price(), 
                         util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, payload->price, tickVolume, tick->price());
                 }
                 if (done) break;
             }
             takerTotalPrice = util::round(takerTotalPrice, m_params.quoteIncrementDecimals);
+            if (takerVolume > 0_dec) instantTrade = true;
             
             const decimal_t makerVolume = payloadTotalAmount - takerVolume;
             const decimal_t makerTotalPrice = util::round(payload->price * makerVolume * util::dec1p(feeRates.maker), m_params.quoteIncrementDecimals);
             m_exchange->simulation()->logDebug(
                 "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR PLACE OF BUY VOLUME-BASED ORDER {}x{}@{}",
-                m_exchange->simulation()->currentTimestamp(), agentId, book->id(), makerTotalPrice, makerVolume, payload->price,
+                m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), makerTotalPrice, makerVolume, payload->price,
                 util::dec1p(feeRates.maker), util::dec1p(payload->leverage), payload->volume, payload->price);
             volumeWeightedPrice = util::round(takerTotalPrice + makerTotalPrice, m_params.quoteIncrementDecimals);
             orderSize = payload->volume;
@@ -374,7 +389,7 @@ OrderPlacementValidator::ExpectedResult
                         takerVolume += util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals);
                         m_exchange->simulation()->logDebug(
                             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY ORDER {}x{}@{} AGAINST {}@{}",
-                            m_exchange->simulation()->currentTimestamp(), agentId, book->id(), partialQuote * util::dec1p(feeRates.taker),
+                            m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), partialQuote * util::dec1p(feeRates.taker),
                             util::round(partialQuote/tick->price(), m_params.baseIncrementDecimals),
                             tick->price(), util::dec1p(feeRates.taker), util::dec1p(payload->leverage),
                             payload->volume, payload->price, tickVolume, tick->price());
@@ -385,7 +400,7 @@ OrderPlacementValidator::ExpectedResult
                     takerVolume += tickVolume;
                     m_exchange->simulation()->logDebug(
                             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR TRADE OF BUY ORDER {}x{}@{} AGAINST {}@{}",
-                            m_exchange->simulation()->currentTimestamp(), agentId, book->id(), 
+                            m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), 
                             util::round(tick->price() * tickVolume * util::dec1p(feeRates.taker), m_params.quoteIncrementDecimals),
                             util::round(tickVolume, m_params.baseIncrementDecimals),
                             tick->price(), util::dec1p(feeRates.taker), util::dec1p(payload->leverage),
@@ -394,12 +409,13 @@ OrderPlacementValidator::ExpectedResult
                 if (done) break;
             }
             takerTotalPrice = util::round(takerTotalPrice, m_params.quoteIncrementDecimals);
+            if (takerVolume > 0_dec) instantTrade = true;
             const decimal_t makerTotalPrice = util::round(payloadTotalAmount - takerTotalPrice, m_params.quoteIncrementDecimals);
             const decimal_t makerVolume = util::round(makerTotalPrice / payload->price, m_params.baseIncrementDecimals);
             // logs should multiply feeRates
             m_exchange->simulation()->logDebug(
                 "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} QUOTE ({}*{}*{}) FOR PLACE OF BUY ORDER {}x{}@{}",
-                m_exchange->simulation()->currentTimestamp(), agentId, book->id(), makerTotalPrice * util::dec1p(feeRates.maker),
+                m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), makerTotalPrice * util::dec1p(feeRates.maker),
                 util::round(makerTotalPrice / payload->price, m_params.baseIncrementDecimals), payload->price,
                 util::dec1p(feeRates.maker), util::dec1p(payload->leverage), payload->volume, payload->price);
             volumeWeightedPrice = util::round(
@@ -410,6 +426,7 @@ OrderPlacementValidator::ExpectedResult
 
         if (payload->leverage == 0_dec){
             if (!quoteBalance.canReserve(volumeWeightedPrice)) {
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::INSUFFICIENT_QUOTE};
             }
         } else {
@@ -417,6 +434,8 @@ OrderPlacementValidator::ExpectedResult
             const decimal_t price = payload->price;
             if (!balances.canBorrow(volumeWeightedPrice, price, payload->direction)||
                 volumeWeightedPrice * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
+                
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::EXCEEDING_LOAN};
             }
         }
@@ -425,7 +444,8 @@ OrderPlacementValidator::ExpectedResult
                 .direction = payload->direction,
                 .amount = volumeWeightedPrice,
                 .leverage = payload->leverage,
-                .orderSize = orderSize
+                .orderSize = orderSize,
+                .instantTrade = instantTrade
             }
         };
 
@@ -433,11 +453,23 @@ OrderPlacementValidator::ExpectedResult
     else {
         decimal_t volume{};
         if (payload->currency == Currency::BASE){
+            for (auto it = book->buyQueue().crbegin(); it != book->buyQueue().crend(); ++it) {
+                const auto& level = *it;
+                if (level.price() < payload->price) break;
+                for (const auto tick : level) {
+                    if(book->orderClientContext(tick->id()).agentId == agentId){    // STP
+                        if (payload->stpFlag == STPFlag::CO || payload->stpFlag == STPFlag::CN || payload->stpFlag == STPFlag::CB)
+                            continue;
+                    }
+                    instantTrade = true;
+                    break;
+                }
+            }
             volume = util::round(payload->volume * util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
             orderSize = payload->volume;
             m_exchange->simulation()->logDebug(
                 "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE FOR SELL VOLUME-BASED ORDER {}x{}@{}",
-                m_exchange->simulation()->currentTimestamp(), agentId, book->id(), volume,
+                m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), volume,
                 util::dec1p(payload->leverage), payload->volume, payload->price);
         } 
         else if (payload->currency == Currency::QUOTE){
@@ -460,7 +492,7 @@ OrderPlacementValidator::ExpectedResult
                         takerVolume += util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals);
                         m_exchange->simulation()->logDebug(
                             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE FOR TRADE OF BUY QUOTE-BASED ORDER {}x{}@{} AGAINST {}@{}",
-                            m_exchange->simulation()->currentTimestamp(), agentId, book->id(),
+                            m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()),
                             util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals),
                             util::dec1p(payload->leverage), payload->volume, payload->price, tickVolume, tick->price());
                         done = true;
@@ -470,17 +502,18 @@ OrderPlacementValidator::ExpectedResult
                     takerVolume += util::round(tickVolume, m_params.baseIncrementDecimals);
                     m_exchange->simulation()->logDebug(
                             "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE FOR TRADE OF BUY QUOTE-BASED ORDER {}x{}@{} AGAINST {}@{}",
-                            m_exchange->simulation()->currentTimestamp(), agentId, book->id(), tickVolume,
+                            m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), tickVolume,
                             util::dec1p(payload->leverage), payload->volume, payload->price, tickVolume, tick->price());
                 }
                 if (done) break;
             }
             takerVolume = util::round(takerVolume, m_params.baseIncrementDecimals);
+            if (takerVolume > 0_dec) instantTrade = true;
             const decimal_t makerVolume = util::round(
                 (payloadTotalAmount - takerTotalPrice) / payload->price, m_params.baseIncrementDecimals) ;
             m_exchange->simulation()->logDebug(
                 "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE @{} FOR PLACE OF BUY ORDER {}x{}@{}",
-                m_exchange->simulation()->currentTimestamp(), agentId, book->id(), makerVolume, payload->price,
+                m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()), makerVolume, payload->price,
                 util::dec1p(payload->leverage), payload->volume, payload->price);
             volume = util::round(takerVolume + makerVolume, m_params.baseIncrementDecimals);
             orderSize = util::round(volume / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
@@ -488,6 +521,7 @@ OrderPlacementValidator::ExpectedResult
 
         if (payload->leverage == 0_dec){
             if (!baseBalance.canReserve(volume)) {
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::INSUFFICIENT_BASE};
             }
         } else {
@@ -495,6 +529,8 @@ OrderPlacementValidator::ExpectedResult
             const decimal_t price = payload->price; //book->bestBid();
             if (!balances.canBorrow(volume, price, payload->direction) ||
                 volume * price * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
+                
+                instantTrade = false;
                 return std::unexpected{OrderErrorCode::EXCEEDING_LOAN};
             }
         }
@@ -503,7 +539,8 @@ OrderPlacementValidator::ExpectedResult
                 .direction = payload->direction,
                 .amount = volume,
                 .leverage = payload->leverage,
-                .orderSize = orderSize
+                .orderSize = orderSize,
+                .instantTrade = instantTrade
             }
         };
 
@@ -513,13 +550,13 @@ OrderPlacementValidator::ExpectedResult
 //-------------------------------------------------------------------------
 
 bool OrderPlacementValidator::checkTimeInForce(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept
+    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept
 {
     switch (payload->timeInForce) {
         case TimeInForce::IOC:
-            return checkIOC(book, payload, agentId);
+            return checkIOC(book, payload, agentId, takerFeeRate);
         case TimeInForce::FOK:
-            return checkFOK(book, payload, agentId);
+            return checkFOK(book, payload, agentId, takerFeeRate);
         default:
             return true;
     }
@@ -528,7 +565,7 @@ bool OrderPlacementValidator::checkTimeInForce(
 //-------------------------------------------------------------------------
 
 bool OrderPlacementValidator::checkIOC(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept
+    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept
 {
     if (payload->postOnly) [[unlikely]] {
         return false;
@@ -545,6 +582,7 @@ bool OrderPlacementValidator::checkIOC(
             const auto& activeOrders =
                 m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
@@ -552,7 +590,7 @@ bool OrderPlacementValidator::checkIOC(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() * feeCoeff, m_params.volumeIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -576,6 +614,7 @@ bool OrderPlacementValidator::checkIOC(
             const auto& activeOrders =
                 m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
@@ -583,7 +622,7 @@ bool OrderPlacementValidator::checkIOC(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return {};
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() * feeCoeff, m_params.volumeIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -605,11 +644,12 @@ bool OrderPlacementValidator::checkIOC(
         }
         else {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() * feeCoeff, m_params.volumeIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -635,6 +675,7 @@ bool OrderPlacementValidator::checkIOC(
             const auto& activeOrders =
                 m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
@@ -642,7 +683,8 @@ bool OrderPlacementValidator::checkIOC(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() * feeCoeff,
+                            m_params.priceIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -666,6 +708,7 @@ bool OrderPlacementValidator::checkIOC(
             const auto& activeOrders =
                 m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
@@ -673,7 +716,8 @@ bool OrderPlacementValidator::checkIOC(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return {};
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() * feeCoeff,
+                            m_params.priceIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -695,11 +739,13 @@ bool OrderPlacementValidator::checkIOC(
         }
         else {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (payload->price < level.price()) break;
                     for (const auto tick : level) {
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() * feeCoeff,
+                            m_params.priceIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -737,7 +783,7 @@ bool OrderPlacementValidator::checkIOC(
 //-------------------------------------------------------------------------
 
 bool OrderPlacementValidator::checkFOK(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept
+    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept
 {
     if (payload->postOnly) [[unlikely]] {
         return false;
@@ -754,6 +800,7 @@ bool OrderPlacementValidator::checkFOK(
         decimal_t collectedVolume{};
         if (payload->stpFlag == STPFlag::CO) {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
@@ -761,7 +808,7 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() * feeCoeff, m_params.volumeIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -783,6 +830,7 @@ bool OrderPlacementValidator::checkFOK(
         }
         else if (payload->stpFlag == STPFlag::CN) {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
@@ -790,7 +838,7 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return false;
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() * feeCoeff, m_params.volumeIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -812,6 +860,7 @@ bool OrderPlacementValidator::checkFOK(
         }
         else if (payload->stpFlag == STPFlag::CB) {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
@@ -819,7 +868,7 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return true;
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() * feeCoeff, m_params.volumeIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -842,13 +891,14 @@ bool OrderPlacementValidator::checkFOK(
         else if (payload->stpFlag == STPFlag::DC) {
             decimal_t dynamicTotalVolume = totalVolume;
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
                         auto it = ranges::find_if(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() * feeCoeff, m_params.volumeIncrementDecimals);
                         if (it != activeOrders.end()) {
                             dynamicTotalVolume -= tickVolume;
                             if (dynamicTotalVolume <= 0_dec) return true;
@@ -884,6 +934,7 @@ bool OrderPlacementValidator::checkFOK(
         decimal_t collectedVolume{};
         if (payload->stpFlag == STPFlag::CO) {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
@@ -891,7 +942,8 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() * feeCoeff,
+                            m_params.priceIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -913,6 +965,7 @@ bool OrderPlacementValidator::checkFOK(
         }
         else if (payload->stpFlag == STPFlag::CN) {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
@@ -920,7 +973,8 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return false;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() * feeCoeff,
+                            m_params.priceIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -942,6 +996,7 @@ bool OrderPlacementValidator::checkFOK(
         }
         else if (payload->stpFlag == STPFlag::CB) {
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
@@ -949,7 +1004,8 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return true;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() * feeCoeff,
+                            m_params.priceIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -972,13 +1028,15 @@ bool OrderPlacementValidator::checkFOK(
         else if (payload->stpFlag == STPFlag::DC) {
             decimal_t dynamicTotalVolume = totalVolume;
             if (payload->direction == OrderDirection::BUY) {
+                const auto feeCoeff = util::decInv1p(takerFeeRate);
                 for (const auto& level : book->sellQueue()) {
                     if (level.price() > payload->price) return false;
                     for (const auto tick : level) {
                         auto it = ranges::find_if(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() * feeCoeff,
+                            m_params.priceIncrementDecimals);
                         if (it != activeOrders.end()) {
                             dynamicTotalVolume -= tickVolume;
                             if (dynamicTotalVolume <= 0_dec) return true;
@@ -1016,7 +1074,7 @@ bool OrderPlacementValidator::checkFOK(
 //-------------------------------------------------------------------------
 
 bool OrderPlacementValidator::checkPostOnly(
-    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId) const noexcept
+    Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept
 {
     if (payload->timeInForce == TimeInForce::IOC || payload->timeInForce == TimeInForce::FOK) [[unlikely]] {
         return false;
@@ -1070,13 +1128,12 @@ bool OrderPlacementValidator::checkPostOnly(
         }
     }
     else if (payload->stpFlag == STPFlag::DC) {
-        const auto totalVolume = util::round(
+        const auto& activeOrders =
+            m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
+        decimal_t dynamicTotalVolume = util::round(
             payload->volume * util::dec1p(payload->leverage),
             payload->currency == Currency::BASE
                 ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
-        const auto& activeOrders =
-            m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
-        decimal_t dynamicTotalVolume = totalVolume;
         if (payload->currency == Currency::BASE) {
             if (payload->direction == OrderDirection::BUY) {
                 for (const auto& level : book->sellQueue()) {
@@ -1086,7 +1143,8 @@ bool OrderPlacementValidator::checkPostOnly(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it == activeOrders.end()) return false;
                         const auto tickVolume = util::round(
-                            tick->totalVolume(), m_params.volumeIncrementDecimals);
+                            tick->totalVolume() / util::dec1p(takerFeeRate),
+                            m_params.volumeIncrementDecimals);
                         dynamicTotalVolume -= tickVolume;
                         if (dynamicTotalVolume <= 0_dec) return false;
                     }
@@ -1115,7 +1173,8 @@ bool OrderPlacementValidator::checkPostOnly(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it == activeOrders.end()) return false;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price() / util::dec1p(takerFeeRate),
+                            m_params.priceIncrementDecimals);
                         dynamicTotalVolume -= tickVolume;
                         if (dynamicTotalVolume <= 0_dec) return false;
                     }

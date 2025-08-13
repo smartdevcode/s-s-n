@@ -14,6 +14,7 @@ add_library(util STATIC
     common.hpp
     util.cpp
     Flags.hpp
+    InstructionLogger.cpp
 )
 add_library(taosim::util ALIAS util)
 

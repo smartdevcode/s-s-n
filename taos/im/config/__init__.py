@@ -111,7 +111,7 @@ def add_im_validator_args(cls, parser):
         "--scoring.max_instructions_per_book",
         type=int,
         help="Maximum number of instructions that can be submitted by miners for each book in a single response.",
-        default=20,
+        default=5,
     )
 
     parser.add_argument(
@@ -164,17 +164,31 @@ def add_im_validator_args(cls, parser):
     )
 
     parser.add_argument(
-        "--scoring.max_delay",
-        type=int,
-        help="Maximum simulation timestamp delay to may be applied to miner responses.",
-        default=500_000_000,
-    )
-
-    parser.add_argument(
         "--scoring.min_delay",
         type=int,
         help="Minimum simulation timestamp delay that may be applied to miner responses.",
         default=10_000_000,
+    )
+
+    parser.add_argument(
+        "--scoring.max_delay",
+        type=int,
+        help="Maximum simulation timestamp delay to may be applied to miner responses.",
+        default=1000_000_000,
+    )
+
+    parser.add_argument(
+        "--scoring.min_instruction_delay",
+        type=int,
+        help="Minimum additive simulation timestamp delay to be applied to subsequent instructions sent in the same response.",
+        default=5_000_000,
+    )
+
+    parser.add_argument(
+        "--scoring.max_instruction_delay",
+        type=int,
+        help="Maximum additive simulation timestamp delay to be applied to subsequent instructions sent in the same response.",
+        default=25_000_000,
     )
 
     parser.add_argument(

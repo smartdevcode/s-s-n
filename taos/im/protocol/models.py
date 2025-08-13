@@ -877,219 +877,330 @@ class History:
             return self.start == self.end - self.retention_mins * 60_000_000_000
         return False
     
-    def bucket(self, series: dict[int,Any], interval: int) -> dict[int, list[float]]:
+    def bucket(self, series: dict[int, Any], interval: float) -> dict[int, list[Any]]:
         """
-        Collect observations from a series into buckets corresponding to the events occurring in each `interval`
+        Buckets a time series into intervals based on timestamp.
 
         Args:
-            series (dict[int, float]): Original time series (timestamp → value).
-            interval (float): Bucketing interval in seconds.
+            series (dict[int, Any]): Time series mapping timestamps to values.
+            interval (float): Bucket size in seconds.
 
         Returns:
-            dict[int, list[float]]: Sampled series at requested intervals.
+            dict[int, list[Any]]: Buckets indexed by upper-bound timestamps.
         """
-        buckets = {
-            self.start + interval * 1_000_000_000 * (i + 1) : []
-            for i in range(int((self.end - self.start) / (interval * 1_000_000_000)))
-        }
-        for time, val in series.items():
-            sampled_time = [key for key in buckets if key > time][0]
-            buckets[sampled_time].append(val)
-        return buckets
+        interval_ns = int(interval * 1_000_000_000)
+        bucketed: dict[int, list[Any]] = {}
 
-    def sample(self, series: dict[int, float], interval: int, method : Literal['open', 'high', 'low', 'close', 'ohlc'] = 'close') -> dict[int, float]:
+        for timestamp, value in series.items():
+            if timestamp < self.start or timestamp > self.end:
+                continue  # ignore out-of-range timestamps
+
+            # Compute upper bound of bucket interval
+            bucket_index = ((timestamp - self.start) // interval_ns) + 1
+            bucket_ts = self.start + bucket_index * interval_ns
+
+            if bucket_ts not in bucketed:
+                bucketed[bucket_ts] = []
+
+            bucketed[bucket_ts].append(value)
+
+        return bucketed
+
+    def sample(
+        self,
+        series: dict[int, float],
+        interval: float,
+        method: Literal['open', 'high', 'low', 'close', 'ohlc'] = 'close'
+    ) -> dict[int, Any]:
         """
         Sample a time series at regular intervals.
 
         Args:
             series (dict[int, float]): Original time series (timestamp → value).
             interval (float): Interval between samples in seconds.
-            method (float): Sampling method; one of 'open', 'high', 'low', 'close', 'ohlc' (default='close').
+            method (str): Sampling method; one of 'open', 'high', 'low', 'close', 'ohlc'.
 
         Returns:
-            dict[int, float]: Sampled series at requested intervals.
+            dict[int, float | dict]: Sampled series with requested method.
         """
-        match method:
-            case 'open':
-                sampled = {ts: bucket[0] if len(bucket) > 0 else None for ts, bucket in self.bucket(series,interval).items()}
-            case 'high':
-                sampled = {ts: max(bucket) if len(bucket) > 0 else None for ts, bucket in self.bucket(series,interval).items()}
-            case 'low':
-                sampled = {ts: min(bucket) if len(bucket) > 0 else None for ts, bucket in self.bucket(series,interval).items()}
-            case 'close':
-                sampled = {ts: bucket[-1] if len(bucket) > 0 else None for ts, bucket in self.bucket(series,interval).items()}
-            case 'ohlc':
-                sampled = {}
-                last_close = None
-                for ts, bucket in self.bucket(series, interval).items():
-                    open_price = bucket[0] if len(bucket) > 0 and not last_close else last_close
-                    if len(bucket) > 0:
-                        sampled[ts] = {'open' : bucket[0] if not last_close else last_close, 'high' : max(bucket + [open_price]), 'low' : min(bucket + [open_price]), 'close' : bucket[-1]}
-                    elif last_close:
-                        sampled[ts] = {'open' : last_close, 'high' : last_close, 'low' : last_close, 'close' : last_close}
-                    else:
-                        sampled[ts] = None
-                    last_close = bucket[-1] if len(bucket) > 0 else last_close
-            case _:
-                raise Exception(f"Invalid sampling method `{method}`")
+        buckets = self.bucket(series, interval)
+        sampled: dict[int, Any] = {}
         last_val = None
-        for ts, val in sampled.items():
-            if val == None and last_val:
-                sampled[ts] = last_val if method != 'ohlc' else {'open' : last_val['close'], 'high' : last_val['close'], 'low' : last_val['close'], 'close' : last_val['close']}
-            last_val = val
+
+        if method == 'ohlc':
+            for ts, bucket in buckets.items():
+                if bucket:
+                    open_ = last_val if last_val is not None else bucket[0]
+                    high = max(bucket + [open_])
+                    low = min(bucket + [open_])
+                    close = bucket[-1]
+                    sampled[ts] = {'open': open_, 'high': high, 'low': low, 'close': close}
+                    last_val = close
+                elif last_val is not None:
+                    sampled[ts] = {'open': last_val, 'high': last_val, 'low': last_val, 'close': last_val}
+                else:
+                    sampled[ts] = None
+        else:
+            pick_fn = {
+                'open': lambda b: b[0],
+                'high': max,
+                'low': min,
+                'close': lambda b: b[-1]
+            }[method]
+
+            for ts, bucket in buckets.items():
+                if bucket:
+                    sampled[ts] = pick_fn(bucket)
+                    last_val = sampled[ts]
+                elif last_val is not None:
+                    sampled[ts] = last_val
+                else:
+                    sampled[ts] = None
+
         return sampled
                 
-class EventHistory(History):
-    events : dict[int, Order | TradeInfo | Cancellation]
-    
-    @property
-    def trades(self) -> dict[int, TradeInfo]:
-        return {ts : t for ts, t in self.events.items() if t.type == 't'}
-    
-    @property
-    def orders(self) -> dict[int, Order]:
-        return {ts : o for ts, o in self.events.items() if o.type == 'o'}
-    
-    @property
-    def cancellations(self) -> dict[int, Cancellation]:
-        return {ts : c for ts, c in self.events.items() if c.type == 'c'}
-    
-    @property
-    def last_trade(self) -> TradeInfo:
-        return self.trades[-1]
-    
-    @property
-    def trade_prices(self) -> dict[int, float]:
-        return {ts : t.price for ts, t in self.trades.items()}
-    
-    @property
-    def OHLC(self) -> dict:       
-        trade_prices = self.trade_prices 
-        if len(trade_prices) > 0:
-            return {
-                "open" : list(trade_prices.values())[0],
-                "high" : max(trade_prices.values()),
-                "low" : min(trade_prices.values()),
-                "close" : list(trade_prices.values())[-1],
-            }
-        else:
-            return None
-        
-    @property
-    def traded_volume(self) -> float:       
-        return sum([t.quantity * t.price for t in self.trades.values()])
-    
-    @property
-    def traded_volumes(self) -> dict:
-        return {ts: t.quantity * t.price for ts,t in self.trades.items()}
-        
-    @property
-    def trade_imbalance(self) -> float:       
-        return sum([t.quantity for t in self.trades.values() if t.side == OrderDirection.BUY]) - sum([t.quantity for t in self.trades.values() if t.side == OrderDirection.SELL])
-    
-    @property 
-    def trade_imbalances(self) -> dict[int,float]:        
-        return dict(zip(
-            self.trades.keys(),
-            accumulate(t.quantity if t.side == OrderDirection.BUY else -t.quantity for t in self.trades.values())
-        ))
-    
-    @property
-    def order_volume(self) -> float:       
-        return sum([o.quantity for o in self.orders.values()])
+from typing import Union, Optional
+from itertools import accumulate
+import numpy as np
 
-    @property 
-    def order_volumes(self) -> dict[int,float]:
-        return {ts : o.quantity for ts, o in self.orders.items()}
-    
-    @property
-    def order_imbalance(self) -> float:       
-        return sum([o.quantity for o in self.orders.values() if o.side == OrderDirection.BUY]) - sum([o.quantity for o in self.orders.values() if o.side == OrderDirection.SELL])
-   
-    # THIS IS NOT NEEDED MOST LIKELY 
-    @property 
-    def order_imbalances(self) -> dict[int,float]:
-        return dict(zip(
-            self.orders.keys(),
-            accumulate(o.quantity if o.side == OrderDirection.BUY else -o.quantity for o in self.orders.values())
-        ))        
-    
+class EventHistory(History):
+    """
+    EventHistory is a specialized history tracker for market events, including:
+    - Trades
+    - Orders
+    - Cancellations
+
+    It allows filtering and analysis of these events for use in modeling,
+    feature extraction, and simulation.
+    """
+
+    events: dict[int, Union[Order, TradeInfo, Cancellation]]
+
     def __init__(
         self,
-        start : int,
-        end : int,
-        events: list[Order | TradeInfo | Cancellation],
+        start: int,
+        end: int,
+        events: list[Union[Order, TradeInfo, Cancellation]],
         publish_interval: int,
-        retention_mins: int | None = None
+        retention_mins: Optional[int] = None
     ):
         """
-        Initialize an L2History object.
+        Initializes the EventHistory object.
 
         Args:
-            snapshots (dict[int, L2Snapshot]): Initial snapshots to populate history.
-            events: dict[int, Order | TradeInfo | Cancellation]: Initial events to populate history.
+            start (int): Start timestamp in nanoseconds.
+            end (int): End timestamp in nanoseconds.
+            events (list[Order | TradeInfo | Cancellation]): Initial market events.
+            publish_interval (int): Interval at which states are published.
             retention_mins (int | None): Optional retention window in minutes.
         """
-        self.events = {e.timestamp : e for e in events}
+        self.events = {e.timestamp: e for e in events}
         self.start = start
         self.end = end
         self.retention_mins = retention_mins
         self.publish_interval = publish_interval
 
-    def append(self, new_history: 'EventHistory') -> 'EventHistory':
+    @property
+    def trades(self) -> dict[int, TradeInfo]:
+        """Returns all trades indexed by timestamp."""
+        return {ts: t for ts, t in self.events.items() if t.type == 't'}
+
+    @property
+    def orders(self) -> dict[int, Order]:
+        """Returns all orders indexed by timestamp."""
+        return {ts: o for ts, o in self.events.items() if o.type == 'o'}
+
+    @property
+    def cancellations(self) -> dict[int, Cancellation]:
+        """Returns all cancellations indexed by timestamp."""
+        return {ts: c for ts, c in self.events.items() if c.type == 'c'}
+
+    @property
+    def last_trade(self) -> TradeInfo:
+        """Returns the most recent trade."""
+        return self.trades[max(self.trades)]
+
+    @property
+    def trade_prices(self) -> dict[int, float]:
+        """Returns trade prices indexed by timestamp."""
+        return {ts: t.price for ts, t in self.trades.items()}
+
+    @property
+    def OHLC(self) -> Optional[dict[str, float]]:
         """
-        Append another L2History instance to this history.
-
-        Merges snapshots and trades, then applies retention logic if enabled.
-
-        Args:
-            new_history (L2History): The history instance to append.
+        Computes OHLC (Open, High, Low, Close) prices from trade data.
 
         Returns:
-            L2History: Updated history instance with merged data.
+            dict[str, float] | None: OHLC structure or None if no trades.
         """
-        # Merge and sort snapshots and trades
-        self.events = dict(list(sorted((self.events | new_history.events).items())))
+        trade_prices = self.trade_prices
+        if trade_prices:
+            values = list(trade_prices.values())
+            return {
+                "open": values[0],
+                "high": max(values),
+                "low": min(values),
+                "close": values[-1],
+            }
+        return None
+
+    @property
+    def traded_volume(self) -> float:
+        """
+        Computes the total traded volume (price * quantity).
+
+        Returns:
+            float: Total traded value.
+        """
+        return sum(t.quantity * t.price for t in self.trades.values())
+
+    @property
+    def traded_volumes(self) -> dict[int, float]:
+        """Returns traded volume per timestamp."""
+        return {ts: t.quantity * t.price for ts, t in self.trades.items()}
+
+    @property
+    def trade_imbalance(self) -> float:
+        """
+        Computes net trade imbalance (BUY - SELL quantity).
+
+        Returns:
+            float: Net trade imbalance.
+        """
+        return (
+            sum(t.quantity for t in self.trades.values() if t.side == OrderDirection.BUY)
+            - sum(t.quantity for t in self.trades.values() if t.side == OrderDirection.SELL)
+        )
+
+    @property
+    def trade_imbalances(self) -> dict[int, float]:
+        """
+        Returns cumulative trade imbalance over time.
+
+        Returns:
+            dict[int, float]: Time-indexed cumulative trade imbalance.
+        """
+        return dict(zip(
+            self.trades.keys(),
+            accumulate(
+                t.quantity if t.side == OrderDirection.BUY else -t.quantity
+                for t in self.trades.values()
+            )
+        ))
+
+    @property
+    def order_volume(self) -> float:
+        """
+        Computes total order volume.
+
+        Returns:
+            float: Total order volume.
+        """
+        return sum(o.quantity for o in self.orders.values())
+
+    @property
+    def order_volumes(self) -> dict[int, float]:
+        """Returns order volume per timestamp."""
+        return {ts: o.quantity for ts, o in self.orders.items()}
+
+    @property
+    def order_imbalance(self) -> float:
+        """
+        Computes net order imbalance (BUY - SELL quantity).
+
+        Returns:
+            float: Net order imbalance.
+        """
+        return (
+            sum(o.quantity for o in self.orders.values() if o.side == OrderDirection.BUY)
+            - sum(o.quantity for o in self.orders.values() if o.side == OrderDirection.SELL)
+        )
+
+    @property
+    def order_imbalances(self) -> dict[int, float]:
+        """
+        Returns cumulative order imbalance over time.
+
+        Returns:
+            dict[int, float]: Time-indexed cumulative order imbalance.
+        """
+        return dict(zip(
+            self.orders.keys(),
+            accumulate(
+                o.quantity if o.side == OrderDirection.BUY else -o.quantity
+                for o in self.orders.values()
+            )
+        ))
+
+    def append(self, new_history: 'EventHistory') -> 'EventHistory':
+        """
+        Efficiently appends a new EventHistory to this instance and applies retention logic.
+
+        Args:
+            new_history (EventHistory): New event history to append.
+
+        Returns:
+            EventHistory: Self, with updated events and time range.
+        """
+        # Fast in-place update of event dict (assumes timestamps are unique)
+        self.events.update(new_history.events)
         self.end = new_history.end
 
-        # Apply retention if configured
-        if self.retention_mins:
-            self.start = max(self.start, self.end - self.retention_mins * 60_000_000_000)
-            # Remove old trades
-            for t in list(self.events):
-                if t < self.start:
-                    del self.events[t]
-                else:
-                    break
-        return self        
+        # Apply retention window if specified
+        if self.retention_mins is not None:
+            retention_threshold = self.end - self.retention_mins * 60_000_000_000
+            self.events = {ts: event for ts, event in self.events.items() if ts >= retention_threshold}
+            self.start = max(self.start, retention_threshold)
 
-    def trade_price(self, sampling_secs: float | None = None) -> dict[int, float]:
+        return self
+
+    def trade_price(self, sampling_secs: Optional[float] = None) -> dict[int, float]:
         """
-        Get the trade prices over time.
+        Returns sampled or raw trade price series.
 
         Args:
             sampling_secs (float | None): Optional sampling interval in seconds.
 
         Returns:
-            dict[int, float]: Time series of trade prices.
+            dict[int, float]: Time-series of trade prices.
         """
         trades = {time: trade.price for time, trade in self.trades.items()}
         return self.sample(trades, sampling_secs) if sampling_secs else trades
-    
-    def ohlc(self, interval: float):
+
+    def ohlc(self, interval: float) -> dict[int, dict[str, float]]:
+        """
+        Computes OHLC over sampled intervals.
+
+        Args:
+            interval (float): Sampling interval in seconds.
+
+        Returns:
+            dict[int, dict[str, float]]: OHLC per bucket.
+        """
         return self.sample(self.trade_price(), interval, 'ohlc')
-    
-    def mean_trade_price(self, interval: float):
-        sampled = {}
-        last_val = None
+
+    def mean_trade_price(self, interval: float) -> dict[int, Optional[float]]:
+        """
+        Computes mean trade price per time bucket.
+
+        Args:
+            interval (float): Sampling interval in seconds.
+
+        Returns:
+            dict[int, float | None]: Time-indexed average trade price.
+        """
+        sampled: dict[int, Optional[float]] = {}
+        last_val: Optional[float] = None
+
         for ts, prices in self.bucket(self.trade_price(), interval).items():
-            if len(prices) > 0:
+            if prices:
                 sampled[ts] = float(np.mean(prices))
                 last_val = prices[-1]
-            elif last_val:
+            elif last_val is not None:
                 sampled[ts] = last_val
             else:
                 sampled[ts] = None
+
         return sampled
 
 class L2History(History):
@@ -1645,22 +1756,21 @@ class Book(BaseModel):
     
     def event_history(
         self,
-        timestamp,
+        timestamp : int,
         config: MarketSimulationConfig,
         retention_mins: int | None = None
     ) -> EventHistory:
         """
-        Build an L2History from the current book and apply all events.
+        Build an EventHistory from the current book and apply all events.
 
         Args:
-            snapshot (L2Snapshot): The initial snapshot to start from.
+            timestamp (int): Timestamp of the state update associated with the book instance.
             config (MarketSimulationConfig): Simulation configuration.
             retention_mins (int | None): Optional retention window in minutes.
-            depth (int | None): Optional depth to limit order book levels.
 
         Returns:
             tuple:
-                - L2History: The resulting history after applying events.
+                - EventHistory: The resulting history after applying events.
                 - bool: True if the resulting snapshot matches the target.
                 - list[str]: List of discrepancies found during reconciliation.
         """
@@ -1671,18 +1781,18 @@ class Book(BaseModel):
         timestamp : int,
         history: EventHistory,
         config: MarketSimulationConfig
-    ) -> tuple[L2History, bool, list[str]]:
+    ) -> tuple[EventHistory, bool, list[str]]:
         """
         Append the book's events to an existing L2History.
 
         Args:
-            history (L2History): Existing history to append to.
+            history (EventHistory): Existing history to append to.
             config (MarketSimulationConfig): Simulation configuration.
             depth (int | None): Optional depth to limit levels.
 
         Returns:
             tuple:
-                - L2History: Updated history including new events.
+                - EventHistory: Updated history including new events.
                 - bool: True if final snapshot matches target.
                 - list[str]: List of discrepancies found.
         """

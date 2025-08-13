@@ -21,6 +21,7 @@
 import torch
 import math
 import traceback
+import random
 import bittensor as bt
 import numpy as np
 from typing import Dict
@@ -214,25 +215,56 @@ def get_rewards(
     # Get all the reward results by iteratively calling the reward() function.
     return distribute_rewards(self, torch.FloatTensor(reward(self, synapse)).to(self.device))
 
-def set_delays(self : Validator, synapse_responses : dict[int, MarketSimulationStateUpdate]) -> list[FinanceAgentResponse]:
+def set_delays(self: Validator, synapse_responses: dict[int, MarketSimulationStateUpdate]) -> list[FinanceAgentResponse]:
     """
-    Calculates and applies the appropriate simulation time delay to each instruction received by the validator
+    Applies base delay based on process time using an exponential mapping,
+    and adds a per-book Gaussian-distributed random latency instruction_delay to instructions,
+    with zero instruction_delay applied to the first instruction per book.
 
     Args:
-        self (taos.im.neurons.validator.Validator) : Validator instance
-        synapse_responses (list[taos.im.protocol.MarketSimulationStateUpdate]) : The latest state update object.
+        self (taos.im.neurons.validator.Validator): Validator instance.
+        synapse_responses (dict[int, MarketSimulationStateUpdate]): Latest state updates.
 
     Returns:
-        torch.FloatTensor: A tensor of rewards for the given query and responses.
+        list[FinanceAgentResponse]: Delayed finance responses.
     """
     responses = []
+    timeout = self.config.neuron.timeout
+    min_delay = self.config.scoring.min_delay
+    max_delay = self.config.scoring.max_delay
+    min_instruction_delay = self.config.scoring.min_instruction_delay
+    max_instruction_delay = self.config.scoring.max_instruction_delay
+
+    def compute_delay(p_time: float) -> int:
+        """Exponential scaling of process time into delay."""
+        t = p_time / timeout
+        exp_scale = 5
+        delay_frac = (np.exp(exp_scale * t) - 1) / (np.exp(exp_scale) - 1)
+        delay = min_delay + delay_frac * (max_delay - min_delay)
+        return int(delay)
+
     for uid, synapse_response in synapse_responses.items():
         response = synapse_response.response
         if response:
-            # Delay is calculated to be proportional to the configured maximum in the same proportion as the response time to the timeout
-            delay = max(int((self.config.scoring.max_delay * (synapse_response.dendrite.process_time / self.config.neuron.timeout))),self.config.scoring.min_delay)
+            base_delay = compute_delay(synapse_response.dendrite.process_time)
+
+            seen_books = set()
             for instruction in response.instructions:
-                instruction.delay = delay + instruction.delay
+                book_id = instruction.bookId
+
+                # Zero instruction_delay for first instruction per book
+                if book_id not in seen_books:
+                    instruction_delay = 0
+                    seen_books.add(book_id)
+                else:
+                    instruction_delay = random.randint(min_instruction_delay, max_instruction_delay)
+
+                instruction.delay += base_delay + instruction_delay
+
             responses.append(response)
-            bt.logging.info(f"UID {response.agent_id} Responded with {len(response.instructions)} instructions after {synapse_response.dendrite.process_time:.4f}s - delay set to {delay}{self.simulation.time_unit}")
+            bt.logging.info(
+                f"UID {response.agent_id} responded with {len(response.instructions)} instructions "
+                f"after {synapse_response.dendrite.process_time:.4f}s – base delay {base_delay}{self.simulation.time_unit}"
+            )
+
     return responses

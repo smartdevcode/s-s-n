@@ -46,7 +46,9 @@ void BalanceLogger::log(L3LogEvent event) const
     const auto [bookId, timestamp] = std::visit(
         [](auto&& item) -> std::pair<BookId, Timestamp> {
             using T = std::remove_cvref_t<decltype(item)>;
-            if constexpr (std::same_as<T, OrderWithLogContext>) {
+            if constexpr (std::same_as<T, InstructionLogContext>) {
+                return {};
+            } else if constexpr (std::same_as<T, OrderWithLogContext>) {
                 return {item.logContext->bookId, item.order->timestamp()};
             } else if constexpr (std::same_as<T, TradeWithLogContext>) {
                 return {item.logContext->bookId, item.trade->timestamp()};

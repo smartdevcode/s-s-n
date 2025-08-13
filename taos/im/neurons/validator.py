@@ -86,14 +86,26 @@ if __name__ != "__mp_main__":
                 bt.logging.error(f"Failed to sync : {traceback.format_exc()}")
             finally:
                 self.maintaining = False
-        
-        def maintain(self) -> None:        
+
+        def maintain(self) -> None:
             """
             Maintains the metagraph and sets weights.
             This method is run in a separate thread to speed up processing.
             """
             if not self.maintaining:
                 Thread(target=self._maintain, args=(), daemon=True, name=f'maintain_{self.step}').start()
+
+        def monitor(self) -> None:
+            while True:
+                try:
+                    time.sleep(300)
+                    bt.logging.info(f"Checking simulator state...")
+                    if not check_simulator(self):
+                        restart_simulator(self)
+                    else:
+                        bt.logging.info(f"Simulator online!")
+                except Exception as ex:
+                    bt.logging.error(f"Failure in simulator monitor : {traceback.format_exc()}")
 
         def seed(self) -> None:
             from taos.im.validator.seed import seed
@@ -197,8 +209,8 @@ if __name__ != "__mp_main__":
                                         break
                                 except Exception as ex:
                                     self.pagerduty_alert(f"Failed to remove archive {output_archive.name} : {ex}", details={"trace" : traceback.format_exc()})
-                            
-                                
+
+
             except Exception as ex:
                 self.pagerduty_alert(f"Failure during output compression : {ex}", details={"trace" : traceback.format_exc()})
             finally:
@@ -449,7 +461,7 @@ if __name__ != "__mp_main__":
             self.miner_stats = {uid : {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []} for uid in range(self.subnet_info.max_uids)}
             init_metrics(self)
             publish_info(self)
-            
+
         def load_fundamental(self):
             if self.simulation.logDir:
                 prices = {}
@@ -483,7 +495,7 @@ if __name__ != "__mp_main__":
                 } for uid in range(self.subnet_info.max_uids)
             }
             self.inventory_history = {
-                uid : {                 
+                uid : {
                     prev_time - self.simulation_timestamp : values for prev_time, values in self.inventory_history[uid].items() if prev_time - self.simulation_timestamp < self.simulation_timestamp
                 } for uid in range(self.subnet_info.max_uids)
             }
@@ -532,13 +544,13 @@ if __name__ != "__mp_main__":
             """
             Checks for and handles agent reset notices (due to deregistration).
             Zeroes scores and clears relevant internal variables.
-            """        
+            """
             for notice in state.notices[self.uid]:
                 if notice.type in ["RESPONSE_DISTRIBUTED_RESET_AGENT", "RDRA"] or notice.type in ["ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT", "ERDRA"]:
                     for reset in notice.resets:
                         if reset.success:
                             bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")
-                            if reset.agentId in self.deregistered_uids:            
+                            if reset.agentId in self.deregistered_uids:
                                 self.sharpe_values[reset.agentId] = {
                                     'books' : {
                                         bookId : 0.0 for bookId in range(self.simulation.book_count)
@@ -565,7 +577,7 @@ if __name__ != "__mp_main__":
                                 self.deregistered_uids.remove(reset.agentId)
                                 self.miner_stats[reset.agentId] = {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []}
                         else:
-                            self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")        
+                            self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
 
         def report(self) -> None:
             """
@@ -617,7 +629,7 @@ if __name__ != "__mp_main__":
             state.version = __spec_version__
             bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")
             del body
-            
+
             # Update variables
             if not self.start_time:
                 self.start_time = time.time()
@@ -633,7 +645,7 @@ if __name__ != "__mp_main__":
                 state.config.logDir = None
             self.step += 1
             del message
-            
+
             if self.simulation_timestamp % self.simulation.log_window == self.simulation.publish_interval:
                 self.compress_outputs()
 
@@ -663,7 +675,7 @@ if __name__ != "__mp_main__":
             self.reward(state)
             # Forward state synapse to miners, populate response data to simulator object and serialize for returning to simulator.
             response = SimulatorResponseBatch(await forward(self, state)).serialize()
-            
+
             # Log response data, start state serialization and reporting threads, and return miner instructions to the simulator
             if len(response['responses']) > 0:
                 bt.logging.trace(f"RESPONSE : {response}")
@@ -712,5 +724,7 @@ if __name__ == "__main__":
     app.include_router(validator.router)
     # Start simulator price seeding data process in new thread
     Thread(target=validator.seed, daemon=True, name='Seed').start()
+    # Start simulator price seeding data process in new thread
+    Thread(target=validator.monitor, daemon=True, name='Monitor').start()
     # Run the validator as a FastAPI client via uvicorn on the configured port
     uvicorn.run(app, port=validator.config.port)

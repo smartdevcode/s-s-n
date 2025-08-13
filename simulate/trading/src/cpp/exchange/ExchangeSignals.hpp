@@ -20,6 +20,7 @@ class FeePolicyWrapper;
 
 struct ExchangeSignals
 {
+    UnsyncSignal<void(InstructionLogContext)> instructionLog;
     UnsyncSignal<void(OrderWithLogContext)> orderLog;
     UnsyncSignal<void(TradeWithLogContext)> tradeLog;
     UnsyncSignal<void(CancellationWithLogContext)> cancelLog;

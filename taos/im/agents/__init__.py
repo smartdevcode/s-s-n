@@ -124,7 +124,7 @@ class FinanceSimulationAgent(SimulationAgent):
                 debug_text += 'ORDERS' + "\n"
                 debug_text += '-' * 50 + "\n"
                 for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {f'{1+order.leverage}x' if order.leverage > 0 else ''}{order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
+                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {f'{1+order.leverage:.2f}x' if order.leverage > 0 else ''}{order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
             if len(account.loans) > 0:
                 debug_text += '-' * 50 + "\n"
                 debug_text += 'LOANS' + "\n"

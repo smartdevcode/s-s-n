@@ -9,6 +9,7 @@
 #include "taosim/exchange/FeePolicy.hpp"
 #include "taosim/book/FeeLogger.hpp"
 #include "util.hpp"
+#include "InstructionLogger.hpp"
 
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -104,7 +105,7 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                     idIt->agentId,
                                     bestBid,
                                     loan->get().marginCallPrice(),
-                                    bookId,
+                                    simulation()->bookIdCanon(bookId),
                                     taosim::util::dec1p(loan->get().leverage()),
                                     remainingVolume
                                 );
@@ -204,7 +205,7 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                     idIt->agentId,
                                     bestAsk,
                                     loan->get().marginCallPrice(),
-                                    bookId,
+                                    simulation()->bookIdCanon(bookId),
                                     taosim::util::dec1p(loan->get().leverage()),
                                     remainingVolume
                                 );
@@ -698,13 +699,13 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     for (AgentId agentId : valid) {
         simulation()->logDebug("{} | AGENT #{} : RESET-CANCELS", simulation()->currentTimestamp(), agentId);
         for (BookId bookId = 0; bookId < m_books.size(); ++bookId) {
-            simulation()->logDebug("{} | AGENT #{} BOOK {} : RESET-CANCELS", simulation()->currentTimestamp(), agentId, bookId);
+            simulation()->logDebug("{} | AGENT #{} BOOK {} : RESET-CANCELS", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(bookId));
             std::vector<Cancellation> bookCancellations;
             const auto orders = accounts()[agentId].activeOrders()[bookId];
             const auto book = m_books.at(bookId);
             for (Order::Ptr order : orders) {
                 if (auto limitOrder = std::dynamic_pointer_cast<LimitOrder>(order)) {
-                    simulation()->logDebug("{} | AGENT #{} BOOK {} : START RESET-CANCEL OF ORDER {}", simulation()->currentTimestamp(), agentId, bookId, limitOrder->id());
+                    simulation()->logDebug("{} | AGENT #{} BOOK {} : START RESET-CANCEL OF ORDER {}", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(bookId), limitOrder->id());
                     if (book->cancelOrderOpt(limitOrder->id())) {
                         const Cancellation cancellation{limitOrder->id()};
                         bookCancellations.push_back(cancellation);
@@ -714,9 +715,9 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
                                 agentId,
                                 bookId,
                                 simulation()->currentTimestamp())));
-                        simulation()->logDebug("{} | AGENT #{} BOOK {} : END RESET-CANCEL OF ORDER {}", simulation()->currentTimestamp(), agentId, bookId, limitOrder->id());
+                        simulation()->logDebug("{} | AGENT #{} BOOK {} : END RESET-CANCEL OF ORDER {}", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(bookId), limitOrder->id());
                     } else {
-                        simulation()->logDebug("{} | AGENT #{} BOOK {} : RESET-CANCEL OF ORDER {} FAILED", simulation()->currentTimestamp(), agentId, bookId, limitOrder->id());
+                        simulation()->logDebug("{} | AGENT #{} BOOK {} : RESET-CANCEL OF ORDER {} FAILED", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(bookId), limitOrder->id());
                     }
                 }
             }
@@ -759,7 +760,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
 
     if (simulation()->debug()) {
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, simulation()->bookIdCanon(subPayload->bookId), balances.quote, balances.base);
     }
     const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::MarketOrderDesc{
@@ -768,7 +769,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
         });
     if (simulation()->debug()) {
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, simulation()->bookIdCanon(subPayload->bookId), balances.quote, balances.base);
     }
 
     if (orderResult.ec != OrderErrorCode::VALID) {
@@ -818,7 +819,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
 
     if (simulation()->debug()) {
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, simulation()->bookIdCanon(subPayload->bookId), balances.quote, balances.base);
     }
     const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::LimitOrderDesc{
@@ -827,7 +828,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
         });
     if (simulation()->debug()) {
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, subPayload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, simulation()->bookIdCanon(subPayload->bookId), balances.quote, balances.base);
     }
 
     if (orderResult.ec != OrderErrorCode::VALID) {
@@ -989,10 +990,6 @@ void MultiBookExchangeAgent::handleDistributedClosePositions(Message::Ptr msg)
             })
         ) {
             closes.push_back(close);
-            // m_signals[bookId]->cancelLog(CancellationWithLogContext(
-            //     cancellation,
-            //     std::make_shared<CancellationLogContext>(
-            //         payload->agentId, bookId, simulation()->currentTimestamp())));
         }
         else {
             failures.push_back(close);
@@ -1106,7 +1103,7 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
     if (simulation()->debug()) {
         auto agentId = accounts().idBimap().left.at(msg->source);
         const auto& balances = simulation()->exchange()->accounts()[agentId][payload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(payload->bookId), balances.quote, balances.base);
     }
     const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::MarketOrderDesc{
@@ -1116,7 +1113,7 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
     if (simulation()->debug()) {
         auto agentId = accounts().idBimap().left.at(msg->source);
         const auto& balances = simulation()->exchange()->accounts()[agentId][payload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(payload->bookId), balances.quote, balances.base);
     }
     
     if (orderResult.ec != OrderErrorCode::VALID) {
@@ -1161,7 +1158,7 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
     if (simulation()->debug()) {
         auto agentId = accounts().idBimap().left.at(msg->source);
         const auto& balances = simulation()->exchange()->accounts()[agentId][payload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(payload->bookId), balances.quote, balances.base);
     }
     const auto orderResult = m_clearingManager->handleOrder(
         taosim::exchange::LimitOrderDesc{
@@ -1171,7 +1168,7 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
     if (simulation()->debug()) {
         auto agentId = accounts().idBimap().left.at(msg->source);
         const auto& balances = simulation()->exchange()->accounts()[agentId][payload->bookId];
-        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, payload->bookId, balances.quote, balances.base);
+        simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(payload->bookId), balances.quote, balances.base);
     }
 
     if (orderResult.ec != OrderErrorCode::VALID) {
@@ -1648,6 +1645,29 @@ void MultiBookExchangeAgent::orderLogCallback(Order::Ptr order, OrderContext ctx
 
 //-------------------------------------------------------------------------
 
+void MultiBookExchangeAgent::instructionLogCallback(const taosim::exchange::OrderDesc& orderDesc, OrderID orderId)
+{
+    std::visit([&](auto&& desc) {
+        const auto& agentId = desc.agentId;
+        const auto& payload = desc.payload;
+
+        m_signals[payload->bookId]->instructionLog(
+            taosim::InstructionLogContext(
+                std::visit([this](auto&& agId) -> AgentId {
+                    if constexpr (std::same_as<std::remove_cvref_t<decltype(agId)>, LocalAgentId>) {
+                        return accounts().idBimap().left.at(agId);
+                    } else {
+                        return agId;
+                    }
+                }, agentId),
+                orderId,
+                payload));
+
+    }, orderDesc);
+}
+
+//-------------------------------------------------------------------------
+
 void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
 {
     const auto restingOrderId = trade->restingOrderID();
@@ -1740,7 +1760,7 @@ void MultiBookExchangeAgent::unregisterLimitOrderCallback(LimitOrder::Ptr limitO
             "{} | AGENT #{} BOOK {} : UNREGISTERED {} ORDER #{} ({}@{}) (FREED {} BASE + {} QUOTE) | RESERVED_QUOTE={} | RESERVED_BASE={}",
             simulation()->currentTimestamp(),
             agentId,
-            bookId,
+            simulation()->bookIdCanon(bookId),
             limitOrder->direction() == OrderDirection::BUY ? "BUY" : "SELL",
             orderId,
             limitOrder->leverage() > 0_dec ? fmt::format("{}x{}",1_dec + limitOrder->leverage(),limitOrder->volume()) : fmt::format("{}",limitOrder->volume()),
@@ -1755,7 +1775,7 @@ void MultiBookExchangeAgent::unregisterLimitOrderCallback(LimitOrder::Ptr limitO
             "{} | AGENT #{} BOOK {} | {}: Reserved quote balance {} < 0 after unregistering order #{}", 
             simulation()->currentTimestamp(),
             agentId,
-            bookId, std::source_location::current().function_name(),
+            simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
             balances.quote.getReserved(), agentId, orderId));
     }
     if (accounts()[agentId].activeOrders()[bookId].empty()) {
@@ -1765,7 +1785,7 @@ void MultiBookExchangeAgent::unregisterLimitOrderCallback(LimitOrder::Ptr limitO
                 "{} | AGENT #{} BOOK {} | {}: Reserved quote balance {} > 0 with no active orders after unregistering order #{}", 
                 simulation()->currentTimestamp(),
                 agentId,
-                bookId, std::source_location::current().function_name(),
+                simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
                 balances.quote.getReserved(), orderId));
         }
         if (balances.base.getReserved() > 0_dec) {
@@ -1774,7 +1794,7 @@ void MultiBookExchangeAgent::unregisterLimitOrderCallback(LimitOrder::Ptr limitO
                 "{} | AGENT #{} BOOK {} | {}: Reserved base balance {} > 0 with no active orders after unregistering order #{}", 
                 simulation()->currentTimestamp(),
                 agentId,
-                bookId, std::source_location::current().function_name(),
+                simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
                 balances.base.getReserved(), orderId));
         }
     }

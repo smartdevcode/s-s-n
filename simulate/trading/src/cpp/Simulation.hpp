@@ -107,6 +107,11 @@ public:
     [[nodiscard]] const auto& time() const noexcept { return m_time; }
     [[nodiscard]] uint32_t blockIdx() const noexcept { return m_blockIdx; }
     [[nodiscard]] auto&& logWindow(this auto&& self) noexcept { return self.m_logWindow; }
+
+    [[nodiscard]] BookId bookIdCanon(BookId bookId) const noexcept
+    {
+        return m_blockIdx * m_exchange->books().size() + bookId;
+    }
     
     virtual const fs::path& logDir() const noexcept override { return m_logDir; }
     virtual void receiveMessage(Message::Ptr msg) override;

@@ -92,7 +92,7 @@ class PlaceMarketOrderInstruction(PlaceOrderInstruction):
         }
     
     def __str__(self):
-        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {f'{1+self.leverage}x' if self.leverage > 0 else ''}{self.quantity}{'' if self.currency==OrderCurrency.BASE else 'QUOTE'}@MARKET ON BOOK {self.bookId}"
+        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {f'{1+self.leverage:.2f}x' if self.leverage > 0 else ''}{self.quantity}{'' if self.currency==OrderCurrency.BASE else 'QUOTE'}@MARKET ON BOOK {self.bookId}"
         
 class PlaceLimitOrderInstruction(PlaceOrderInstruction):
     """
@@ -129,7 +129,7 @@ class PlaceLimitOrderInstruction(PlaceOrderInstruction):
         }
     
     def __str__(self):
-        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {f'{1+self.leverage}x' if self.leverage > 0 else ''}{self.quantity}@{self.price} ON BOOK {self.bookId}"
+        return f"{'BUY ' if self.direction == OrderDirection.BUY else 'SELL'} {f'{1+self.leverage:.2f}x' if self.leverage > 0 else ''}{self.quantity}@{self.price} ON BOOK {self.bookId}"
     
 class CancelOrderInstruction(BaseModel):
     """

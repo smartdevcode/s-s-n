@@ -119,7 +119,6 @@ std::unique_ptr<FuturesSignal> FuturesSignal::fromXML(
         }
     };
 
-    // const float dt = updatePeriod/86'400'000'000'000.0;
     auto getNonNegativeUint64Attribute = [&](pugi::xml_node node, const char* name) {
         pugi::xml_attribute attr = node.attribute(name);
         if (uint64_t value = attr.as_ullong(); attr.empty() || value < 0.0) {
