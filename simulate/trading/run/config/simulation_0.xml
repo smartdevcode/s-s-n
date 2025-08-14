@@ -1,4 +1,4 @@
-<Simulation id="{{BG_CONFIG}}" start="0" step="1000000000" duration="86400000000000" logWindow="10800000000000" timescale="ns" 
+<Simulation id="{{BG_CONFIG}}" start="0" step="5000000000" duration="86400000000000" logWindow="10800000000000" timescale="ns" 
     enableCheckpointing="0" traceTime="1" debug="0" blockCount="8" 
     host="localhost" port="8000" batchSize="10" bookStateEndpoint="/orderbook" generalMsgEndpoint="/account">
     <Agents>
