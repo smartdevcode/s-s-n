@@ -38,8 +38,7 @@ public:
         ProcessContainer container,
         LoggerContainer loggers,
         std::unique_ptr<ProcessFactory> processFactory,
-        decltype(taosim::simulation::SimulationSignals::time)& timeSignal,
-        Timestamp updatePeriod);
+        decltype(taosim::simulation::SimulationSignals::time)& timeSignal);
 
     [[nodiscard]] auto&& operator[](this auto&& self, const std::string& name)
     {

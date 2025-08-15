@@ -6,7 +6,7 @@
 
 //-------------------------------------------------------------------------
 
-JumpDiffusion::JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double muJump, double sigmaJump) noexcept
+JumpDiffusion::JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double muJump, double sigmaJump, Timestamp updatePeriod) noexcept
     : m_X0{X0},
       m_mu{mu},
       m_sigma{sigma},
@@ -16,15 +16,16 @@ JumpDiffusion::JumpDiffusion(double X0, double mu, double sigma, double dt, doub
       m_poisson{lambda},
       m_jump{muJump,sigmaJump},
       m_dJ{0}
-      
-
-{}
+{
+    m_updatePeriod = updatePeriod;
+}
 
 //-------------------------------------------------------------------------
 
-JumpDiffusion::JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double muJump, double sigmaJump, uint64_t seed) noexcept
-    : JumpDiffusion{X0, mu, sigma, dt, lambda,  muJump,sigmaJump}
+JumpDiffusion::JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double muJump, double sigmaJump, uint64_t seed, Timestamp updatePeriod) noexcept
+    : JumpDiffusion{X0, mu, sigma, dt, lambda, muJump, sigmaJump, updatePeriod}
 {
+    m_updatePeriod = updatePeriod;
     m_rng = RNG{seed};
 }
 
@@ -63,7 +64,7 @@ void JumpDiffusion::checkpointSerialize(
 
 //-------------------------------------------------------------------------
 
-std::unique_ptr<JumpDiffusion> JumpDiffusion::fromXML(pugi::xml_node node, uint64_t seedShift, uint64_t updatePeriod)
+std::unique_ptr<JumpDiffusion> JumpDiffusion::fromXML(pugi::xml_node node, uint64_t seedShift)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -86,7 +87,9 @@ std::unique_ptr<JumpDiffusion> JumpDiffusion::fromXML(pugi::xml_node node, uint6
         return attr.as_ullong();
     }();
 
-    const float dt = updatePeriod/86'400'000'000'000.0;
+    const auto updatePeriod = node.attribute("updatePeriod").as_ullong(1);
+    const float dt = updatePeriod / 86'400'000'000'000.0;
+
     return std::make_unique<JumpDiffusion>(
         getNonNegativeAttribute(node, "X0"),
         getNonNegativeAttribute(node, "mu"),
@@ -95,7 +98,8 @@ std::unique_ptr<JumpDiffusion> JumpDiffusion::fromXML(pugi::xml_node node, uint6
         getNonNegativeAttribute(node, "lambda"),
         getNonNegativeAttribute(node, "muJump"),
         getNonNegativeAttribute(node, "sigmaJump"),
-        seed + seedShift);
+        seed + seedShift,
+        updatePeriod);
 }
 
 //-------------------------------------------------------------------------
@@ -109,7 +113,8 @@ std::unique_ptr<JumpDiffusion> JumpDiffusion::fromCheckpoint(const rapidjson::Va
         json["dt"].GetDouble(),
         json["lambda"].GetDouble(),
         json["muJump"].GetDouble(),
-        json["sigmaJump"].GetDouble());
+        json["sigmaJump"].GetDouble(),
+        1);
     gbm->m_t = json["t"].GetDouble();
     gbm->m_W = json["W"].GetDouble();
     gbm->m_value = json["value"].GetDouble();

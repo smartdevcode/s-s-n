@@ -58,7 +58,7 @@ class SimulationStartEvent(FinanceEvent):
         """
         Method to transform simulator format event message to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return SimulationStartEvent(
+        return SimulationStartEvent.model_construct(
             type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=None, logDir=json['payload']['logDir']
         )
         
@@ -74,7 +74,7 @@ class SimulationEndEvent(FinanceEvent):
         """
         Method to transform simulator format event message to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return SimulationEndEvent(
+        return SimulationEndEvent.model_construct(
             type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=None
         )
         
@@ -159,7 +159,7 @@ class LimitOrderPlacementEvent(OrderPlacementEvent):
         Method to transform simulator format event message to the format required by the MarketSimulationStateUpdate synapse.
         """
         if json['type'] == 'RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT':
-            return LimitOrderPlacementEvent(
+            return LimitOrderPlacementEvent.model_construct(
                 type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'],
                 bookId=json['payload']['payload']['requestPayload']['bookId'],
                 orderId=json['payload']['payload']['orderId'],clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
@@ -169,7 +169,7 @@ class LimitOrderPlacementEvent(OrderPlacementEvent):
                 success=True,message=''
             )
         elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT':
-            return LimitOrderPlacementEvent(
+            return LimitOrderPlacementEvent.model_construct(
                 type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'],
                 bookId=json['payload']['payload']['requestPayload']['bookId'],
                 orderId=None,clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
@@ -201,7 +201,7 @@ class MarketOrderPlacementEvent(OrderPlacementEvent):
         Method to transform simulator format event message to the format required by the MarketSimulationStateUpdate synapse.
         """
         if json['type'] == 'RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET':
-            return MarketOrderPlacementEvent(
+            return MarketOrderPlacementEvent.model_construct(
                 type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'],
                 bookId=json['payload']['payload']['requestPayload']['bookId'],
                 orderId=json['payload']['payload']['orderId'],clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
@@ -211,7 +211,7 @@ class MarketOrderPlacementEvent(OrderPlacementEvent):
                 success=True,message=''
             )
         elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET':
-            return MarketOrderPlacementEvent(
+            return MarketOrderPlacementEvent.model_construct(
                 type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'],
                 bookId=json['payload']['payload']['requestPayload']['bookId'],
                 orderId=None,clientOrderId=json['payload']['payload']['requestPayload']['clientOrderId'],
@@ -298,7 +298,7 @@ class OrderCancellationsEvent(FinanceEvent):
         if json['type'] == 'RESPONSE_DISTRIBUTED_CANCEL_ORDERS':
             for cancellation in json['payload']['payload']['requestPayload']['cancellations']:
                 event.cancellations.append(
-                    OrderCancellationEvent( timestamp=event.timestamp,
+                    OrderCancellationEvent.model_construct( timestamp=event.timestamp,
                         bookId=event.bookId, orderId=cancellation['orderId'],quantity=cancellation['volume'],
                         success=True,message=''
                     )
@@ -306,7 +306,7 @@ class OrderCancellationsEvent(FinanceEvent):
         elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS':
             for cancellation in json['payload']['payload']['requestPayload']['cancellations']:
                 event.cancellations.append(
-                    OrderCancellationEvent( timestamp=event.timestamp,
+                    OrderCancellationEvent.model_construct( timestamp=event.timestamp,
                         bookId=event.bookId, orderId=cancellation['orderId'],quantity=cancellation['volume'],
                         success=False,message=f"Order Id does not exist!"
                     )
@@ -386,11 +386,11 @@ class ClosePositionsEvent(FinanceEvent):
         """
         Method to transform simulator format event message to the format required by the MarketSimulationStateUpdate synapse.
         """
-        event = ClosePositionsEvent(type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'], bookId=json['payload']['payload']['requestPayload']['bookId'])
+        event = ClosePositionsEvent.model_construct(type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'], bookId=json['payload']['payload']['requestPayload']['bookId'])
         if json['type'] == 'RESPONSE_DISTRIBUTED_CLOSE_POSITIONS':
             for close in json['payload']['payload']['requestPayload']['closePositions']:
                 event.closes.append(
-                    ClosePositionEvent( timestamp=event.timestamp,
+                    ClosePositionEvent.model_construct( timestamp=event.timestamp,
                         bookId=event.bookId, orderId=close['orderId'],quantity=close['volume'],
                         success=True,message=''
                     )
@@ -398,7 +398,7 @@ class ClosePositionsEvent(FinanceEvent):
         elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_CLOSE_POSITIONS':
             for close in json['payload']['payload']['requestPayload']['closePositions']:
                 event.closes.append(
-                    ClosePositionEvent( timestamp=event.timestamp,
+                    ClosePositionEvent.model_construct( timestamp=event.timestamp,
                         bookId=event.bookId, orderId=close['orderId'],quantity=close['volume'],
                         success=False,message=json['payload']['payload']['errorPayload']['message']
                     )
@@ -492,7 +492,7 @@ class TradeEvent(FinanceEvent):
         """
         Method to transform simulator format event message to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return TradeEvent(
+        return TradeEvent.model_construct(
             type=abbreviate(json['type']), timestamp=json['timestamp'], agentId=json['payload']['agentId'],
             bookId=json['payload']['payload']['bookId'], tradeId=json['payload']['payload']['trade']['tradeId'], 
             clientOrderId=json['payload']['payload']['clientOrderId'],
@@ -550,7 +550,7 @@ class ResetAgentsEvent(FinanceEvent):
         if json['type'] == 'RESPONSE_DISTRIBUTED_RESET_AGENT':
             for agentId in json['payload']['payload']['agentIds']:
                 event.resets.append(
-                    ResetAgentEvent(
+                    ResetAgentEvent.model_construct(
                         type=abbreviate(json['type']),
                         timestamp=json['timestamp'],
                         agentId=agentId,
@@ -561,7 +561,7 @@ class ResetAgentsEvent(FinanceEvent):
         elif json['type'] == 'ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT':
             for agentId in json['payload']['payload']['agentIds']:
                 event.resets.append(
-                    ResetAgentEvent(
+                    ResetAgentEvent.model_construct(
                         type=abbreviate(json['type']),
                         timestamp=json['timestamp'],
                         agentId=agentId,

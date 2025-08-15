@@ -32,6 +32,7 @@ from taos.common.utils.misc import ttl_get_block
 from taos.common.utils.pagerduty import triggerPagerDutyIncident, resolvePagerDutyIncident
 from taos import __spec_version__ as spec_version
 from taos.mock import MockSubtensor, MockMetagraph
+from taos.common.utils.subnet_hyperparameters import get_subnet_hyperparameters
 
 
 class BaseNeuron(ABC):
@@ -184,7 +185,7 @@ class BaseNeuron(ABC):
         Method to update `self.hyperparams` with the latest subnet hyperparameters from the chain.
         """
         bt.logging.debug("Updating Subnet Hyperparams...")
-        self.hyperparams = self.subtensor.get_subnet_hyperparameters(self.config.netuid)
+        self.hyperparams = get_subnet_hyperparameters(self.subtensor, self.config.netuid)
         bt.logging.debug(f"Subnet Hyperparams:\n{self.hyperparams}")
 
     def should_sync_metagraph(self):

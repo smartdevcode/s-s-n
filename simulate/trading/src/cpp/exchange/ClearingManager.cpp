@@ -120,7 +120,7 @@ OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
     );
     auto reserved = balances.makeReservation(orderId, price > 0_dec ? price : curPrice,
         m_exchange->books()[bookId]->bestBid(), m_exchange->books()[bookId]->bestAsk(),
-        validationResult.amount, validationResult.leverage, validationResult.direction);
+        validationResult.amount, validationResult.leverage, validationResult.direction, m_exchange->simulation()->bookIdCanon(bookId));
     
     m_exchange->simulation()->logDebug(
         "{} | AGENT #{} BOOK {} : RESERVATION OF {} BASE + {} QUOTE (={} {}) CREATED FOR {} ORDER #{} ({}x{}@{}) | BEST {} : {} | MAX LEV : {}", 

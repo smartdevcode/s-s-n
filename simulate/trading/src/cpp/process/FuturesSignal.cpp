@@ -15,12 +15,14 @@ FuturesSignal::FuturesSignal(
     taosim::simulation::ISimulation* simulation,
     uint64_t bookId,
     uint64_t seedInterval,
-    double X0) noexcept
+    double X0,
+    Timestamp updatePeriod) noexcept
     : m_simulation{simulation},
       m_bookId{bookId},
       m_seedInterval{seedInterval},
       m_value{X0}
 {
+    m_updatePeriod = updatePeriod;
     m_value = std::round(m_X0);
     m_seedfile = (simulation->logDir() / "external_seed_sampled.csv").generic_string();
 }
@@ -74,19 +76,6 @@ void FuturesSignal::update(Timestamp timestamp)
 
 //-------------------------------------------------------------------------
 
-double FuturesSignal::value() const
-{
-    return m_value;
-}
-
-uint64_t FuturesSignal::count() const
-{
-    return m_last_count;
-}
-
-
-//-------------------------------------------------------------------------
-
 void FuturesSignal::checkpointSerialize(
     rapidjson::Document& json, const std::string& key) const
 {
@@ -105,7 +94,7 @@ void FuturesSignal::checkpointSerialize(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FuturesSignal> FuturesSignal::fromXML(
-    taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod)
+    taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -133,7 +122,8 @@ std::unique_ptr<FuturesSignal> FuturesSignal::fromXML(
         simulation,
         bookId,
         getNonNegativeUint64Attribute(node, "seedInterval"),
-        X0);
+        X0,
+        node.attribute("updatePeriod").as_ullong(1));
 }
 
 //-------------------------------------------------------------------------
@@ -145,7 +135,8 @@ std::unique_ptr<FuturesSignal> FuturesSignal::fromCheckpoint(
         simulation,
         json["bookId"].GetUint64(),
         json["seedInterval"].GetUint64(),
-        X0);
+        X0,
+        1);
     fp->m_value = json["value"].GetDouble();
     return fp;
 }

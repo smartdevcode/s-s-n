@@ -1066,7 +1066,7 @@ void MultiBookExchangeAgent::handleLocalMessage(Message::Ptr msg)
         handleLocalCancelOrders(msg);
     }
     else if (msg->type == "CLOSE_POSITIONS") {
-        handleLocalCancelOrders(msg);
+        handleLocalClosePositions(msg);
     }
     else if (msg->type == "RETRIEVE_L1") {
         handleLocalRetrieveL1(msg);

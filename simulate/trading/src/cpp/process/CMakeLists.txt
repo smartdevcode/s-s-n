@@ -2,6 +2,7 @@ add_library(process STATIC
     GBM.cpp
     JumpDiffusion.cpp
     FundamentalPrice.cpp
+    ALGOTrigger.cpp
     FuturesSignal.cpp
     Process.hpp
     ProcessFactory.cpp

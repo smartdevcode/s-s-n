@@ -3,6 +3,7 @@
 import numpy as np
 from xml.etree.ElementTree import Element
 from pydantic import Field
+from ypyjson import YpyObject
 from enum import IntEnum
 from itertools import accumulate
 from typing import Literal, Any
@@ -346,7 +347,7 @@ class MarketSimulationConfig(BaseModel):
 
             init_price = float(MBE_config.attrib['initialPrice']),
 
-            fp_update_period = int(processes_config.attrib['updatePeriod']) + 1,
+            fp_update_period = int(FP_config.attrib['updatePeriod']) + 1,
             fp_seed_interval = int(FP_config.attrib['seedInterval']),
             fp_mu = float(FP_config.attrib['mu']),
             fp_sigma = float(FP_config.attrib['sigma']),
@@ -506,7 +507,7 @@ class Order(BaseModel):
         """
         Method to extract model data from simulation account representation in the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Order(order_type="limit", id=json['orderId'], client_id=json['clientOrderId'], timestamp=json['timestamp'],
+        return Order.model_construct(order_type="limit", id=json['orderId'], client_id=json['clientOrderId'], timestamp=json['timestamp'],
                      quantity=json['volume'], side=json['direction'], price=json['price'], 
                      leverage=json['leverage'])
 
@@ -1551,6 +1552,61 @@ class Book(BaseModel):
             ]
 
         return cls(id=id, bids=bids, asks=asks, events=events)
+    
+    @classmethod
+    def from_ypy(cls, json: YpyObject, depth : int = 21) -> 'Book':
+        book_id = json['bookId']
+        # Bids
+        bids = []
+        for i, lvl in enumerate(json['bid']):
+            if i >= 21:
+                break
+            bids.append(LevelInfo.model_construct(
+                p=lvl['price'],
+                q=lvl['volume'],
+                o=[Order.model_construct(
+                        id=o['orderId'],
+                        timestamp=o['timestamp'],
+                        quantity=o['volume'],
+                        side=o['direction'],
+                        order_type="limit",
+                        price=lvl['price']
+                    ) for o in lvl['orders']] if i < 5 else None
+            ))
+        # Asks
+        asks = []
+        for i, lvl in enumerate(json['ask']):
+            if i >= 21:
+                break
+            asks.append(LevelInfo.model_construct(
+                p=lvl['price'],
+                q=lvl['volume'],
+                o=[Order.model_construct(
+                        id=o['orderId'],
+                        timestamp=o['timestamp'],
+                        quantity=o['volume'],
+                        side=o['direction'],
+                        order_type="limit",
+                        price=lvl['price']
+                    ) for o in lvl['orders']] if i < 5 else None
+            ))
+        # Events
+        events = []
+        for ev in json['record']:
+            ev_type = ev['event']
+            if ev_type == 'place':
+                events.append(Order.from_event(ev))
+            elif ev_type == 'trade':
+                events.append(TradeInfo.from_event(ev))
+            elif ev_type == 'cancel':
+                events.append(Cancellation.from_event(ev))
+
+        return Book.model_construct(
+            i=book_id,
+            b=bids,
+            a=asks,
+            e=events if events else None
+        )
 
     def snapshot(self, timestamp: int) -> L2Snapshot:
         """
@@ -1839,7 +1895,7 @@ class Balance(BaseModel):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Balance(currency=currency,total=json['total'],free=json['free'],reserved=json['reserved'])
+        return Balance.model_construct(currency=currency,total=json['total'],free=json['free'],reserved=json['reserved'])
 
 class Fees(BaseModel):
     """
@@ -1871,7 +1927,7 @@ class Fees(BaseModel):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Fees(volume_traded=json['volume'],maker_fee_rate=json['makerFeeRate'],taker_fee_rate=json['takerFeeRate'])
+        return Fees.model_construct(volume_traded=json['volume'],maker_fee_rate=json['makerFeeRate'],taker_fee_rate=json['takerFeeRate'])
     
 class OrderCurrency(IntEnum):
     """
@@ -1925,7 +1981,7 @@ class Loan(BaseModel):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Loan(order_id=json['id'],amount=json['amount'],currency=json['currency'],base_collateral=json['baseCollateral'],quote_collateral=json['quoteCollateral'])
+        return Loan.model_construct(order_id=json['id'],amount=json['amount'],currency=OrderCurrency(json['currency']),base_collateral=json['baseCollateral'],quote_collateral=json['quoteCollateral'])
     
     def __str__(self):
         return f"{self.amount} {self.currency.name} [COLLAT : {self.base_collateral} BASE | {self.quote_collateral} QUOTE]"

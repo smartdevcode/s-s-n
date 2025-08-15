@@ -15,8 +15,8 @@
 class JumpDiffusion : public Process
 {
 public:
-    JumpDiffusion(double X0, double mu, double sigma, double dt,  double lambda,  double muJump ,double sigmaJump) noexcept;
-    JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double muJump, double sigmaJump, uint64_t seed) noexcept;
+    JumpDiffusion(double X0, double mu, double sigma, double dt,  double lambda,  double muJump ,double sigmaJump, Timestamp updatePeriod) noexcept;
+    JumpDiffusion(double X0, double mu, double sigma, double dt, double lambda, double muJump, double sigmaJump, uint64_t seed, Timestamp updatePeriod) noexcept;
 
     virtual double value() const override { return m_value; }
 
@@ -24,7 +24,7 @@ public:
     virtual void checkpointSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
 
-    [[nodiscard]] static std::unique_ptr<JumpDiffusion> fromXML(pugi::xml_node node, uint64_t bookId, uint64_t updatePeriod);
+    [[nodiscard]] static std::unique_ptr<JumpDiffusion> fromXML(pugi::xml_node node, uint64_t bookId);
     [[nodiscard]] static std::unique_ptr<JumpDiffusion> fromCheckpoint(const rapidjson::Value& json);
 
 private:

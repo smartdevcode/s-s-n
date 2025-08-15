@@ -31,7 +31,7 @@ if __name__ != "__mp_main__":
     import shutil
     import zipfile
     import asyncio
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from ypyjson import YpyObject
 
     import bittensor as bt
@@ -178,34 +178,20 @@ if __name__ != "__mp_main__":
                                             bt.logging.debug(f"Added {log_file.name} to {archive.name}")
                                         except Exception as ex:
                                             bt.logging.error(f"Failed to add {log_file.name} to {archive.name} : {ex}")
-                            if start and str(output_dir.resolve()) != self.simulation.logDir:
-                                size = sum(file.stat().st_size for file in output_dir.rglob('*'))
-                                bt.logging.info(f"Compressing output directory {output_dir.name} ({int(size / 1024 / 1024)}MB)...")
-                                try:
-                                    shutil.make_archive(output_dir, 'zip', output_dir)
-                                    bt.logging.success(f"Compressed {output_dir.name} to {output_dir.name + '.zip'}.")
-                                except Exception as ex:
-                                    self.pagerduty_alert(f"Failed to compress folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
-                                    continue
-                                try:
-                                    shutil.rmtree(output_dir)
-                                    bt.logging.success(f"Deleted {output_dir.name}.")
-                                except Exception as ex:
-                                    self.pagerduty_alert(f"Failed to remove compressed folder {output_dir.name} : {ex}", details={"trace" : traceback.format_exc()})
                     if psutil.disk_usage('/').percent > 85:
-                        first_day_of_month = int(datetime.today().replace(day=1).strftime("%Y%m%d"))
+                        min_retention_date = int((datetime.today() - timedelta(days=7)).strftime("%Y%m%d"))
                         bt.logging.warning(f"Disk usage > 85% - cleaning up old archives...")
                         for output_archive in sorted(log_root.iterdir(), key=lambda f: f.name[:13]):
                             try:
                                 archive_date = int(output_archive.name[:8])
                             except:
                                 continue
-                            if output_archive.is_file() and output_archive.name.endswith('.zip') and archive_date < first_day_of_month:
+                            if output_archive.is_file() and output_archive.name.endswith('.zip') and archive_date < min_retention_date:
                                 try:
                                     output_archive.unlink()
                                     disk_usage = psutil.disk_usage('/').percent
                                     bt.logging.success(f"Deleted {output_dir.name} ({disk_usage}% disk available).")
-                                    if disk_usage <= 90:
+                                    if disk_usage <= 85:
                                         break
                                 except Exception as ex:
                                     self.pagerduty_alert(f"Failed to remove archive {output_archive.name} : {ex}", details={"trace" : traceback.format_exc()})
@@ -518,6 +504,7 @@ if __name__ != "__mp_main__":
             self.recent_trades = {bookId : [] for bookId in range(self.simulation.book_count)}
             self.recent_miner_trades = {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
             self.save_state()
+            publish_info(self)
 
         def onEnd(self) -> None:
             """
@@ -576,15 +563,25 @@ if __name__ != "__mp_main__":
                                 self.initial_balances_published[reset.agentId] = False
                                 self.deregistered_uids.remove(reset.agentId)
                                 self.miner_stats[reset.agentId] = {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []}
+                                self.recent_miner_trades[reset.agentId] = {bookId : [] for bookId in range(self.simulation.book_count)}
                         else:
                             self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
 
         def report(self) -> None:
             """
-            Publish performance and state metrics.
+            Run the async `report` function in a background thread so it doesn't block the main loop.
             """
-            if not self.config.reporting.disabled and not self.reporting:
-                Thread(target=report, args=(self,), daemon=True, name=f'report_{self.step}').start()
+            def thread_target():
+                # Create a new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(report(self))
+                finally:
+                    loop.close()
+            if not self.config.reporting.disabled:
+                thread = Thread(target=thread_target, daemon=True)
+                thread.start()
 
         def _reward(self, state : MarketSimulationStateUpdate):
             # Calculate the rewards for the miner based on the latest simulation state.
@@ -616,15 +613,17 @@ if __name__ != "__mp_main__":
             if self.simulation_timestamp % 3600_000_000_000 == 0 and self.simulation_timestamp != 0:
                 bt.logging.info("Checking for validator updates...")
                 self.update_repo()
-            bt.logging.debug("Received state update from simulator.")
+            bt.logging.info("Received state update from simulator.")
             global_start = time.time()
             start = time.time()
-            body = await request.body()
-            bt.logging.debug(f"Retrieved request body ({time.time()-start:.4f}s).")
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+            bt.logging.info(f"Retrieved request body ({time.time()-start:.4f}s).")
             if body[-3:].decode() != "]}}":
                 raise Exception(f"Incomplete JSON!")
             message = YpyObject(body, 1)
-            bt.logging.debug(f"Constructed YpyObject ({time.time()-start:.4f}s).")
+            bt.logging.info(f"Constructed YpyObject ({time.time()-start:.4f}s).")
             state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
             state.version = __spec_version__
             bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")

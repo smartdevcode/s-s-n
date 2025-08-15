@@ -173,7 +173,9 @@ struct FreeReservationTest : TestWithParam<FreeReservationTestParams>
             300_dec, // bestAsk
             params.reservationAmount,
             params.leverage,
-            params.direction);
+            params.direction,
+            0
+        );
     }
 
     FreeReservationTestParams params;
@@ -344,12 +346,17 @@ TEST_P(MakeReservationTest, WorksCorrectly)
 {
     balances.makeReservation(
         params.orderId, params.price,
-        0_dec, // bestBid
-        0_dec, // bestAsk
-        params.amount, params.leverage, params.direction);
+        299_dec, // bestBid
+        300_dec, // bestAsk
+        params.amount, params.leverage, params.direction, 0
+    );
     EXPECT_EQ(balances.base.getReservation(params.orderId), params.refBaseReservation);
     EXPECT_EQ(balances.quote.getReservation(params.orderId), params.refQuoteReservation);
-    EXPECT_EQ(balances.getLeverage(params.orderId, params.direction), params.leverage);
+    if (params.amount > 0_dec){
+        EXPECT_EQ(balances.getLeverage(params.orderId, params.direction), params.leverage);
+    } else {
+        EXPECT_EQ(balances.getLeverage(params.orderId, params.direction), 0_dec);
+    }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -399,6 +406,28 @@ INSTANTIATE_TEST_SUITE_P(
             .direction = OrderDirection::SELL,
             .refBaseReservation = DEC(5420.9151),
             .refQuoteReservation = DEC(2744.97877251)
+        },
+        MakeReservationTestParams{
+            .baseHeld = 1_dec,
+            .quoteHeld = 5_dec,
+            .orderId = 79,
+            .price = DEC(2.5),
+            .amount = 0_dec,
+            .leverage = 1_dec,
+            .direction = OrderDirection::BUY,
+            .refBaseReservation = std::nullopt,
+            .refQuoteReservation = std::nullopt
+        },
+        MakeReservationTestParams{
+            .baseHeld = 3_dec,
+            .quoteHeld = 15_dec,
+            .orderId = 71,
+            .price = DEC(3.5),
+            .amount = 0_dec,
+            .leverage = 2_dec,
+            .direction = OrderDirection::SELL,
+            .refBaseReservation = std::nullopt,
+            .refQuoteReservation = std::nullopt
         }
     ));
 
@@ -449,7 +478,9 @@ struct CommitTest : TestWithParam<CommitTestParams>
             0_dec, // bestAsk
             params.reservationAmount,
             params.leverage,
-            params.direction);
+            params.direction,
+            0
+        );
     }
 
     CommitTestParams params;
@@ -491,7 +522,7 @@ TEST_P(CommitTest, WorksCorrectly)
             EXPECT_EQ(
                 baseTotal,
                 util::round(std::min(params.quoteHeld - 
-                        util::roundUp(
+                        util::round(
                             (params.commitAmount + params.fee) / util::dec1p(params.leverage), s_roundParams.quoteDecimals),
                         0_dec) / params.commitPrice 
                         + params.baseHeld + commitCounterAmount, s_roundParams.baseDecimals)
@@ -499,19 +530,19 @@ TEST_P(CommitTest, WorksCorrectly)
             EXPECT_EQ(
                 quoteTotal,
                 std::max(params.quoteHeld - 
-                            util::roundUp(
+                            util::round(
                                 (params.commitAmount + params.fee) / util::dec1p(params.leverage), s_roundParams.quoteDecimals),
                             0_dec));
         } else {
             EXPECT_EQ(
                 baseTotal,
                 std::max(params.baseHeld - 
-                            util::roundUp(params.commitAmount / util::dec1p(params.leverage), s_roundParams.baseDecimals),
+                            util::round(params.commitAmount / util::dec1p(params.leverage), s_roundParams.baseDecimals),
                         0_dec));
             EXPECT_EQ(
                 quoteTotal,
                 util::round(std::min(params.baseHeld - 
-                                util::roundUp(params.commitAmount / util::dec1p(params.leverage), s_roundParams.baseDecimals)
+                                util::round(params.commitAmount / util::dec1p(params.leverage), s_roundParams.baseDecimals)
                             , 0_dec) * params.commitPrice 
                             + params.quoteHeld + commitCounterAmount - params.fee, s_roundParams.quoteDecimals)
                     );

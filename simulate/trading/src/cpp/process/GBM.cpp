@@ -6,20 +6,23 @@
 
 //-------------------------------------------------------------------------
 
-GBM::GBM(double X0, double mu, double sigma, double dt) noexcept
+GBM::GBM(double X0, double mu, double sigma, double dt, Timestamp updatePeriod) noexcept
     : m_X0{X0},
       m_mu{mu},
       m_sigma{sigma},
       m_dt{dt},
       m_gaussian{0.0, std::sqrt(dt)},
       m_value{X0}
-{}
+{
+    m_updatePeriod = updatePeriod;
+}
 
 //-------------------------------------------------------------------------
 
-GBM::GBM(double X0, double mu, double sigma, double dt, uint64_t seed) noexcept
-    : GBM{X0, mu, sigma, dt}
+GBM::GBM(double X0, double mu, double sigma, double dt, uint64_t seed, Timestamp updatePeriod) noexcept
+    : GBM{X0, mu, sigma, dt, updatePeriod}
 {
+    m_updatePeriod = updatePeriod;
     m_rng = RNG{seed};
 }
 
@@ -84,7 +87,8 @@ std::unique_ptr<GBM> GBM::fromXML(pugi::xml_node node, uint64_t seedShift)
         getNonNegativeAttribute(node, "mu"),
         getNonNegativeAttribute(node, "sigma"),
         getNonNegativeAttribute(node, "dt"),
-        seed + seedShift);
+        seed + seedShift,
+        node.attribute("updatePeriod").as_ullong(1));
 }
 
 //-------------------------------------------------------------------------
@@ -95,7 +99,8 @@ std::unique_ptr<GBM> GBM::fromCheckpoint(const rapidjson::Value& json)
         json["X0"].GetDouble(),
         json["mu"].GetDouble(),
         json["sigma"].GetDouble(),
-        json["dt"].GetDouble());
+        json["dt"].GetDouble(),
+        1);
     gbm->m_t = json["t"].GetDouble();
     gbm->m_W = json["W"].GetDouble();
     gbm->m_value = json["value"].GetDouble();

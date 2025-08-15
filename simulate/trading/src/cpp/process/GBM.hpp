@@ -15,8 +15,8 @@
 class GBM : public Process
 {
 public:
-    GBM(double X0, double mu, double sigma, double dt) noexcept;
-    GBM(double X0, double mu, double sigma, double dt, uint64_t seed) noexcept;
+    GBM(double X0, double mu, double sigma, double dt, Timestamp updatePeriod) noexcept;
+    GBM(double X0, double mu, double sigma, double dt, uint64_t seed, Timestamp updatePeriod) noexcept;
 
     virtual double value() const override { return m_value; }
 

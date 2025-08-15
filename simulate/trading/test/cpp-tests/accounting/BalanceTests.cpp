@@ -78,12 +78,12 @@ TEST_P(ReserveTest, WorksCorrectly)
 
     if (reservationAmount < 0_dec || reservationAmount > balance.getFree()) {
         EXPECT_FALSE(balance.canReserve(reservationAmount));
-        EXPECT_THROW(balance.makeReservation(orderId, reservationAmount), std::invalid_argument);
+        EXPECT_THROW(balance.makeReservation(orderId, reservationAmount, 0), std::invalid_argument);
         return;
     }
 
     EXPECT_TRUE(balance.canReserve(reservationAmount));
-    EXPECT_NO_THROW(balance.makeReservation(orderId, reservationAmount));
+    EXPECT_NO_THROW(balance.makeReservation(orderId, reservationAmount, 0));
     EXPECT_EQ(balance.getTotal(), totalBalance);
     EXPECT_EQ(balance.getFree(), totalBalance - reservationAmount);
     EXPECT_EQ(balance.getReserved(), reservationAmount);
@@ -129,7 +129,7 @@ struct FreeTest : TestWithParam<FreeTestParams>
     {
         params = GetParam();
         balance = Balance{params.totalBalance};
-        balance.makeReservation(params.orderId, params.reservationAmount);
+        balance.makeReservation(params.orderId, params.reservationAmount, 0);
     }
 
     FreeTestParams params;
@@ -302,8 +302,8 @@ struct MoveTest : TestWithParam<MoveTestParams>
     {
         params = GetParam();
         balance = Balance{params.totalBalance};
-        balance.makeReservation(params.orderIdFirst, params.reservationAmountFirst);
-        balance.makeReservation(params.orderIdSecond, params.reservationAmountSecond);
+        balance.makeReservation(params.orderIdFirst, params.reservationAmountFirst, 0);
+        balance.makeReservation(params.orderIdSecond, params.reservationAmountSecond, 0);
     }
 
     MoveTestParams params;

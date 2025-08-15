@@ -13,8 +13,7 @@ BookProcessManager::BookProcessManager(
     BookProcessManager::ProcessContainer container,
     BookProcessManager::LoggerContainer loggers,
     std::unique_ptr<ProcessFactory> processFactory,
-    decltype(taosim::simulation::SimulationSignals::time)& timeSignal,
-    Timestamp updatePeriod)
+    decltype(taosim::simulation::SimulationSignals::time)& timeSignal)
     : m_container{std::move(container)},
       m_loggers{std::move(loggers)},
       m_processFactory{std::move(processFactory)}
@@ -22,8 +21,9 @@ BookProcessManager::BookProcessManager(
     m_feed = timeSignal.connect([this](Timespan timespan) {
         updateProcesses(timespan);
     });
-    for (const auto& name : views::keys(m_container)) {
-        m_updateCounters[name] = UpdateCounter{updatePeriod};
+    for (const auto& [name, bookProcesses] : m_container) {
+        const auto& representativeProcess = bookProcesses.front();
+        m_updateCounters[name] = UpdateCounter{representativeProcess->updatePeriod()};
     }
 }
 
@@ -108,8 +108,7 @@ std::unique_ptr<BookProcessManager> BookProcessManager::fromXML(
     for (pugi::xml_node processNode : node.child("Processes")) {
         ProcessContainer::mapped_type bookId2Process(bookCount);
         for (BookId bookId = 0; bookId < bookCount; ++bookId) {
-            bookId2Process[bookId] = processFactory->createFromXML(
-                processNode, bookId, node.child("Processes").attribute("updatePeriod").as_ullong(1));
+            bookId2Process[bookId] = processFactory->createFromXML(processNode, bookId);
         }
         pugi::xml_attribute attr;
         if (attr = processNode.attribute("name"); attr.empty()) {
@@ -137,8 +136,7 @@ std::unique_ptr<BookProcessManager> BookProcessManager::fromXML(
         std::move(container),
         std::move(loggers),
         std::move(processFactory),
-        simulation->signals().time,
-        node.child("Processes").attribute("updatePeriod").as_ullong(1));
+        simulation->signals().time);
 }
 
 //-------------------------------------------------------------------------
@@ -165,8 +163,7 @@ std::unique_ptr<BookProcessManager> BookProcessManager::fromCheckpoint(
         std::move(container),
         std::move(loggers),
         std::move(processFactory),
-        simulation->signals().time,
-        1);
+        simulation->signals().time);
 }
 
 //-------------------------------------------------------------------------

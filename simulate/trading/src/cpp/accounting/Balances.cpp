@@ -111,15 +111,19 @@ ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decima
 //-------------------------------------------------------------------------
 
 ReservationAmounts Balances::makeReservation(OrderID id, decimal_t price, decimal_t bestBid, decimal_t bestAsk,
-    decimal_t amount, decimal_t leverage, OrderDirection direction)
+    decimal_t amount, decimal_t leverage, OrderDirection direction, BookId bookId)
 {
+    if (roundAmount(amount, direction) == 0_dec){
+        return {};
+    }
+
     if (leverage == 0_dec) {
         if (direction == OrderDirection::BUY) {
-            const ReservationAmounts reserved{.quote = quote.makeReservation(id, amount)};
+            const ReservationAmounts reserved{.quote = quote.makeReservation(id, amount, bookId)};
             quote.checkConsistency(std::source_location::current());
             return reserved;
         } else {
-            const ReservationAmounts reserved{.base = base.makeReservation(id, amount)};
+            const ReservationAmounts reserved{.base = base.makeReservation(id, amount, bookId)};
             base.checkConsistency(std::source_location::current());
             return reserved;
         }
@@ -129,12 +133,12 @@ ReservationAmounts Balances::makeReservation(OrderID id, decimal_t price, decima
         if (direction == OrderDirection::BUY) {
             const auto reserved = [&] {
                 if (quote.canReserve(amount)) {
-                    return ReservationAmounts{.quote = quote.makeReservation(id, amount)};
+                    return ReservationAmounts{.quote = quote.makeReservation(id, amount, bookId)};
                 } else {
                     const decimal_t requiredBase = roundUpBase((amount - quote.getFree()) / price);
                     return ReservationAmounts{
-                        .base = base.makeReservation(id, requiredBase),
-                        .quote = quote.makeReservation(id, quote.getFree())
+                        .base = base.makeReservation(id, requiredBase, bookId),
+                        .quote = quote.makeReservation(id, quote.getFree(), bookId)
                     };
                 }
             }();
@@ -144,12 +148,12 @@ ReservationAmounts Balances::makeReservation(OrderID id, decimal_t price, decima
         else {
             const auto reserved = [&] {
                 if (base.canReserve(amount)) {
-                    return ReservationAmounts{.base = base.makeReservation(id, amount)};
+                    return ReservationAmounts{.base = base.makeReservation(id, amount, bookId)};
                 } else {
                     const decimal_t requiredQuote = roundUpQuote((amount - base.getFree()) * price);
                     return ReservationAmounts{
-                        .base = base.makeReservation(id, base.getFree()),
-                        .quote = quote.makeReservation(id, requiredQuote)
+                        .base = base.makeReservation(id, base.getFree(), bookId),
+                        .quote = quote.makeReservation(id, requiredQuote, bookId)
                     };
                 }
             }();
@@ -509,13 +513,13 @@ void Balances::borrow(
         } else {
             decimal_t remainingBase = roundUpBase((collateralAmount - quoteReserved) / bestAsk);
             const auto baseReserved = base.getReservation(id).value_or(0_dec);
-            // if (remainingBase > baseReserved) {
+            if (remainingBase > baseReserved) {
             //     fmt::println(
             //         "BOOK : {}, ORDER {}: borrow with amount={} and leverage={} (CollAmount={}), bestBid={}, bestAsk={} "
             //         "baseReserved={}, quoteReserved={}; remainingBase ({}) exceeded baseReserved ({})",
             //         bookId, id, amount, leverage, collateralAmount, bestBid, bestAsk, baseReserved, quoteReserved, remainingBase, baseReserved);
-            //     remainingBase = baseReserved;
-            // }
+                remainingBase = baseReserved;
+            }
             collateral.base() = remainingBase;
             collateral.quote() = quoteReserved;
         }

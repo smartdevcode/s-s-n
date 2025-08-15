@@ -62,7 +62,7 @@ public:
     ReservationAmounts freeReservation(OrderID id, decimal_t price, decimal_t bestBid, decimal_t bestAsk,
         OrderDirection direction, std::optional<decimal_t> amount = {});
     ReservationAmounts makeReservation(OrderID id, decimal_t price, decimal_t bestBid, decimal_t bestAsk,
-        decimal_t amount, decimal_t leverage, OrderDirection direction);
+        decimal_t amount, decimal_t leverage, OrderDirection direction, BookId bookId);
     [[nodiscard]] std::vector<std::pair<OrderID, decimal_t>> commit(
         OrderID orderId, OrderDirection direction, decimal_t amount, decimal_t counterAmount, decimal_t fee,
         decimal_t bestBid, decimal_t bestAsk, decimal_t marginCallPrice, BookId bookId, SettleFlag settleFlag = SettleType::FIFO);

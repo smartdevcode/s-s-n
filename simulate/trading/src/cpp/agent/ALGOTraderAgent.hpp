@@ -71,10 +71,7 @@ private:
 struct ALGOTraderState
 {
     ALGOTraderStatus status;
-    ALGOTraderVolumeStats volumeStatsBuy;
-    ALGOTraderVolumeStats volumeStatsSell;
-    decimal_t sellBucket;
-    decimal_t buyBucket;
+    Timestamp marketFeedLatency;
     decimal_t volumeToBeExecuted;
     OrderDirection direction;
 };
@@ -100,27 +97,31 @@ private:
     void handleWakeup(Message::Ptr msg);
     void handleMarketOrderResponse(Message::Ptr msg);
 
-    void tryWakeup(BookId bookId, ALGOTraderState& state);
     void execute(BookId bookId, ALGOTraderState& state);
-    
+    decimal_t drawNewVolume(uint32_t baseDecimals);
+    double getProcessValue(BookId bookId, const std::string& name);
+    uint64_t getProcessCount(BookId bookId, const std::string& name);
     Timestamp orderPlacementLatency();
 
     std::mt19937* m_rng;
     std::string m_exchange;
     uint32_t m_bookCount;
-    float m_wakeupProb;
-    decimal_t m_VBS;
-    std::vector<decimal_t> m_bucketVolume;
-    decimal_t m_volumeProp;
+    double m_VBS;
+    double m_volumeMin;
     std::unique_ptr<stats::Distribution> m_volumeDistribution;
     std::vector<ALGOTraderState> m_state;
-    Timestamp m_period;
     double m_opLatencyScaleRay;
     DelayBounds m_opl;
     std::normal_distribution<double> m_marketFeedLatencyDistribution;
     boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
     std::uniform_real_distribution<double> m_placementDraw;
-    decimal_t m_lastPrice;
+    boost::math::rayleigh_distribution<double> m_volumeDrawDistribution;
+    std::uniform_real_distribution<double> m_volumeDraw;
+    std::vector<decimal_t> m_lastPrice;
+
+    Timestamp m_delay;
+   
+    u_int64_t m_lastTriggerUpdate;
 };
 
 //-------------------------------------------------------------------------

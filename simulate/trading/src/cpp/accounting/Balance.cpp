@@ -92,7 +92,7 @@ FreeInfo Balance::canFree(OrderID id, std::optional<decimal_t> amount) const noe
 bool Balance::canReserve(decimal_t amount) const noexcept
 {
     amount = roundAmount(amount);
-    return amount > 0_dec && amount <= m_free;
+    return amount >= 0_dec && amount <= m_free;
 }
 
 //-------------------------------------------------------------------------
@@ -126,13 +126,13 @@ void Balance::deposit(decimal_t amount)
 
 //-------------------------------------------------------------------------
 
-decimal_t Balance::makeReservation(OrderID id, decimal_t amount)
+decimal_t Balance::makeReservation(OrderID id, decimal_t amount, BookId bookId)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
     if (amount < 0_dec) {
         throw std::invalid_argument{
-            fmt::format("{}: Reservation amount cannot be negative {} | {} ", ctx, amount, *this)};
+            fmt::format("{}: BOOK {} | Reservation amount for order {} cannot be negative {} | {} ", ctx, bookId, id, amount, *this)};
     }
 
     amount = roundAmount(amount);

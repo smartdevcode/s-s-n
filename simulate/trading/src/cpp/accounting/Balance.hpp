@@ -42,7 +42,7 @@ public:
     [[nodiscard]] bool canReserve(decimal_t amount) const noexcept;
 
     void deposit(decimal_t amount);
-    decimal_t makeReservation(OrderID id, decimal_t amount);
+    decimal_t makeReservation(OrderID id, decimal_t amount, BookId bookId);
     decimal_t freeReservation(OrderID id, std::optional<decimal_t> amount = {});
     decimal_t tryFreeReservation(OrderID orderId, std::optional<decimal_t> amount = {});
     void voidReservation(OrderID id, std::optional<decimal_t> amount = {});

@@ -21,7 +21,8 @@ FundamentalPrice::FundamentalPrice(
     double X0,
     double lambda, 
     double sigmaJump, 
-    double muJump) noexcept
+    double muJump,
+    Timestamp updatePeriod) noexcept
     : m_simulation{simulation},
       m_bookId{bookId},
       m_seedInterval{seedInterval},
@@ -34,6 +35,7 @@ FundamentalPrice::FundamentalPrice(
       m_jump{muJump,sigmaJump},
       m_dJ{0}
 {
+    m_updatePeriod = updatePeriod;
     m_value = m_X0;
     m_seedfile = (simulation->logDir() / "fundamental_seed.csv").generic_string();
 }
@@ -122,7 +124,7 @@ void FundamentalPrice::checkpointSerialize(
 //-------------------------------------------------------------------------
 
 std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
-    taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod)
+    taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -136,7 +138,9 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
         }
     };
 
-    const float dt = updatePeriod/86'400'000'000'000.0;
+    const auto updatePeriod = node.attribute("updatePeriod").as_ullong(1);
+    const float dt = updatePeriod / 86'400'000'000'000.0;
+
     auto getNonNegativeUint64Attribute = [&](pugi::xml_node node, const char* name) {
         pugi::xml_attribute attr = node.attribute(name);
         if (uint64_t value = attr.as_ullong(); attr.empty() || value < 0.0) {
@@ -157,7 +161,8 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
         X0,       
         getNonNegativeFloatAttribute(node, "lambda"),
         getNonNegativeFloatAttribute(node, "sigmaJump"),
-        getNonNegativeFloatAttribute(node, "muJump"));
+        getNonNegativeFloatAttribute(node, "muJump"),
+        updatePeriod);
 }
 
 //-------------------------------------------------------------------------
@@ -175,7 +180,8 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromCheckpoint(
         X0,
         json["lambda"].GetDouble(),
         json["muJump"].GetDouble(),
-        json["sigmaJump"].GetDouble());
+        json["sigmaJump"].GetDouble(),
+        1);
     fp->m_t = json["t"].GetDouble();
     fp->m_W = json["W"].GetDouble();
     fp->m_value = json["value"].GetDouble();

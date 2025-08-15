@@ -26,7 +26,8 @@ public:
         double X0,
         double lambda,
         double muJump,
-        double sigmaJump) noexcept;
+        double sigmaJump,
+        Timestamp updatePeriod) noexcept;
     
     virtual void update(Timestamp timestamp) override;
     virtual double value() const override;
@@ -34,7 +35,7 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static std::unique_ptr<FundamentalPrice> fromXML(
-        taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0, uint64_t updatePeriod);
+        taosim::simulation::ISimulation* simulation, pugi::xml_node node, uint64_t bookId, double X0);
     [[nodiscard]] static std::unique_ptr<FundamentalPrice> fromCheckpoint(
         taosim::simulation::ISimulation* simulation, const rapidjson::Value& json, double X0);
 
