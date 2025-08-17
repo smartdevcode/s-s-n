@@ -309,7 +309,7 @@ async def report(self : Validator) -> None:
                             self.prometheus_miner_trades.labels( wallet=self.wallet.hotkey.ss58_address, netuid=self.config.netuid, 
                                     timestamp=miner_trade.timestamp, timestamp_str=duration_from_timestamp(miner_trade.timestamp), book_id=miner_trade.bookId, uid=uid,
                                     role=role, fee=miner_trade.makerFee if role == 'maker' else miner_trade.takerFee,
-                                    price=miner_trade.price, volume=miner_trade.quantity, side=miner_trade.side, miner_trade_gauge_name="miner_trades").set( 1.0 )
+                                    price=miner_trade.price, volume=miner_trade.quantity, side=miner_trade.side if role == 'taker' else int(not miner_trade.side), miner_trade_gauge_name="miner_trades").set( 1.0 )
             bt.logging.debug(f"Miner Trade metrics published ({time.time()-start:.4f}s).")
             
             self.prometheus_miners.clear()
