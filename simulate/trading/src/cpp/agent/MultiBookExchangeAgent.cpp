@@ -1806,20 +1806,11 @@ void MultiBookExchangeAgent::marketOrderProcessedCallback(
     MarketOrder::Ptr marketOrder, OrderContext ctx)
 {
     accounts()[ctx.agentId].activeOrders()[ctx.bookId].erase(marketOrder);
-
     taosim::accounting::Balances& balances = accounts()[ctx.agentId][ctx.bookId];
-    if (marketOrder->direction() == OrderDirection::BUY){
-        std::optional<taosim::decimal_t> res = balances.quote.getReservation(marketOrder->id());
-        if (res.has_value()){
-            balances.freeReservation(marketOrder->id(), m_books[ctx.bookId]->bestAsk(),
-                m_books[ctx.bookId]->bestBid(), m_books[ctx.bookId]->bestAsk(), marketOrder->direction());
-        }
-    }else{
-        std::optional<taosim::decimal_t> res = balances.base.getReservation(marketOrder->id());
-        if (res.has_value()){
-            balances.freeReservation(marketOrder->id(), m_books[ctx.bookId]->bestBid(),
-                m_books[ctx.bookId]->bestBid(), m_books[ctx.bookId]->bestAsk(), marketOrder->direction());
-        }
+    
+    if (balances.canFree(marketOrder->id(), marketOrder->direction())){
+        balances.freeReservation(marketOrder->id(), m_books[ctx.bookId]->bestAsk(),
+            m_books[ctx.bookId]->bestBid(), m_books[ctx.bookId]->bestAsk(), marketOrder->direction());
     }
 }
 

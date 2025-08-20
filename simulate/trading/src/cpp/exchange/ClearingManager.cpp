@@ -254,7 +254,8 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
         }
     }();
 
-    if (volumeToCancel == order->totalVolume()) {
+    // if (volumeToCancel == order->totalVolume()) {
+    if (volumeToCancel >= order->volume()) {
         account.activeOrders()[bookId].erase(order);
     }
 

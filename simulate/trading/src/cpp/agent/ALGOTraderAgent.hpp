@@ -40,6 +40,7 @@ struct TimestampedVolume
 {
     Timestamp timestamp;
     decimal_t volume;
+    decimal_t price; // VWAP for logrets
 
     [[nodiscard]] auto operator<=>(const TimestampedVolume& other) const noexcept
     {
@@ -50,28 +51,40 @@ struct TimestampedVolume
 class ALGOTraderVolumeStats
 {
 public:
-    explicit ALGOTraderVolumeStats(Timestamp period = 60);
+    explicit ALGOTraderVolumeStats(Timestamp period, double alpha, double beta, double omega, double initPrice);
 
     void push(const Trade& trade);
     void push(TimestampedVolume timestampedVolume);
     
     [[nodiscard]] decimal_t rollingSum() const noexcept { return m_rollingSum; }
+    [[nodiscard]] double variance() const noexcept { return m_variance; }
+    [[nodiscard]] double estimatedVolatility() const noexcept { return m_estimatedVol; }
 
-    [[nodiscard]] static ALGOTraderVolumeStats fromXML(pugi::xml_node node);
+    [[nodiscard]] static ALGOTraderVolumeStats fromXML(pugi::xml_node node, double initPrice);
 
 private:
     Timestamp m_period;
+    double m_alpha;
+    double m_beta;
+    double m_omega;
+    double m_initPrice;
     std::priority_queue<
         TimestampedVolume,
         std::vector<TimestampedVolume>,
         std::greater<TimestampedVolume>> m_queue;
     decimal_t m_rollingSum{};
+    std::map<Timestamp,double> m_cond_variance; 
+    std::map<Timestamp,double> m_priceHistory; // Timestamped price history, close price (VWAP per exact timestamp)
+    std::map<Timestamp,double> m_logRets; 
+    double m_variance;
+    double m_estimatedVol;
 };
 
 struct ALGOTraderState
 {
     ALGOTraderStatus status;
     Timestamp marketFeedLatency;
+    ALGOTraderVolumeStats volumeStats;
     decimal_t volumeToBeExecuted;
     OrderDirection direction;
 };
@@ -92,6 +105,11 @@ private:
         Timestamp min, max;
     };
 
+    struct VolatilityBounds
+    {
+        double paretoShape, paretoScale, volatilityScaler;
+    };
+
     void handleSimulationStart(Message::Ptr msg);
     void handleTrade(Message::Ptr msg);
     void handleWakeup(Message::Ptr msg);
@@ -101,12 +119,12 @@ private:
     decimal_t drawNewVolume(uint32_t baseDecimals);
     double getProcessValue(BookId bookId, const std::string& name);
     uint64_t getProcessCount(BookId bookId, const std::string& name);
+    double wakeupProb(ALGOTraderState& state);
     Timestamp orderPlacementLatency();
 
     std::mt19937* m_rng;
     std::string m_exchange;
     uint32_t m_bookCount;
-    double m_VBS;
     double m_volumeMin;
     std::unique_ptr<stats::Distribution> m_volumeDistribution;
     std::vector<ALGOTraderState> m_state;
@@ -118,8 +136,11 @@ private:
     boost::math::rayleigh_distribution<double> m_volumeDrawDistribution;
     std::uniform_real_distribution<double> m_volumeDraw;
     std::vector<decimal_t> m_lastPrice;
+    std::normal_distribution<double> m_departureThreshold;
+    float m_wakeupProb;
+    VolatilityBounds m_volatilityBounds;
 
-    Timestamp m_delay;
+    std::normal_distribution<double> m_delay;
    
     u_int64_t m_lastTriggerUpdate;
 };
