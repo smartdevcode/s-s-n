@@ -1071,11 +1071,8 @@ void MultiBookExchangeAgent::handleLocalMessage(Message::Ptr msg)
     else if (msg->type == "RETRIEVE_L1") {
         handleLocalRetrieveL1(msg);
     }
-    else if (msg->type == "RETRIEVE_BOOK_ASK") {
-        handleLocalRetrieveBookAsk(msg);
-    }
-    else if (msg->type == "RETRIEVE_BOOK_BID") {
-        handleLocalRetrieveBookBid(msg);
+    else if (msg->type == "RETRIEVE_L2") {
+        handleLocalRetrieveL2(msg);
     }
     else if (msg->type == "SUBSCRIBE_EVENT_ORDER_MARKET") {
         handleLocalMarketOrderSubscription(msg);
@@ -1398,50 +1395,36 @@ void MultiBookExchangeAgent::handleLocalRetrieveL1(Message::Ptr msg)
 
 //-------------------------------------------------------------------------
 
-void MultiBookExchangeAgent::handleLocalRetrieveBookAsk(Message::Ptr msg)
+void MultiBookExchangeAgent::handleLocalRetrieveL2(Message::Ptr msg)
 {
-    const auto payload = std::dynamic_pointer_cast<RetrieveBookPayload>(msg->payload);
+    const auto payload = std::dynamic_pointer_cast<RetrieveL2Payload>(msg->payload);
 
     const auto book = m_books[payload->bookId];
 
-    auto levels = [=] -> std::vector<TickContainer::ContainerType> {
-        std::vector<TickContainer::ContainerType> levels;
-        const auto actualDepth = std::min(payload->depth, book->sellQueue().size());
-        std::copy(
-            book->sellQueue().cbegin(),
-            book->sellQueue().cbegin() + actualDepth,
-            std::back_inserter(levels));
-        return levels;
-    }();
-
     respondToMessage(
         msg,
-        MessagePayload::create<RetrieveBookResponsePayload>(
-            simulation()->currentTimestamp(), std::move(levels)));
-}
-
-//-------------------------------------------------------------------------
-
-void MultiBookExchangeAgent::handleLocalRetrieveBookBid(Message::Ptr msg)
-{
-    const auto payload = std::dynamic_pointer_cast<RetrieveBookPayload>(msg->payload);
-
-    const auto book = m_books[payload->bookId];
-
-    auto levels = [=] -> std::vector<TickContainer::ContainerType> {
-        std::vector<TickContainer::ContainerType> levels;
-        const auto actualDepth = std::min(payload->depth, book->buyQueue().size());
-        std::copy(
-            book->buyQueue().crbegin(),
-            book->buyQueue().crbegin() + actualDepth,
-            std::back_inserter(levels));
-        return levels;
-    }();
-
-    respondToMessage(
-        msg,
-        MessagePayload::create<RetrieveBookResponsePayload>(
-            simulation()->currentTimestamp(), std::move(levels)));
+        MessagePayload::create<RetrieveL2ResponsePayload>(
+            simulation()->currentTimestamp(),
+            book->buyQueue()
+                | views::reverse
+                | views::take(payload->depth)
+                | views::transform([](const auto& level) -> BookLevel {
+                    return {
+                        .price = level.price(),
+                        .quantity = level.volume()
+                    };
+                })
+                | ranges::to<std::vector>,
+            book->sellQueue()
+                | views::take(payload->depth)
+                | views::transform([](const auto& level) -> BookLevel {
+                    return {
+                        .price = level.price(),
+                        .quantity = level.volume()
+                    };
+                })
+                | ranges::to<std::vector>,
+            book->id()));
 }
 
 //-------------------------------------------------------------------------
@@ -1779,23 +1762,17 @@ void MultiBookExchangeAgent::unregisterLimitOrderCallback(LimitOrder::Ptr limitO
             balances.quote.getReserved(), agentId, orderId));
     }
     if (accounts()[agentId].activeOrders()[bookId].empty()) {
-        if (balances.quote.getReserved() > 0_dec) {
-            
-            throw std::runtime_error(fmt::format(
-                "{} | AGENT #{} BOOK {} | {}: Reserved quote balance {} > 0 with no active orders after unregistering order #{}", 
-                simulation()->currentTimestamp(),
-                agentId,
-                simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
-                balances.quote.getReserved(), orderId));
-        }
-        if (balances.base.getReserved() > 0_dec) {
 
-            throw std::runtime_error(fmt::format(
-                "{} | AGENT #{} BOOK {} | {}: Reserved base balance {} > 0 with no active orders after unregistering order #{}", 
-                simulation()->currentTimestamp(),
-                agentId,
-                simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
-                balances.base.getReserved(), orderId));
+        if (balances.quote.getReserved() > 0_dec){
+            for (const auto& res : balances.quote.getReservations()){
+                balances.quote.tryFreeReservation(res.first);
+            }
+        }
+
+        if (balances.base.getReserved() > 0_dec){
+            for (const auto& res : balances.base.getReservations()){
+                balances.base.tryFreeReservation(res.first);
+            }
         }
     }
 }
@@ -1807,7 +1784,7 @@ void MultiBookExchangeAgent::marketOrderProcessedCallback(
 {
     accounts()[ctx.agentId].activeOrders()[ctx.bookId].erase(marketOrder);
     taosim::accounting::Balances& balances = accounts()[ctx.agentId][ctx.bookId];
-    
+
     if (balances.canFree(marketOrder->id(), marketOrder->direction())){
         balances.freeReservation(marketOrder->id(), m_books[ctx.bookId]->bestAsk(),
             m_books[ctx.bookId]->bestBid(), m_books[ctx.bookId]->bestAsk(), marketOrder->direction());

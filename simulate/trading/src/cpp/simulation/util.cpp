@@ -67,7 +67,10 @@ Message::Ptr canonize(Message::Ptr msg, uint32_t blockIdx, uint32_t blockDim)
     else if (const auto pld = std::dynamic_pointer_cast<RetrieveL1ResponsePayload>(payload->payload)) {
         canonizeBookId(pld->bookId);
     }
-    else if (const auto pld = std::dynamic_pointer_cast<RetrieveBookPayload>(payload->payload)) {
+    else if (const auto pld = std::dynamic_pointer_cast<RetrieveL2Payload>(payload->payload)) {
+        canonizeBookId(pld->bookId);
+    }
+    else if (const auto pld = std::dynamic_pointer_cast<RetrieveL2ResponsePayload>(payload->payload)) {
         canonizeBookId(pld->bookId);
     }
     else if (const auto pld = std::dynamic_pointer_cast<EventTradePayload>(payload->payload)) {
@@ -133,7 +136,10 @@ DecanonizeResult decanonize(Message::Ptr msg, uint32_t blockDim)
         if (const auto pld = std::dynamic_pointer_cast<RetrieveL1ResponsePayload>(payload->payload)) {
             return decanonizeBookId(pld->bookId);
         }
-        if (const auto pld = std::dynamic_pointer_cast<RetrieveBookPayload>(payload->payload)) {
+        if (const auto pld = std::dynamic_pointer_cast<RetrieveL2Payload>(payload->payload)) {
+            return decanonizeBookId(pld->bookId);
+        }
+        if (const auto pld = std::dynamic_pointer_cast<RetrieveL2ResponsePayload>(payload->payload)) {
             return decanonizeBookId(pld->bookId);
         }
         if (const auto pld = std::dynamic_pointer_cast<EventTradePayload>(payload->payload)) {

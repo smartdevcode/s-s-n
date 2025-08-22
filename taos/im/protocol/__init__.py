@@ -130,11 +130,9 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         payload = json['payload']
         model = 'im'
 
-        # ---- Books ----
         books = {book['bookId'] : Book.from_ypy(book) for book in payload['books']}
         bt.logging.info(f"Books populated ({time.time() - start:.4f}s).")
 
-        # ---- Accounts ----
         start = time.time()
         accounts = {}
         for sagentId, account in payload['accounts']:
@@ -150,21 +148,17 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
             agent_accounts = accounts.setdefault(agent_id, {})
 
             for book_id, balances in enumerate(holdings):
-                # Base and quote balances
                 base_balance = Balance.from_json(currency='BASE', json=balances['base'])
                 quote_balance = Balance.from_json(currency='QUOTE', json=balances['quote'])
 
-                # Orders
                 book_orders = []
                 if orders_data and book_id < len(orders_data) and orders_data[book_id]:
                     book_orders = [Order.from_json(o) for o in orders_data[book_id]]
 
-                # Loans
                 book_loans = {}
                 if loans_data and book_id < len(loans_data) and loans_data[book_id]:
                     book_loans = {int(i): Loan.from_json(l) for i, l in loans_data[book_id]}
 
-                # Fees
                 book_fees = Fees.from_json(fees_data[str(book_id)])
 
                 agent_accounts[book_id] = Account.model_construct(
@@ -182,12 +176,10 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                 )
         bt.logging.info(f"Accounts populated ({time.time() - start:.4f}s).")
 
-        # ---- Notices ----
         start = time.time()
         valid_agents = [int(uid) for uid, _ in payload['accounts'] if int(uid) >= 0]
         notices = {agent_id: [] for agent_id in valid_agents}
 
-        # Single sort of incoming notices; then route/broadcast
         for raw_notice in sorted(payload['notices'], key=lambda x: (x['timestamp'], -x['delay'])):
             n = FinanceEventNotification.from_json(raw_notice)
             target_id = n.event.agentId
@@ -196,11 +188,9 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                 if target_id in notices:
                     notices[target_id].append(n.event)
             else:
-                # broadcast to all valid agents
                 for agent_id in valid_agents:
                     notices[agent_id].append(n.event)
 
-        # In-place sort per agent to avoid rebuilding the dict
         for agent_id in notices:
             notices[agent_id].sort(key=lambda e: e.timestamp)
 

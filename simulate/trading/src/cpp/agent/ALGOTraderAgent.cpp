@@ -10,6 +10,7 @@
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/accumulators/statistics/variance.hpp>
+#include <boost/math/statistics/linear_regression.hpp>  
 //-------------------------------------------------------------------------
 
 namespace taosim::agent
@@ -47,6 +48,26 @@ ALGOTraderVolumeStats::ALGOTraderVolumeStats(size_t period,
     }
  
 }
+//-------------------------------------------------------------------------
+
+void ALGOTraderVolumeStats::push_levels(Timestamp timestamp, std::vector<BookLevel>& bids, std::vector<BookLevel>& asks)
+{
+    OLS slopes = {.bid = slopeOLS(bids), .ask = slopeOLS(asks)};
+    m_OLS[timestamp] = slopes;
+    // fmt::println("New slopes:  bid {} | ask {}", m_OLS.at(timestamp).bid, m_OLS.at(timestamp).ask);
+}
+
+double ALGOTraderVolumeStats::slopeOLS(std::vector<BookLevel>& side) {
+    using boost::math::statistics::simple_ordinary_least_squares;
+
+    std::vector<double> x = side | views::transform([](const auto& level) { return taosim::util::decimal2double(level.price); }) | ranges::to<std::vector>();;
+    std::vector<double> y(side.size());
+    ranges::partial_sum(side
+    | views::transform([](const auto& level) { return taosim::util::decimal2double(level.price); }), y);
+    auto [c0, c1] = simple_ordinary_least_squares(x, y);
+    return c1;
+}
+
 
 //-------------------------------------------------------------------------
 
@@ -216,6 +237,7 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
         return state;
     }();
 
+    m_period = node.attribute("volumeStatsPeriod").as_ullong();
 
     m_marketFeedLatencyDistribution = std::normal_distribution<double>{
         [&] {
@@ -229,6 +251,9 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
             return attr.empty() ? 1'000'000'000.0 : attr.as_double(); 
         }()
     };
+
+    attr = node.attribute("depth");
+    m_depth = (attr.empty() || attr.as_uint() == 0) ? 21 : attr.as_uint();
 
     if (attr = node.attribute("minOPLatency"); attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
@@ -293,7 +318,30 @@ void ALGOTraderAgent::receiveMessage(Message::Ptr msg)
     else if (msg->type == "RESPONSE_PLACE_ORDER_MARKET") {
         handleMarketOrderResponse(msg);
     }
+    else if (msg->type == "RESPONSE_RETRIEVE_L2") {
+        handleBookResponse(msg);
+    }
 }
+
+//-------------------------------------------------------------------------
+void ALGOTraderAgent::handleBookResponse(Message::Ptr msg) 
+{
+    const auto payload = std::dynamic_pointer_cast<RetrieveL2ResponsePayload>(msg->payload);
+    BookId bookId = payload->bookId;
+    fmt::println("Pushing to book {}", bookId);
+    m_state.at(bookId).volumeStats.push_levels(static_cast<Timestamp>(payload->time / m_period), payload->bids,payload->asks);
+
+    simulation()->dispatchMessage(
+        simulation()->currentTimestamp(),
+        m_period,
+        name(),
+        m_exchange,
+        "RETRIEVE_L2",
+        MessagePayload::create<RetrieveL2Payload>(m_depth,bookId)
+    );
+
+}
+
 
 //-------------------------------------------------------------------------
 
@@ -316,6 +364,17 @@ void ALGOTraderAgent::handleSimulationStart(Message::Ptr msg)
             name(),
             name(),
             "WAKEUP_ALGOTRADER");
+
+    for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
+        simulation()->dispatchMessage(
+            simulation()->currentTimestamp(),
+            m_period,
+            name(),
+            m_exchange,
+            "RETRIEVE_L2",
+            MessagePayload::create<RetrieveL2Payload>(m_depth,bookId)
+        );
+    }
 }
 
 

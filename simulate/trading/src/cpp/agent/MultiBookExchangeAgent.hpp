@@ -89,8 +89,7 @@ private:
     void handleLocalCancelOrders(Message::Ptr msg);
     void handleLocalClosePositions(Message::Ptr msg);
     void handleLocalRetrieveL1(Message::Ptr msg);
-    void handleLocalRetrieveBookAsk(Message::Ptr msg);
-    void handleLocalRetrieveBookBid(Message::Ptr msg);
+    void handleLocalRetrieveL2(Message::Ptr msg);
     void handleLocalMarketOrderSubscription(Message::Ptr msg);
     void handleLocalLimitOrderSubscription(Message::Ptr msg);
     void handleLocalTradeSubscription(Message::Ptr msg);

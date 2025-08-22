@@ -60,11 +60,8 @@ MessagePayload::Ptr PayloadFactory::createFromJsonMessage(const rapidjson::Value
     else if (type == "RESPONSE_RETRIEVE_L1") {
         return RetrieveL1ResponsePayload::fromJson(payloadJson);
     }
-    else if (type == "RETRIEVE_BOOK_ASK") {
-        return RetrieveBookPayload::fromJson(payloadJson);
-    }
-    else if (type == "RETRIEVE_BOOK_BID") {
-        return RetrieveBookPayload::fromJson(payloadJson);
+    else if (type == "RETRIEVE_BOOK") {
+        return RetrieveL2Payload::fromJson(payloadJson);
     }
     else if (type == "SUBSCRIBE_EVENT_ORDER_MARKET") {
         return MessagePayload::create<EmptyPayload>();

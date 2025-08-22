@@ -1556,7 +1556,6 @@ class Book(BaseModel):
     @classmethod
     def from_ypy(cls, json: YpyObject, depth : int = 21) -> 'Book':
         book_id = json['bookId']
-        # Bids
         bids = []
         for i, lvl in enumerate(json['bid']):
             if i >= 21:
@@ -1573,7 +1572,6 @@ class Book(BaseModel):
                         price=lvl['price']
                     ) for o in lvl['orders']] if i < 5 else None
             ))
-        # Asks
         asks = []
         for i, lvl in enumerate(json['ask']):
             if i >= 21:
@@ -1590,7 +1588,6 @@ class Book(BaseModel):
                         price=lvl['price']
                     ) for o in lvl['orders']] if i < 5 else None
             ))
-        # Events
         events = []
         for ev in json['record']:
             ev_type = ev['event']

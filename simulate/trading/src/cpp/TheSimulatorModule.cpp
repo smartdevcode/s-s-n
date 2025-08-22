@@ -215,21 +215,6 @@ PYBIND11_EMBEDDED_MODULE(thesimulator, m)
         .def_readwrite("errorPayload", &CancelOrdersErrorResponsePayload::errorPayload)
         ;
 
-    py::class_<RetrieveBookPayload, MessagePayload, std::shared_ptr<RetrieveBookPayload>>(
-        m, "RetrieveBookPayload")
-        .def_readwrite("depth", &RetrieveBookPayload::depth)
-        .def_readwrite("bookId", &RetrieveBookPayload::bookId)
-        ;
-
-    py::class_<
-        RetrieveBookResponsePayload,
-        MessagePayload,
-        std::shared_ptr<RetrieveBookResponsePayload>>(m, "RetrieveBookResponsePayload")
-        .def(py::init<Timestamp, std::vector<TickContainer::ContainerType>>())
-        .def_readwrite("time", &RetrieveBookResponsePayload::time)
-        .def_readwrite("tickContainers", &RetrieveBookResponsePayload::tickContainers)
-        ;
-
     py::class_<RetrieveL1Payload, MessagePayload, RetrieveL1Payload::Ptr>(m, "RetrieveL1Payload")
         .def(py::init<>())
         .def_readwrite("bookId", &RetrieveL1Payload::bookId)

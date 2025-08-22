@@ -819,7 +819,7 @@ ClosePositionsErrorResponsePayload::Ptr ClosePositionsErrorResponsePayload::from
 
 //-------------------------------------------------------------------------
 
-void RetrieveBookPayload::jsonSerialize(
+void RetrieveL2Payload::jsonSerialize(
     rapidjson::Document& json, const std::string& key) const
 {
     auto serialize = [this](rapidjson::Document& json) {
@@ -833,7 +833,7 @@ void RetrieveBookPayload::jsonSerialize(
 
 //-------------------------------------------------------------------------
 
-void RetrieveBookPayload::checkpointSerialize(
+void RetrieveL2Payload::checkpointSerialize(
     rapidjson::Document& json, const std::string& key) const
 {
     jsonSerialize(json, key);
@@ -841,81 +841,88 @@ void RetrieveBookPayload::checkpointSerialize(
 
 //-------------------------------------------------------------------------
 
-RetrieveBookPayload::Ptr RetrieveBookPayload::fromJson(const rapidjson::Value& json)
+RetrieveL2Payload::Ptr RetrieveL2Payload::fromJson(const rapidjson::Value& json)
 {
-    return MessagePayload::create<RetrieveBookPayload>(
+    return MessagePayload::create<RetrieveL2Payload>(
         json["depth"].GetUint(), json["bookId"].GetUint());
 }
 
 //-------------------------------------------------------------------------
 
-void RetrieveBookResponsePayload::jsonSerialize(
+void RetrieveL2ResponsePayload::jsonSerialize(
     rapidjson::Document& json, const std::string& key) const
 {
     auto serialize = [this](rapidjson::Document& json) {
         json.SetObject();
         auto& allocator = json.GetAllocator();
         json.AddMember("time", rapidjson::Value{time}, allocator);
-        rapidjson::Value tickContainersJson{rapidjson::kArrayType};
-        for (const TickContainer::ContainerType& tickContainer : tickContainers) {
-            rapidjson::Document tickContainerJson{rapidjson::kArrayType, &allocator};
-            for (const TickContainer::value_type& order : tickContainer) {
-                rapidjson::Document orderJson{rapidjson::kObjectType, &allocator};
-                order->jsonSerialize(orderJson);
-                tickContainerJson.PushBack(orderJson, allocator);
-            }
-            tickContainersJson.PushBack(tickContainerJson, allocator);
+        rapidjson::Value bidsJson{rapidjson::kArrayType};
+        for (const auto& level : bids) {
+            rapidjson::Document levelJson{rapidjson::kObjectType, &allocator};
+            levelJson.AddMember(
+                "price",
+                rapidjson::Value{taosim::util::decimal2double(level.price)},
+                allocator);
+            levelJson.AddMember(
+                "quantity",
+                rapidjson::Value{taosim::util::decimal2double(level.quantity)},
+                allocator);
+            bidsJson.PushBack(levelJson, allocator);
         }
-        json.AddMember("tickContainers", tickContainersJson, allocator);
+        json.AddMember("bids", bidsJson, allocator);
+        rapidjson::Value asksJson{rapidjson::kArrayType};
+        for (const auto& level : asks) {
+            rapidjson::Document levelJson{rapidjson::kObjectType, &allocator};
+            levelJson.AddMember(
+                "price",
+                rapidjson::Value{taosim::util::decimal2double(level.price)},
+                allocator);
+            levelJson.AddMember(
+                "quantity",
+                rapidjson::Value{taosim::util::decimal2double(level.quantity)},
+                allocator);
+            asksJson.PushBack(levelJson, allocator);
+        }
+        json.AddMember("asks", asksJson, allocator);
+        json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
 
 //-------------------------------------------------------------------------
 
-void RetrieveBookResponsePayload::checkpointSerialize(
+void RetrieveL2ResponsePayload::checkpointSerialize(
     rapidjson::Document& json, const std::string& key) const
-{
-    auto serialize = [this](rapidjson::Document& json) {
-        json.SetObject();
-        auto& allocator = json.GetAllocator();
-        json.AddMember("time", rapidjson::Value{time}, allocator);
-        rapidjson::Value tickContainersJson{rapidjson::kArrayType};
-        for (const TickContainer::ContainerType& tickContainer : tickContainers) {
-            rapidjson::Document tickContainerJson{rapidjson::kArrayType, &allocator};
-            for (const TickContainer::value_type& order : tickContainer) {
-                rapidjson::Document orderJson{rapidjson::kObjectType, &allocator};
-                order->jsonSerialize(orderJson);
-                tickContainerJson.PushBack(orderJson, allocator);
-            }
-            tickContainersJson.PushBack(tickContainerJson, allocator);
-        }
-        json.AddMember("tickContainers", tickContainersJson, allocator);
-    };
-    taosim::json::serializeHelper(json, key, serialize);
-}
+{}
 
 //-------------------------------------------------------------------------
 
-RetrieveBookResponsePayload::Ptr RetrieveBookResponsePayload::fromJson(
+RetrieveL2ResponsePayload::Ptr RetrieveL2ResponsePayload::fromJson(
     const rapidjson::Value& json)
 {
-    return MessagePayload::create<RetrieveBookResponsePayload>(
+    return MessagePayload::create<RetrieveL2ResponsePayload>(
         json["time"].GetUint64(),
         [&] {
-            std::vector<TickContainer::ContainerType> tickContainers;
-            for (const rapidjson::Value& tickContainerJson : json["tickContainers"].GetArray()) {
-                tickContainers.push_back([&] {
-                    TickContainer::ContainerType tickContainer;
-                    for (const rapidjson::Value& orderJson : tickContainerJson.GetArray()) {
-                        // Just provide conservative enough rounding details for now...
-                        tickContainer.push_back(LimitOrder::fromJson(orderJson, 12, 12));
-                    }
-                    return tickContainer;
-                }());
+            std::vector<BookLevel> bids;
+            for (const auto& levelJson : json["bids"].GetArray()) {
+                bids.push_back({
+                    .price = taosim::json::getDecimal(levelJson["price"]),
+                    .quantity = taosim::json::getDecimal(levelJson["quantity"])
+                });
             }
-            return tickContainers;
-        }());
+            return bids;
+        }(),
+        [&] {
+            std::vector<BookLevel> asks;
+            for (const auto& levelJson : json["asks"].GetArray()) {
+                asks.push_back({
+                    .price = taosim::json::getDecimal(levelJson["price"]),
+                    .quantity = taosim::json::getDecimal(levelJson["quantity"])
+                });
+            }
+            return asks;
+        }(),
+        json["bookId"].GetUint());
 }
 
 //-------------------------------------------------------------------------

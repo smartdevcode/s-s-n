@@ -257,6 +257,10 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
     // if (volumeToCancel == order->totalVolume()) {
     if (volumeToCancel >= order->volume()) {
         account.activeOrders()[bookId].erase(order);
+        if (balances.canFree(order->id(), order->direction())){
+            balances.freeReservation(order->id(), m_exchange->books()[bookId]->bestAsk(),
+                m_exchange->books()[bookId]->bestBid(), m_exchange->books()[bookId]->bestAsk(), order->direction());
+        }
     }
 
     m_exchange->simulation()->logDebug(

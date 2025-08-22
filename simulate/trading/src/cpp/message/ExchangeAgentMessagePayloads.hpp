@@ -447,14 +447,14 @@ struct ClosePositionsErrorResponsePayload : public MessagePayload
 
 //-------------------------------------------------------------------------
 
-struct RetrieveBookPayload : public MessagePayload
+struct RetrieveL2Payload : public MessagePayload
 {
-    using Ptr = std::shared_ptr<RetrieveBookPayload>;
+    using Ptr = std::shared_ptr<RetrieveL2Payload>;
 
     size_t depth;
     BookId bookId;
 
-    RetrieveBookPayload(size_t depth, BookId bookId) noexcept
+    RetrieveL2Payload(size_t depth, BookId bookId) noexcept
         : depth{depth}, bookId{bookId}
     {}
 
@@ -468,20 +468,27 @@ struct RetrieveBookPayload : public MessagePayload
 
 //-------------------------------------------------------------------------
 
-struct RetrieveBookResponsePayload : public MessagePayload
+struct BookLevel
 {
-    using Ptr = std::shared_ptr<RetrieveBookResponsePayload>;
+    taosim::decimal_t price;
+    taosim::decimal_t quantity;
+};
+
+struct RetrieveL2ResponsePayload : public MessagePayload
+{
+    using Ptr = std::shared_ptr<RetrieveL2ResponsePayload>;
 
     Timestamp time;
-    std::vector<TickContainer::ContainerType> tickContainers;
+    std::vector<BookLevel> bids;
+    std::vector<BookLevel> asks;
+    BookId bookId;
 
-    RetrieveBookResponsePayload(Timestamp time) noexcept
-        : RetrieveBookResponsePayload(time, std::vector<TickContainer::ContainerType>{})
-    {}
-
-    RetrieveBookResponsePayload(
-        Timestamp time, std::vector<TickContainer::ContainerType> tickContainers) noexcept
-        : time{time}, tickContainers{std::move(tickContainers)}
+    RetrieveL2ResponsePayload(
+        Timestamp time,
+        std::vector<BookLevel> bids,
+        std::vector<BookLevel> asks,
+        BookId bookId) noexcept
+        : time{time}, bids{std::move(bids)}, asks{std::move(asks)}, bookId{bookId}
     {}
 
     virtual void jsonSerialize(

@@ -13,7 +13,7 @@
             </FeePolicy>
             <Books instanceCount="5" algorithm="PriceTime" maxDepth="5">
                     <Processes>
-                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.016"
+                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.02"
                         lambda="0.0025" muJump="0.0" sigmaJump="0.0052" updatePeriod="10000000000"/>
                     <FuturesSignal name="external" seedInterval="10000000000" updatePeriod="10000000000"/>
                 </Processes>
@@ -49,12 +49,12 @@
             name="ALGO_TRADER_AGENT"
             instanceCount="1"
             exchange="EXCHANGE"
-            MFLmean="15000000000"
+            MFLmean="30000000000"
             MFLstd="250000000"
             volumeStatsPeriod="60000000000"
             minOPLatency="1000000"
             maxOPLatency="50000000"
-            volumeDrawRayleighScale="750.0"
+            volumeDrawRayleighScale="3000.0"
             alpha="0.4"
             beta="0.5"
             omega="0.00000001"

@@ -8,6 +8,7 @@
 #include "Distribution.hpp"
 #include "Order.hpp"
 #include "Trade.hpp"
+#include "ExchangeAgentMessagePayloads.hpp"
 #include "decimal.hpp"
 
 #include <boost/math/distributions/rayleigh.hpp>
@@ -48,6 +49,11 @@ struct TimestampedVolume
     }
 };
 
+struct OLS 
+{
+    double bid,ask;
+};
+
 class ALGOTraderVolumeStats
 {
 public:
@@ -55,6 +61,7 @@ public:
 
     void push(const Trade& trade);
     void push(TimestampedVolume timestampedVolume);
+    void push_levels(Timestamp timestamp, std::vector<BookLevel>& bids, std::vector<BookLevel>& asks);
     
     [[nodiscard]] decimal_t rollingSum() const noexcept { return m_rollingSum; }
     [[nodiscard]] double variance() const noexcept { return m_variance; }
@@ -63,6 +70,8 @@ public:
     [[nodiscard]] static ALGOTraderVolumeStats fromXML(pugi::xml_node node, double initPrice);
 
 private:
+    double slopeOLS(std::vector<BookLevel>& side);
+    
     Timestamp m_period;
     double m_alpha;
     double m_beta;
@@ -78,6 +87,7 @@ private:
     std::map<Timestamp,double> m_logRets; 
     double m_variance;
     double m_estimatedVol;
+    std::map<Timestamp, OLS> m_OLS;
 };
 
 struct ALGOTraderState
@@ -114,6 +124,7 @@ private:
     void handleTrade(Message::Ptr msg);
     void handleWakeup(Message::Ptr msg);
     void handleMarketOrderResponse(Message::Ptr msg);
+    void handleBookResponse(Message::Ptr msg);
 
     void execute(BookId bookId, ALGOTraderState& state);
     decimal_t drawNewVolume(uint32_t baseDecimals);
@@ -139,7 +150,8 @@ private:
     std::normal_distribution<double> m_departureThreshold;
     float m_wakeupProb;
     VolatilityBounds m_volatilityBounds;
-
+    Timestamp m_period;
+    size_t m_depth;
     std::normal_distribution<double> m_delay;
    
     u_int64_t m_lastTriggerUpdate;
