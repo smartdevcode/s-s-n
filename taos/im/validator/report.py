@@ -405,22 +405,65 @@ async def report(self : Validator) -> None:
                 average_daily_volume = {role: round(total_daily_volume[role] / len(daily_volumes[agentId]), self.simulation.volumeDecimals) for role in ['total', 'maker', 'taker', 'self']}
                 min_daily_volume = {role: min([book_volume[role] for book_volume in daily_volumes[agentId].values()]) for role in ['total', 'maker', 'taker', 'self']}
                 start_gauges = time.time()
+                
                 _set_if_changed(self.prometheus_miner_gauges, total_base_balance, self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_base_balance")
                 _set_if_changed(self.prometheus_miner_gauges, total_base_loan, self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_base_loan")
                 _set_if_changed(self.prometheus_miner_gauges, total_base_collateral, self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_base_collateral")
                 _set_if_changed(self.prometheus_miner_gauges, total_quote_balance, self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_quote_balance")
                 _set_if_changed(self.prometheus_miner_gauges, total_quote_loan, self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_quote_loan")
                 _set_if_changed(self.prometheus_miner_gauges, total_quote_collateral, self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_quote_collateral")
-                for role in ['total', 'maker', 'taker', 'self']:
-                    _set_if_changed(self.prometheus_miner_gauges, total_daily_volume[role], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, f"total_daily_volume_{role}")
-                    _set_if_changed(self.prometheus_miner_gauges, average_daily_volume[role], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, f"average_daily_volume_{role}")
-                    _set_if_changed(self.prometheus_miner_gauges, min_daily_volume[role], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, f"min_daily_volume_{role}")
+                _set_if_changed(self.prometheus_miner_gauges, total_inventory_history[agentId][-1], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_inventory_value")
                 _set_if_changed(self.prometheus_miner_gauges, pnl[agentId], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "pnl")
+
+                _set_if_changed(self.prometheus_miner_gauges, total_daily_volume['total'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_daily_volume")
+                _set_if_changed(self.prometheus_miner_gauges, total_daily_volume['maker'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_daily_maker_volume")
+                _set_if_changed(self.prometheus_miner_gauges, total_daily_volume['taker'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_daily_taker_volume")
+                _set_if_changed(self.prometheus_miner_gauges, total_daily_volume['self'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "total_daily_self_volume")
+
+                _set_if_changed(self.prometheus_miner_gauges, average_daily_volume['total'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "average_daily_volume")
+                _set_if_changed(self.prometheus_miner_gauges, average_daily_volume['maker'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "average_daily_maker_volume")
+                _set_if_changed(self.prometheus_miner_gauges, average_daily_volume['taker'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "average_daily_taker_volume")
+                _set_if_changed(self.prometheus_miner_gauges, average_daily_volume['self'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "average_daily_self_volume")
+
+                _set_if_changed(self.prometheus_miner_gauges, min_daily_volume['total'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "min_daily_volume")
+                _set_if_changed(self.prometheus_miner_gauges, min_daily_volume['maker'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "min_daily_maker_volume")
+                _set_if_changed(self.prometheus_miner_gauges, min_daily_volume['taker'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "min_daily_taker_volume")
+                _set_if_changed(self.prometheus_miner_gauges, min_daily_volume['self'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "min_daily_self_volume")
+
+                _set_if_changed(self.prometheus_miner_gauges, sum(self.activity_factors[agentId].values()) / len(self.activity_factors[agentId]), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "activity_factor")
+
+                if self.sharpe_values[agentId]:
+                    _set_if_changed(self.prometheus_miner_gauges, self.sharpe_values[agentId]['median'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "sharpe")
+                    if 'activity_weighted_normalized_median' in self.sharpe_values[agentId]:
+                        _set_if_changed(self.prometheus_miner_gauges, self.sharpe_values[agentId]['activity_weighted_normalized_median'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "activity_weighted_normalized_median_sharpe")
+                    if 'penalty' in self.sharpe_values[agentId]:
+                        _set_if_changed(self.prometheus_miner_gauges, self.sharpe_values[agentId]['penalty'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "sharpe_penalty")
+                    if 'score' in self.sharpe_values[agentId]:
+                        _set_if_changed(self.prometheus_miner_gauges, self.sharpe_values[agentId]['score'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "sharpe_score")
+                else:
+                    try:
+                        self.prometheus_miner_gauges.remove(self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "sharpe")
+                    except KeyError:
+                        pass
+
+                _set_if_changed(self.prometheus_miner_gauges, self.unnormalized_scores[agentId], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "unnormalized_score")
+                _set_if_changed(self.prometheus_miner_gauges, scores[agentId].item(), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "score")
                 _set_if_changed(self.prometheus_miner_gauges, placements[agentId].item(), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "placement")
-                _set_if_changed(self.prometheus_miner_gauges, self.metagraph.trust[agentId], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "trust")
-                _set_if_changed(self.prometheus_miner_gauges, self.metagraph.consensus[agentId], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "consensus")
-                _set_if_changed(self.prometheus_miner_gauges, self.metagraph.incentive[agentId], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "incentive")
-                _set_if_changed(self.prometheus_miner_gauges, self.metagraph.emission[agentId], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "emission")
+
+                _set_if_changed(self.prometheus_miner_gauges, (self.metagraph.trust[agentId] if len(self.metagraph.trust) > agentId else 0.0), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "trust")
+                _set_if_changed(self.prometheus_miner_gauges, (self.metagraph.consensus[agentId] if len(self.metagraph.consensus) > agentId else 0.0), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "consensus")
+                _set_if_changed(self.prometheus_miner_gauges, (self.metagraph.incentive[agentId] if len(self.metagraph.incentive) > agentId else 0.0), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "incentive")
+                _set_if_changed(self.prometheus_miner_gauges, (self.metagraph.emission[agentId] if len(self.metagraph.emission) > agentId else 0.0), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "emission")
+
+                if self.simulation_timestamp % (self.simulation.publish_interval * 100) == 0:
+                    _set_if_changed(self.prometheus_miner_gauges, self.miner_stats[agentId]['requests'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "requests")
+                    _set_if_changed(self.prometheus_miner_gauges, self.miner_stats[agentId]['requests'] - self.miner_stats[agentId]['failures'] - self.miner_stats[agentId]['timeouts'] - self.miner_stats[agentId]['rejections'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "success")
+                    _set_if_changed(self.prometheus_miner_gauges, self.miner_stats[agentId]['failures'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "failures")
+                    _set_if_changed(self.prometheus_miner_gauges, self.miner_stats[agentId]['timeouts'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "timeouts")
+                    _set_if_changed(self.prometheus_miner_gauges, self.miner_stats[agentId]['rejections'], self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "rejections")
+                    _set_if_changed(self.prometheus_miner_gauges, (sum(self.miner_stats[agentId]['call_time']) / len(self.miner_stats[agentId]['call_time']) if len(self.miner_stats[agentId]['call_time']) > 0 else 0), self.wallet.hotkey.ss58_address, self.config.netuid, agentId, "call_time")
+                    self.miner_stats[agentId] = {'requests': 0, 'timeouts': 0, 'failures': 0, 'rejections': 0, 'call_time': []}
+
                 _set_if_changed_metric(
                     self.prometheus_miners,
                     1.0,
