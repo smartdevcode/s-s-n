@@ -80,6 +80,8 @@ struct PlaceOrderMarketPayload : public MessagePayload
         clientOrderId{clientOrderId}, stpFlag{stpFlag}, settleFlag{settleFlag}
     {}
 
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
+
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
     virtual void checkpointSerialize(
@@ -203,6 +205,8 @@ struct PlaceOrderLimitPayload : public MessagePayload
           stpFlag{stpFlag},
           settleFlag{settleFlag}
     {}
+
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;

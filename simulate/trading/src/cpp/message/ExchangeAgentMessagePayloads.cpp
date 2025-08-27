@@ -37,6 +37,37 @@ StartSimulationPayload::Ptr StartSimulationPayload::fromJson(const rapidjson::Va
 
 //-------------------------------------------------------------------------
 
+void PlaceOrderMarketPayload::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        json.AddMember("d", rapidjson::Value{std::to_underlying(direction)}, allocator);
+        json.AddMember("v", rapidjson::Value{taosim::util::decimal2double(volume)}, allocator);
+        json.AddMember("b", rapidjson::Value{bookId}, allocator);
+        json.AddMember("n", rapidjson::Value{std::to_underlying(currency)}, allocator);
+        taosim::json::setOptionalMember(json, "ci", clientOrderId);
+        json.AddMember(
+            "s", rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator}, allocator);
+        json.AddMember("l", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
+        std::visit(
+            [&](auto&& flag) {
+                using T = std::remove_cvref_t<decltype(flag)>;
+                if constexpr (std::same_as<T, SettleType>) {
+                    json.AddMember(
+                        "f", rapidjson::Value{magic_enum::enum_name(flag).data(), allocator}, allocator);
+                } else if constexpr (std::same_as<T, OrderID>) {
+                    json.AddMember("f", rapidjson::Value{flag}, allocator);
+                } else {
+                    static_assert(false, "Non-exhaustive visitor");
+                }
+            }, settleFlag);
+    };
+    return taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
 void PlaceOrderMarketPayload::jsonSerialize(
     rapidjson::Document& json, const std::string& key) const
 {
@@ -202,6 +233,43 @@ PlaceOrderMarketErrorResponsePayload::Ptr PlaceOrderMarketErrorResponsePayload::
     return MessagePayload::create<PlaceOrderMarketErrorResponsePayload>(
         PlaceOrderMarketPayload::fromJson(json["requestPayload"]),
         ErrorResponsePayload::fromJson(json["errorPayload"]));
+}
+
+//-------------------------------------------------------------------------
+
+void PlaceOrderLimitPayload::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [&](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        json.AddMember("d", rapidjson::Value{std::to_underlying(direction)}, allocator);
+        json.AddMember("v", rapidjson::Value{taosim::util::decimal2double(volume)}, allocator);
+        json.AddMember("p", rapidjson::Value{taosim::util::decimal2double(price)}, allocator);
+        json.AddMember("l", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
+        json.AddMember("b", rapidjson::Value{bookId}, allocator);
+        json.AddMember("n", rapidjson::Value{std::to_underlying(currency)}, allocator);
+        taosim::json::setOptionalMember(json, "ci", clientOrderId);
+        json.AddMember("y", rapidjson::Value{postOnly}, allocator);
+        json.AddMember(
+            "r", rapidjson::Value{magic_enum::enum_name(timeInForce).data(), allocator}, allocator);
+        taosim::json::setOptionalMember(json, "x", expiryPeriod);
+        json.AddMember(
+            "s", rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator}, allocator);
+        std::visit(
+            [&](auto&& flag) {
+                using T = std::remove_cvref_t<decltype(flag)>;
+                if constexpr (std::same_as<T, SettleType>) {
+                    json.AddMember(
+                        "f", rapidjson::Value{magic_enum::enum_name(flag).data(), allocator}, allocator);
+                } else if constexpr (std::same_as<T, OrderID>) {
+                    json.AddMember("f", rapidjson::Value{flag}, allocator);
+                } else {
+                    static_assert(false, "Non-exhaustive visitor");
+                }
+            },
+            settleFlag);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
 }
 
 //-------------------------------------------------------------------------

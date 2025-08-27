@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "Order.hpp"
+#include "ExchangeAgentMessagePayloads.hpp"
 
 #include "util.hpp"
 
@@ -178,8 +179,11 @@ void Order::checkpointSerialize(rapidjson::Document& json, const std::string& ke
                         allocator);
                 } else if constexpr (std::same_as<T, OrderID>) {
                     json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+                } else {
+                    static_assert(false, "Non-exhaustive visitor");
                 }
-            }, m_settleFlag);
+            },
+            m_settleFlag);
     };
     taosim::json::serializeHelper(json, key, serialize);
 }
@@ -197,6 +201,43 @@ MarketOrder::MarketOrder(
     Currency currency) noexcept
     : Order(orderId, timestamp, volume, direction, leverage, stpFlag, settleFlag, currency)
 {}
+
+//-------------------------------------------------------------------------
+
+void MarketOrder::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        json.AddMember("i", rapidjson::Value{id()}, allocator);
+        json.AddMember("j", rapidjson::Value{timestamp()}, allocator);
+        json.AddMember("v", rapidjson::Value{taosim::util::decimal2double(volume())}, allocator);
+        json.AddMember("d", rapidjson::Value{std::to_underlying(direction())}, allocator);
+        json.AddMember("l", rapidjson::Value{taosim::util::decimal2double(leverage())}, allocator);
+        json.AddMember(
+            "s", rapidjson::Value{magic_enum::enum_name(stpFlag()).data(), allocator}, allocator);
+        std::visit(
+            [&](auto&& flag) {
+                using T = std::remove_cvref_t<decltype(flag)>;
+                if constexpr (std::same_as<T, SettleType>) {
+                    json.AddMember(
+                        "f",
+                        rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                        allocator);
+                } else if constexpr (std::same_as<T, OrderID>) {
+                    json.AddMember("f", rapidjson::Value{flag}, allocator);
+                } else {
+                    static_assert(false, "Non-exhaustive visitor");
+                }
+            },
+            settleFlag());
+        json.AddMember(
+            "n",
+            rapidjson::Value{magic_enum::enum_name(currency()).data(), allocator},
+            allocator);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
 
 //-------------------------------------------------------------------------
 
@@ -273,6 +314,50 @@ void LimitOrder::setPrice(taosim::decimal_t newPrice)
             newPrice));
     }
     m_price = newPrice;
+}
+
+//-------------------------------------------------------------------------
+
+void LimitOrder::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        json.AddMember("i", rapidjson::Value{id()}, allocator);
+        json.AddMember("j", rapidjson::Value{timestamp()}, allocator);
+        json.AddMember("v", rapidjson::Value{taosim::util::decimal2double(volume())}, allocator);
+        json.AddMember("d", rapidjson::Value{std::to_underlying(direction())}, allocator);
+        json.AddMember("l", rapidjson::Value{taosim::util::decimal2double(leverage())}, allocator);
+        json.AddMember(
+            "s", rapidjson::Value{magic_enum::enum_name(stpFlag()).data(), allocator}, allocator);
+        std::visit(
+            [&](auto&& flag) {
+                using T = std::remove_cvref_t<decltype(flag)>;
+                if constexpr (std::same_as<T, SettleType>) {
+                    json.AddMember(
+                        "f",
+                        rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
+                        allocator);
+                } else if constexpr (std::same_as<T, OrderID>) {
+                    json.AddMember("f", rapidjson::Value{flag}, allocator);
+                } else {
+                    static_assert(false, "Non-exhaustive visitor");
+                }
+            },
+            settleFlag());
+        json.AddMember(
+            "n",
+            rapidjson::Value{magic_enum::enum_name(currency()).data(), allocator},
+            allocator);
+        json.AddMember("p", rapidjson::Value{taosim::util::decimal2double(m_price)}, allocator);
+        json.AddMember("y", rapidjson::Value{m_postOnly}, allocator);
+        json.AddMember(
+            "r",
+            rapidjson::Value{magic_enum::enum_name(m_timeInForce).data(), allocator},
+            allocator);
+        taosim::json::setOptionalMember(json, "x", m_expiryPeriod);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
 }
 
 //-------------------------------------------------------------------------
@@ -420,6 +505,19 @@ void OrderEvent::jsonSerialize(rapidjson::Document& json, const std::string& key
 
 //-------------------------------------------------------------------------
 
+void OrderLogContext::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        json.AddMember("a", rapidjson::Value{agentId}, allocator);
+        json.AddMember("b", rapidjson::Value{bookId}, allocator);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
 void OrderLogContext::jsonSerialize(rapidjson::Document& json, const std::string& key) const
 {
     auto serialize = [this](rapidjson::Document& json) {
@@ -427,6 +525,23 @@ void OrderLogContext::jsonSerialize(rapidjson::Document& json, const std::string
         auto& allocator = json.GetAllocator();
         json.AddMember("agentId", rapidjson::Value{agentId}, allocator);
         json.AddMember("bookId", rapidjson::Value{bookId}, allocator);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
+void OrderWithLogContext::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        if (const auto o = std::dynamic_pointer_cast<MarketOrder>(order)) {
+            o->L3Serialize(json, "o");
+        } else if (const auto o = std::dynamic_pointer_cast<LimitOrder>(order)) {
+            o->L3Serialize(json, "o");
+        }
+        logContext->L3Serialize(json, "g");
     };
     taosim::json::serializeHelper(json, key, serialize);
 }

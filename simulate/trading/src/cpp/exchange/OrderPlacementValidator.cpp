@@ -37,19 +37,21 @@ OrderPlacementValidator::ExpectedResult
     //   - enough inventory *and* the book can at least partially fill the order (sell)
     // AND
     //   - the order volume respects the minimum increment
-
-    if (payload->leverage < 0_dec || payload->leverage > maxLeverage)
+    
+    if (payload->leverage < 0_dec || payload->leverage > maxLeverage) {
         return std::unexpected{OrderErrorCode::INVALID_LEVERAGE};
-
-    if (payload->volume <= 0_dec)
+    }
+    if (payload->volume <= 0_dec) {
         return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+    }
     
     payload->volume = util::round(payload->volume, 
         payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
     payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);
+
     const decimal_t payloadTotalAmount = util::round(payload->volume * util::dec1p(payload->leverage),
         payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
-    
+
     const auto& balances = account.at(book->id());
     const auto& baseBalance = balances.base;
     const auto& quoteBalance = balances.quote;
@@ -157,6 +159,9 @@ OrderPlacementValidator::ExpectedResult
         } else {
             volumeWeightedPrice = util::round(volumeWeightedPrice / util::dec1p(payload->leverage), m_params.quoteIncrementDecimals);
             const decimal_t price = book->bestAsk();
+            if (volumeWeightedPrice <= 0_dec){
+                return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+            }
             if (!balances.canBorrow(volumeWeightedPrice, price, payload->direction) ||
                 volumeWeightedPrice * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
 
@@ -241,6 +246,9 @@ OrderPlacementValidator::ExpectedResult
         } else {
             volume = util::round(volume / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
             const decimal_t price = book->bestBid();
+            if (volume <= 0_dec){
+                return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+            }
             if (!balances.canBorrow(volume, price, payload->direction) ||
                 volume * price * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
 
@@ -296,6 +304,10 @@ OrderPlacementValidator::ExpectedResult
     payload->volume = util::round(payload->volume, 
         payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
     payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);  
+
+    if (!checkMinOrderSizeLimit(payload)) {
+        return std::unexpected{OrderErrorCode::MINIMUM_ORDER_SIZE_VIOLATION};
+    }
 
     const auto takerFeeRate = feePolicy.getRates(book->id(), agentId).taker;
 
@@ -432,6 +444,9 @@ OrderPlacementValidator::ExpectedResult
         } else {
             volumeWeightedPrice = util::round(volumeWeightedPrice / util::dec1p(payload->leverage), m_params.quoteIncrementDecimals);
             const decimal_t price = payload->price;
+            if (volumeWeightedPrice <= 0_dec){
+                return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+            }
             if (!balances.canBorrow(volumeWeightedPrice, price, payload->direction)||
                 volumeWeightedPrice * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
                 
@@ -527,6 +542,9 @@ OrderPlacementValidator::ExpectedResult
         } else {
             volume = util::round(volume / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
             const decimal_t price = payload->price; //book->bestBid();
+            if (volume <= 0_dec){
+                return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+            }
             if (!balances.canBorrow(volume, price, payload->direction) ||
                 volume * price * payload->leverage + balances.totalLoanInQuote(price) > maxLoan) {
                 
@@ -1202,6 +1220,26 @@ bool OrderPlacementValidator::checkPostOnly(
         } else {
             return payload->price > book->buyQueue().back().price();
         }
+    }
+}
+
+//-------------------------------------------------------------------------
+
+bool OrderPlacementValidator::checkMinOrderSizeLimit(
+    PlaceOrderLimitPayload::Ptr payload) const noexcept
+{
+    // Contract: Should be called after rounding relevant payload values,
+    // and before OrderPlacementValidator::checkTimeInForce.
+
+    const auto totalAmount = util::round(payload->volume * util::dec1p(payload->leverage), 
+        payload->currency == Currency::BASE
+            ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+
+    if (payload->currency == Currency::BASE) {
+        return totalAmount >= m_exchange->config2().minOrderSize;
+    } else {
+        return util::round(totalAmount / payload->price, m_params.volumeIncrementDecimals)
+            >= m_exchange->config2().minOrderSize;
     }
 }
 

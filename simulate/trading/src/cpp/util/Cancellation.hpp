@@ -28,6 +28,8 @@ struct Cancellation : public JsonSerializable, public CheckpointSerializable
         : id{id}, volume{volume}
     {}
 
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
+
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
     virtual void checkpointSerialize(
@@ -50,6 +52,8 @@ struct CancellationLogContext : public JsonSerializable
         : agentId{agentId}, bookId{bookId}, timestamp{timestamp}
     {}
 
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
+
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
 };
@@ -68,6 +72,8 @@ struct CancellationWithLogContext : public JsonSerializable
         CancellationLogContext::Ptr logContext) noexcept
         : cancellation{cancellation}, logContext{logContext}
     {}
+
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;

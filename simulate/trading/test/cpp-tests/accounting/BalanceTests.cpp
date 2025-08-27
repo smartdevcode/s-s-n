@@ -142,7 +142,7 @@ TEST_P(FreeTest, WorksCorrectly)
 
     if (freeAmount < 0_dec) {
         EXPECT_EQ(balance.canFree(orderId, freeAmount).status, FreeStatus::NEGATIVE_AMOUNT);
-        EXPECT_THROW(balance.freeReservation(orderId, freeAmount), FreeException);
+        EXPECT_THROW(balance.freeReservation(orderId, 0, freeAmount), FreeException);
         EXPECT_EQ(balance.getTotal(), totalBalance);
         EXPECT_EQ(balance.getFree(), totalBalance - reservationAmount);
         EXPECT_EQ(balance.getReserved(), reservationAmount);
@@ -151,7 +151,7 @@ TEST_P(FreeTest, WorksCorrectly)
     else if (freeAmount > reservationAmount) {
         EXPECT_EQ(
             balance.canFree(orderId, freeAmount).status, FreeStatus::AMOUNT_EXCEEDS_RESERVATION);
-        EXPECT_THROW(balance.freeReservation(orderId, freeAmount), FreeException);
+        EXPECT_THROW(balance.freeReservation(orderId, 0, freeAmount), FreeException);
         EXPECT_EQ(balance.getTotal(), totalBalance);
         EXPECT_EQ(balance.getFree(), totalBalance - reservationAmount);
         EXPECT_EQ(balance.getReserved(), reservationAmount);
@@ -159,7 +159,7 @@ TEST_P(FreeTest, WorksCorrectly)
     }
     else if (freeAmount == reservationAmount) {
         EXPECT_EQ(balance.canFree(orderId, freeAmount).status, FreeStatus::FREEABLE);
-        EXPECT_NO_THROW(balance.freeReservation(orderId, freeAmount));
+        EXPECT_NO_THROW(balance.freeReservation(orderId, 0, freeAmount));
         EXPECT_EQ(balance.getTotal(), totalBalance);
         EXPECT_EQ(balance.getFree(), totalBalance);
         EXPECT_EQ(balance.getReserved(), 0_dec);
@@ -167,7 +167,7 @@ TEST_P(FreeTest, WorksCorrectly)
     }
     else {
         EXPECT_EQ(balance.canFree(orderId, freeAmount).status, FreeStatus::FREEABLE);
-        EXPECT_NO_THROW(balance.freeReservation(orderId, freeAmount));
+        EXPECT_NO_THROW(balance.freeReservation(orderId, 0, freeAmount));
         EXPECT_EQ(balance.getTotal(), totalBalance);
         EXPECT_EQ(balance.getFree(), totalBalance - reservationAmount + freeAmount);
         EXPECT_EQ(balance.getReserved(), reservationAmount - freeAmount);

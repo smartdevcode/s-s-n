@@ -164,14 +164,14 @@ decimal_t Balance::makeReservation(OrderID id, decimal_t amount, BookId bookId)
 
 //-------------------------------------------------------------------------
 
-decimal_t Balance::freeReservation(OrderID id, std::optional<decimal_t> amount)
+decimal_t Balance::freeReservation(OrderID id, BookId bookId, std::optional<decimal_t> amount)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
     amount = roundAmount(amount);
 
     if (FreeInfo info = canFree(id, amount); info.status != FreeStatus::FREEABLE) {
-        throw FreeException{fmt::format("{}: {}", ctx, info.toString())};
+        throw FreeException{fmt::format("{}: In book #{}, {}", ctx, bookId, info.toString())};
     }
 
     if (!amount.has_value()) {
@@ -185,8 +185,8 @@ decimal_t Balance::freeReservation(OrderID id, std::optional<decimal_t> amount)
         reservation -= amount.value();
         if (reservation < 0_dec) {
             throw std::runtime_error{fmt::format(
-                "{}: Negative reservation {} for order #{} by amount {} || {}",
-                ctx, reservation, id, amount.value(), *this)};
+                "{}: In book #{}, negative reservation {} for order #{} by amount {} || {}",
+                ctx, bookId, reservation, id, amount.value(), *this)};
         }
         if (reservation == 0_dec) {
             m_reservations.erase(it);
@@ -198,9 +198,9 @@ decimal_t Balance::freeReservation(OrderID id, std::optional<decimal_t> amount)
 
     if (m_reserved > 0_dec && m_reservations.empty()) {
         throw std::runtime_error{fmt::format(
-            "{}: Unable to free reservation of {} for order #{} : "
+            "{}: In book #{}, Unable to free reservation of {} for order #{} : "
             "No reservations left but amount reserved is {}",
-            ctx, amount.value_or(-1_dec), id, m_reserved)};
+            ctx, bookId, amount.value_or(-1_dec), id, m_reserved)};
     }
 
     return amount.value();
@@ -208,19 +208,20 @@ decimal_t Balance::freeReservation(OrderID id, std::optional<decimal_t> amount)
 
 //-------------------------------------------------------------------------
 
-decimal_t Balance::tryFreeReservation(OrderID orderId, std::optional<decimal_t> amount)
+decimal_t Balance::tryFreeReservation(OrderID orderId, BookId bookId, std::optional<decimal_t> amount)
 {
     try {
-        return freeReservation(orderId, amount);
+        return freeReservation(orderId, bookId, amount);
     }
     catch (const FreeException& exc) {
         return 0_dec;
     }
     catch (...) {
         fmt::println(
-            "Trying to free (amount:{}) reservation for order {}", 
+            "Trying to free (amount:{}) reservation for order {} in book {}", 
             orderId, 
-            amount.value_or(0_dec)
+            amount.value_or(0_dec),
+            bookId
         );
         throw;
     }
@@ -228,10 +229,10 @@ decimal_t Balance::tryFreeReservation(OrderID orderId, std::optional<decimal_t> 
 
 //-------------------------------------------------------------------------
 
-void Balance::voidReservation(OrderID id, std::optional<decimal_t> amount)
+void Balance::voidReservation(OrderID id, BookId bookId, std::optional<decimal_t> amount)
 {
     if (getReservation(id).has_value()) {
-        amount = freeReservation(id, amount);
+        amount = freeReservation(id, bookId, amount);
         m_free -= amount.value();
         m_total -= amount.value();
         checkConsistency(std::source_location::current());

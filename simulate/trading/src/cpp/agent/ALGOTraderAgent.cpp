@@ -328,7 +328,6 @@ void ALGOTraderAgent::handleBookResponse(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<RetrieveL2ResponsePayload>(msg->payload);
     BookId bookId = payload->bookId;
-    fmt::println("Pushing to book {}", bookId);
     m_state.at(bookId).volumeStats.push_levels(static_cast<Timestamp>(payload->time / m_period), payload->bids,payload->asks);
 
     simulation()->dispatchMessage(

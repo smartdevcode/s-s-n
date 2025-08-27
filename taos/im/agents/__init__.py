@@ -8,7 +8,7 @@ import bittensor as bt
 from threading import Thread
 from abc import ABC, abstractmethod
 from taos.common.agents import SimulationAgent
-from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
+from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse, FinanceEventNotification
 from taos.im.protocol.events import *
 from taos.im.protocol.models import *
 from taos.im.utils import duration_from_timestamp
@@ -31,7 +31,16 @@ class FinanceSimulationAgent(SimulationAgent):
         super().__init__(uid, config, log_dir)
 
     def handle(self, state: MarketSimulationStateUpdate) -> FinanceAgentResponse:
-        return super().handle(state)
+        return super().handle(state)    
+
+    def process(self, notification: FinanceEventNotification) -> FinanceEventNotification:
+        """
+        Method to handle a new event notification.
+        """
+        notification.acknowledged = True
+        if notification.event.type == 'EVENT_SIMULATION_END':
+            self.onEnd(notification.event)
+        return notification
 
     def update(self, state : MarketSimulationStateUpdate) -> None:
         """

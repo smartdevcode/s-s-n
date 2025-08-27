@@ -41,4 +41,5 @@ target_link_libraries(util
     PUBLIC
         Boost::boost
         fmt::fmt
+        taosim::serialization
 )

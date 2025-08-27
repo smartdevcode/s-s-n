@@ -45,6 +45,8 @@ public:
 
     void setTimestamp(Timestamp timestamp) noexcept { m_timestamp = timestamp; }
 
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
+
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
     virtual void checkpointSerialize(
@@ -140,6 +142,8 @@ struct TradeLogContext : public JsonSerializable, public CheckpointSerializable
           fees{fees}
     {}
 
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
+
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
     virtual void checkpointSerialize(
@@ -168,6 +172,8 @@ struct TradeWithLogContext : public JsonSerializable, public CheckpointSerializa
     TradeWithLogContext(Trade::Ptr trade, TradeLogContext::Ptr logContext) noexcept
         : trade{trade}, logContext{logContext}
     {}
+
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;

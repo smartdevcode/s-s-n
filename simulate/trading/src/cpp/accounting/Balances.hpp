@@ -58,9 +58,10 @@ public:
 
     [[nodiscard]] bool canBorrow(
         decimal_t collateralAmount, decimal_t price, OrderDirection direction) const noexcept;
-    [[nodiscard]] bool canFree(OrderID id, OrderDirection direction) const noexcept;
+    [[nodiscard]] bool canFree(OrderID id) const noexcept;
+    void releaseReservation(OrderID id, BookId bookId);
     ReservationAmounts freeReservation(OrderID id, decimal_t price, decimal_t bestBid, decimal_t bestAsk,
-        OrderDirection direction, std::optional<decimal_t> amount = {});
+        OrderDirection direction, BookId bookId, std::optional<decimal_t> amount = {});
     ReservationAmounts makeReservation(OrderID id, decimal_t price, decimal_t bestBid, decimal_t bestAsk,
         decimal_t amount, decimal_t leverage, OrderDirection direction, BookId bookId);
     [[nodiscard]] std::vector<std::pair<OrderID, decimal_t>> commit(

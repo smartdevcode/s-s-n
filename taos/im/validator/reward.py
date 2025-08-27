@@ -27,7 +27,7 @@ import numpy as np
 from typing import Dict
 from taos.im.neurons.validator import Validator
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
-from taos.im.protocol.models import Account, Book
+from taos.im.protocol.models import Account, Book, TradeInfo
 from taos.im.utils import normalize
 from taos.im.utils.sharpe import sharpe, batch_sharpe
 
@@ -143,6 +143,11 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> list[floa
     Returns:
         list[float]: The new score values for all uids in the subnet.
     """
+    for bookId, book in synapse.books.items():                
+        trades = [event for event in book.events if isinstance(event, TradeInfo)]
+        if trades:
+            self.recent_trades[bookId].extend(trades)
+            self.recent_trades[bookId] = self.recent_trades[bookId][-25:]
     for uid in self.metagraph.uids:
         try:
             sampled_timestamp = math.ceil(synapse.timestamp / self.config.scoring.activity.trade_volume_sampling_interval) * self.config.scoring.activity.trade_volume_sampling_interval
@@ -163,6 +168,11 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> list[floa
             
             trades = [notice for notice in synapse.notices[uid] if notice.type in ['EVENT_TRADE',"ET"]]
             for trade in trades:
+                roles = (["maker"] if trade.makerAgentId == uid else []) + (["taker"] if trade.takerAgentId == uid else [])
+                for role in roles:
+                    self.recent_miner_trades[trade.makerAgentId if role == "maker" else trade.takerAgentId][trade.bookId].append([trade, role])
+                self.recent_miner_trades[uid][trade.bookId] = self.recent_miner_trades[uid][trade.bookId][-5:]
+                
                 self.trade_volumes[uid][trade.bookId]['total'][sampled_timestamp] = round(self.trade_volumes[uid][trade.bookId]['total'][sampled_timestamp] + trade.quantity * trade.price, self.simulation.volumeDecimals)
                 if trade.makerAgentId == trade.takerAgentId:                
                     self.trade_volumes[uid][trade.bookId]['self'][sampled_timestamp] = round(self.trade_volumes[uid][trade.bookId]['self'][sampled_timestamp] + trade.quantity * trade.price, self.simulation.volumeDecimals)

@@ -580,8 +580,11 @@ if __name__ != "__mp_main__":
                 finally:
                     loop.close()
             if not self.config.reporting.disabled:
-                thread = Thread(target=thread_target, daemon=True)
-                thread.start()
+                if not self.reporting:
+                    thread = Thread(target=thread_target, daemon=True)
+                    thread.start()
+                else:
+                    bt.logging.warning(f"Skipping reporting at step {self.step} ({duration_from_timestamp(self.simulation_timestamp)}) - still busy with previous report.")
 
         def _reward(self, state : MarketSimulationStateUpdate):
             # Calculate the rewards for the miner based on the latest simulation state.
@@ -665,8 +668,8 @@ if __name__ != "__mp_main__":
             self.process_resets(state)
 
             # Await reporting and state saving to complete before proceeding with next step
-            while self.reporting or self.saving or self.rewarding or self.maintaining:
-                bt.logging.info(f"Waiting for {'reporting' if self.reporting else ''}{', ' if self.reporting and self.saving else ''}{'state saving' if self.saving else ''}{', ' if (self.reporting or self.saving) and self.rewarding else ''}{'rewarding' if self.rewarding else ''}{', ' if (self.reporting or self.saving or self.rewarding) and self.maintaining else ''}{'maintaining' if self.maintaining else ''} to complete...")
+            while self.saving or self.rewarding or self.maintaining:
+                bt.logging.info(f"Waiting for {'state saving' if self.saving else ''}{', ' if self.saving and self.rewarding else ''}{'rewarding' if self.rewarding else ''}{', ' if (self.saving or self.rewarding) and self.maintaining else ''}{'maintaining' if self.maintaining else ''} to complete...")
                 time.sleep(0.5)
 
             # Calculate latest rewards and update miner scores
@@ -692,22 +695,27 @@ if __name__ != "__mp_main__":
             This method is currently used only to enable the simulation start message to be immediately propagated to the validator.
             Other events are instead recorded to the simulation state object.
             """
-            body = await request.body()
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
             batch = msgspec.json.decode(body)
             bt.logging.info(f"NOTICE : {batch}")
             notices = []
+            ended = False
             for message in batch['messages']:
                 if message['type'] == 'EVENT_SIMULATION_START':
                     self.onStart(message['timestamp'], FinanceEventNotification.from_json(message).event)
+                    continue
                 elif message['type'] == 'EVENT_SIMULATION_END':
-                    self.onEnd()
+                    ended = True
+                notice = FinanceEventNotification.from_json(message)
+                if not notice:
+                    bt.logging.error(f"Unrecognized notification : {message}")
                 else:
-                    notice = FinanceEventNotification.from_json(message)
-                    if not notice:
-                        bt.logging.error(f"Unrecognized notification : {message}")
-                    else:
-                        notices.append(notice.event)
+                    notices.append(notice)
             await notify(self, notices) # This method forwards the event notifications to the related miners.
+            if ended:                
+                self.onEnd()
 
 # The main method which runs the validator
 if __name__ == "__main__":

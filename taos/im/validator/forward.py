@@ -274,11 +274,12 @@ async def notify(self : Validator, notices : List[FinanceEventNotification]) -> 
     """
     responses = []
     for notice in notices:
-        axons = self.metagraph.axons[notice.event.agentId] if notice.event.agentId else self.metagraph.axons
-        responses.append(await self.dendrite(
+        axons = [self.metagraph.axons[notice.event.agentId]] if notice.event.agentId else self.metagraph.axons
+        responses.extend(await self.dendrite(
             axons=axons,
             synapse=notice,
+            timeout=1
         ))
     for response in responses:
         if response and response.acknowledged:
-            bt.logging.info(f"{response.type} EventNotification Acknowledged by {response.axon.hotkey}")
+            bt.logging.info(f"{response[0].type} EventNotification Acknowledged by {response[0].axon.hotkey}")

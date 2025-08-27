@@ -6,11 +6,14 @@
 
 #include "common.hpp"
 #include "JsonSerializable.hpp"
+#include "taosim/serialization/L3Serializable.hpp"
 
 //-------------------------------------------------------------------------
 
-struct MessagePayload;
+struct PlaceOrderMarketPayload;
+struct PlaceOrderLimitPayload;
 
+//-------------------------------------------------------------------------
 
 namespace taosim
 {
@@ -18,17 +21,22 @@ namespace taosim
 struct InstructionLogContext : public JsonSerializable
 {
     using Ptr = std::shared_ptr<InstructionLogContext>;
+    using PayloadType = std::variant<
+        std::shared_ptr<PlaceOrderMarketPayload>,
+        std::shared_ptr<PlaceOrderLimitPayload>>;
 
     AgentId agentId;
     OrderID orderId;
-    std::shared_ptr<MessagePayload> payload;
+    PayloadType payload;
 
     InstructionLogContext(
         AgentId agentId,
         OrderID orderId,
-        const std::shared_ptr<MessagePayload> payload) noexcept
+        const PayloadType& payload) noexcept
         : agentId{agentId}, orderId{orderId}, payload{payload}
     {}
+
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     void jsonSerialize(rapidjson::Document& json, const std::string& key = {}) const override;
 };

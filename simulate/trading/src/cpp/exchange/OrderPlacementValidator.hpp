@@ -76,6 +76,7 @@ private:
         Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept;
     [[nodiscard]] bool checkPostOnly(
         Book::Ptr book, PlaceOrderLimitPayload::Ptr payload, AgentId agentId, decimal_t takerFeeRate) const noexcept;
+    [[nodiscard]] bool checkMinOrderSizeLimit(PlaceOrderLimitPayload::Ptr payload) const noexcept;
 
     Parameters m_params;
     MultiBookExchangeAgent* m_exchange;

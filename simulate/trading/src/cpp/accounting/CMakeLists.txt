@@ -20,11 +20,11 @@ target_include_directories(accounting
         "${src_dir}/decimal"
         "${src_dir}/exchange"
         "${src_dir}/mp"
-        "${src_dir}/serialization"
         "${src_dir}/util"
 )
 
 target_link_libraries(accounting
     PUBLIC
         Boost::boost
+        taosim::serialization
 )

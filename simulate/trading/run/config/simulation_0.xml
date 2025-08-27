@@ -7,13 +7,13 @@
         <MultiBookExchangeAgent name="EXCHANGE" remoteAgentCount="256" gracePeriod="600000000000"
             priceDecimals="2" volumeDecimals="4" baseDecimals="4" quoteDecimals="10"
             maxLeverage="4" maxLoan="10000" maintenanceMargin="0.10" maxOpenOrders="100"
-            initialPrice="300.0">
+            initialPrice="300.0" minOrderSize="0.01">
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
                 <Tier volumeRequired="0" makerFee="0.0" takerFee="0.00023" />
             </FeePolicy>
             <Books instanceCount="5" algorithm="PriceTime" maxDepth="5">
                     <Processes>
-                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.02"
+                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.08"
                         lambda="0.0025" muJump="0.0" sigmaJump="0.0052" updatePeriod="10000000000"/>
                     <FuturesSignal name="external" seedInterval="10000000000" updatePeriod="10000000000"/>
                 </Processes>
@@ -75,12 +75,12 @@
             instanceCount="10"
             exchange="EXCHANGE"
             debug="0"
-            minMFLatency="10000000"
+            minMFLatency="100000000"
             minOPLatency="1000000"
             maxOPLatency="50000000"
             opLatencyScaleRay="0.235"
-            tau="3"
-            delta="500000000"
+            tau="2"
+            delta="750000000"
             psiHFT_constant="250"
             gHFT="0.2"
             kappa="20"

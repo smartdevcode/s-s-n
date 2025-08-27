@@ -460,7 +460,7 @@ void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
     const double currentInventory = m_inventory[bookId];
     const double rayleighShift = m_noiseRay * std::sqrt(-2.0 * std::log(1.0 - m_shiftPercentage));
     const double optimalSpread = m_sigmaSqr*m_gHFT*(1-simulation()->currentTimestamp()/simulation()->duration()) + 2/m_gHFT * std::log(1 + m_gHFT/m_kappa);
-    const double spread = relativeSpread < m_spread ? actualSpread : optimalSpread;
+    const double spread = (relativeSpread < m_spread && relativeSpread > m_spread*0.4)? actualSpread : optimalSpread;
     
 
     // ----- Bid Placement -----

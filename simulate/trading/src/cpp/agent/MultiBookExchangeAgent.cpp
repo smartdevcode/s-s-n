@@ -310,7 +310,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                 .baseIncrementDecimals = m_config.parameters().baseIncrementDecimals,
                 .quoteIncrementDecimals = m_config.parameters().quoteIncrementDecimals
             });
-        
+
         simulation()->logDebug("TIERED FEE POLICY");
         int c = 0;
         for (taosim::exchange::Tier tier : m_clearingManager->feePolicy()->defaultPolicy()->tiers()) {
@@ -1720,18 +1720,17 @@ void MultiBookExchangeAgent::unregisterLimitOrderCallback(LimitOrder::Ptr limitO
 
     taosim::accounting::Balances& balances = accounts().at(agentId).at(bookId);
     const auto freed = [&] -> taosim::accounting::ReservationAmounts {
-        if (balances.canFree(orderId, limitOrder->direction())){
+        if (balances.canFree(orderId)){
             if (limitOrder->direction() == OrderDirection::BUY) {
                 simulation()->logDebug("FREEING RESERVATION OF {} BASE + {} QUOTE for BUY order #{}", 
                     balances.base.getReservation(orderId).value_or(0_dec), balances.quote.getReservation(orderId).value_or(0_dec), orderId);
-                return balances.freeReservation(orderId, limitOrder->price(),
-                    m_books[bookId]->bestBid(), m_books[bookId]->bestAsk(), limitOrder->direction());
             } else {
                 simulation()->logDebug("FREEING RESERVATION OF {} BASE + {} QUOTE for SELL order #{}", 
                     balances.base.getReservation(orderId).value_or(0_dec), balances.quote.getReservation(orderId).value_or(0_dec), orderId);
-                return balances.freeReservation(orderId, limitOrder->price(),
-                    m_books[bookId]->bestBid(), m_books[bookId]->bestAsk(), limitOrder->direction());
             }
+            return balances.freeReservation(orderId, limitOrder->price(),
+                    m_books[bookId]->bestBid(), m_books[bookId]->bestAsk(), limitOrder->direction(), 
+                    simulation()->bookIdCanon(bookId));
         }
         return {};
     }();
@@ -1765,13 +1764,17 @@ void MultiBookExchangeAgent::unregisterLimitOrderCallback(LimitOrder::Ptr limitO
 
         if (balances.quote.getReserved() > 0_dec){
             for (const auto& res : balances.quote.getReservations()){
-                balances.quote.tryFreeReservation(res.first);
+                fmt::println("unregisterLimitOrderCallback | Releasing Quote residual reservation {} with no corresponding active order #{} in book #{}", 
+                    res.second, res.first, simulation()->bookIdCanon(bookId));
+                // balances.releaseReservation(res.first, simulation()->bookIdCanon(bookId));
             }
         }
 
         if (balances.base.getReserved() > 0_dec){
             for (const auto& res : balances.base.getReservations()){
-                balances.base.tryFreeReservation(res.first);
+                fmt::println("unregisterLimitOrderCallback | Releasing Base residual reservation {} with no corresponding active order #{} in book #{}", 
+                    res.second, res.first, simulation()->bookIdCanon(bookId));
+                // balances.releaseReservation(res.first, simulation()->bookIdCanon(bookId));
             }
         }
     }
@@ -1785,9 +1788,10 @@ void MultiBookExchangeAgent::marketOrderProcessedCallback(
     accounts()[ctx.agentId].activeOrders()[ctx.bookId].erase(marketOrder);
     taosim::accounting::Balances& balances = accounts()[ctx.agentId][ctx.bookId];
 
-    if (balances.canFree(marketOrder->id(), marketOrder->direction())){
+    if (balances.canFree(marketOrder->id())){
         balances.freeReservation(marketOrder->id(), m_books[ctx.bookId]->bestAsk(),
-            m_books[ctx.bookId]->bestBid(), m_books[ctx.bookId]->bestAsk(), marketOrder->direction());
+            m_books[ctx.bookId]->bestBid(), m_books[ctx.bookId]->bestAsk(), marketOrder->direction(), 
+            simulation()->bookIdCanon(ctx.bookId));
     }
 }
 

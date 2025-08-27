@@ -48,7 +48,10 @@ ExchangeConfig makeExchangeConfig(pugi::xml_node node)
         // TODO: Validation for price.
         .initialPrice = decimal_t{node.attribute("initialPrice").as_double()},
         .maxOpenOrders = node.attribute("maxOpenOrders")
-            .as_ullong(std::numeric_limits<decltype(ExchangeConfig::maxOpenOrders)>::max())
+            .as_ullong(std::numeric_limits<decltype(ExchangeConfig::maxOpenOrders)>::max()),
+        .minOrderSize = std::max(
+            util::double2decimal(node.attribute("minOrderSize").as_double()),
+            util::pow(10_dec, -decimal_t{node.attribute("volumeDecimals").as_uint()}))
     };
 }
 

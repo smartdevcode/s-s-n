@@ -198,7 +198,9 @@ TEST_P(FreeReservationTest, WorksCorrectly)
         params.orderId, params.freePrice,
         params.reservationPrice, // bestBid
         params.reservationPrice + 1_dec, // bestAsk
-        params.direction, params.freeAmount);
+        params.direction, 
+        0,
+        params.freeAmount);
     
     fmt::println("*****Reservations #{}: {} | {} | b:{} q:{} | price:{} | pr:{}  am:{}", 
         params.orderId,

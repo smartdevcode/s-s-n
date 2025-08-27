@@ -104,8 +104,8 @@ OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
     const decimal_t curPrice = validationResult.direction == OrderDirection::BUY ?
         m_exchange->books()[bookId]->bestAsk() : m_exchange->books()[bookId]->bestBid();
 
-    if (validationResult.amount < 0_dec) {
-        fmt::println("Negative validation results {} with lev {} at {} price for incoming order #{} in book #{}", 
+    if (validationResult.amount <= 0_dec) {
+        fmt::println("Incorrect validation results {} with lev {} at {} price for incoming order #{} in book #{}", 
             validationResult.amount,
             validationResult.leverage,
             curPrice,
@@ -229,6 +229,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
                 m_exchange->books()[bookId]->bestBid(), 
                 m_exchange->books()[bookId]->bestAsk(), 
                 order->direction(),
+                m_exchange->simulation()->bookIdCanon(bookId),
                 // volumeToCancel < order->totalVolume()
                 volumeToCancel < order->volume()
                     ? std::make_optional(
@@ -246,6 +247,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
                 m_exchange->books()[bookId]->bestBid(), 
                 m_exchange->books()[bookId]->bestAsk(), 
                 order->direction(),
+                m_exchange->simulation()->bookIdCanon(bookId),
                 // volumeToCancel < order->totalVolume()
                 volumeToCancel < order->volume()
                     ? std::make_optional(
@@ -257,10 +259,7 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
     // if (volumeToCancel == order->totalVolume()) {
     if (volumeToCancel >= order->volume()) {
         account.activeOrders()[bookId].erase(order);
-        if (balances.canFree(order->id(), order->direction())){
-            balances.freeReservation(order->id(), m_exchange->books()[bookId]->bestAsk(),
-                m_exchange->books()[bookId]->bestBid(), m_exchange->books()[bookId]->bestAsk(), order->direction());
-        }
+        // balances.releaseReservation(order->id());
     }
 
     m_exchange->simulation()->logDebug(
@@ -285,22 +284,22 @@ void ClearingManager::handleCancelOrder(const CancelOrderDesc& cancelDesc)
             m_exchange->simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
             balances.quote.getReserved(), agentId, orderId));
     }
-    if (account.activeOrders().empty()) {
-        if (balances.quote.getReserved() > 0_dec) {
-            throw std::runtime_error(fmt::format(
-                "{} | AGENT #{} BOOK {} | {}: Reserved quote balance {} > 0 with no active orders after cancelling order #{}", 
-                m_exchange->simulation()->currentTimestamp(),
-                agentId,
-                m_exchange->simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
-                balances.quote.getReserved(), agentId, orderId));
+    if (account.activeOrders()[bookId].empty()) {
+
+        if (balances.quote.getReserved() > 0_dec){
+            for (const auto& res : balances.quote.getReservations()){
+                fmt::println("handleCancelOrder | Releasing Quote residual reservation {} with no corresponding active order #{} in book #{}", 
+                    res.second, res.first, m_exchange->simulation()->bookIdCanon(bookId));
+                // balances.releaseReservation(res.first, m_exchange->simulation()->bookIdCanon(bookId));
+            }
         }
-        if (balances.base.getReserved() > 0_dec) {
-            throw std::runtime_error(fmt::format(
-                "{} | AGENT #{} BOOK {} | {}: Reserved base balance {} > 0 with no active orders after cancelling order #{}", 
-                m_exchange->simulation()->currentTimestamp(),
-                agentId,
-                m_exchange->simulation()->bookIdCanon(bookId), std::source_location::current().function_name(),
-                balances.base.getReserved(), agentId, orderId));
+
+        if (balances.base.getReserved() > 0_dec){
+            for (const auto& res : balances.base.getReservations()){
+                fmt::println("handleCancelOrder | Releasing Base residual reservation {} with no corresponding active order #{} in book #{}", 
+                    res.second, res.first, m_exchange->simulation()->bookIdCanon(bookId));
+                // balances.releaseReservation(res.first, m_exchange->simulation()->bookIdCanon(bookId));
+            }
         }
     }
 

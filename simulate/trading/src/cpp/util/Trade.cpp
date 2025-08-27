@@ -30,6 +30,24 @@ Trade::Trade(
 
 //-------------------------------------------------------------------------
 
+void Trade::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        json.AddMember("m", rapidjson::Value{m_id}, allocator);
+        json.AddMember("j", rapidjson::Value{m_timestamp}, allocator);
+        json.AddMember("d", rapidjson::Value{std::to_underlying(m_direction)}, allocator);
+        json.AddMember("ai", rapidjson::Value{m_aggressingOrderID}, allocator);
+        json.AddMember("ri", rapidjson::Value{m_restingOrderID}, allocator);
+        json.AddMember("v", rapidjson::Value{taosim::util::decimal2double(m_volume)}, allocator);
+        json.AddMember("p", rapidjson::Value{taosim::util::decimal2double(m_price)}, allocator);
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
 void Trade::jsonSerialize(rapidjson::Document& json, const std::string& key) const
 {
     auto serialize = [this](rapidjson::Document& json) {
@@ -182,6 +200,31 @@ TradeEvent::Ptr TradeEvent::fromJson(const rapidjson::Value& json)
 
 //-------------------------------------------------------------------------
 
+void TradeLogContext::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        auto& allocator = json.GetAllocator();
+        json.AddMember("aa", rapidjson::Value{aggressingAgentId}, allocator);
+        json.AddMember("ra", rapidjson::Value{restingAgentId}, allocator);
+        json.AddMember("b", rapidjson::Value{bookId}, allocator);
+        taosim::json::serializeHelper(
+            json,
+            "fs",
+            [this](rapidjson::Document& json) {
+                json.SetObject();
+                auto& allocator = json.GetAllocator();
+                json.AddMember(
+                    "mk", rapidjson::Value{taosim::util::decimal2double(fees.maker)}, allocator);
+                json.AddMember(
+                    "tk", rapidjson::Value{taosim::util::decimal2double(fees.taker)}, allocator);
+            });
+    };
+    taosim::json::serializeHelper(json, key, serialize);
+}
+
+//-------------------------------------------------------------------------
+
 void TradeLogContext::jsonSerialize(rapidjson::Document& json, const std::string& key) const
 {
     auto serialize = [this](rapidjson::Document& json) {
@@ -223,6 +266,18 @@ TradeLogContext::Ptr TradeLogContext::fromJson(const rapidjson::Value& json)
         taosim::exchange::Fees{
             .maker = taosim::json::getDecimal(json["fees"]["maker"]),
             .taker = taosim::json::getDecimal(json["fees"]["taker"])});
+}
+
+//-------------------------------------------------------------------------
+
+void TradeWithLogContext::L3Serialize(rapidjson::Document& json, const std::string& key) const
+{
+    auto serialize = [this](rapidjson::Document& json) {
+        json.SetObject();
+        trade->L3Serialize(json, "t");
+        logContext->L3Serialize(json, "g");
+    };
+    taosim::json::serializeHelper(json, key, serialize);
 }
 
 //-------------------------------------------------------------------------

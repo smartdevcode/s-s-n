@@ -27,6 +27,7 @@ struct ExchangeConfig
     decimal_t maintenanceMargin;
     decimal_t initialPrice;
     size_t maxOpenOrders;
+    decimal_t minOrderSize;
 };
 
 [[nodiscard]] ExchangeConfig makeExchangeConfig(pugi::xml_node node);

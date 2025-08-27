@@ -42,7 +42,7 @@ bool Balances::canBorrow(
 
 //-------------------------------------------------------------------------
 
-bool Balances::canFree(OrderID id, OrderDirection direction) const noexcept
+bool Balances::canFree(OrderID id) const noexcept
 {
     bool hasBaseReservation = base.getReservation(id).has_value();
     bool hasQuoteReservation = quote.getReservation(id).has_value();
@@ -51,17 +51,29 @@ bool Balances::canFree(OrderID id, OrderDirection direction) const noexcept
 
 //-------------------------------------------------------------------------
 
+void Balances::releaseReservation(OrderID id, BookId bookId)
+{
+    base.tryFreeReservation(id, bookId);
+    quote.tryFreeReservation(id, bookId);
+    if (canFree(id) && m_loans.find(id) == m_loans.end()) {
+        m_buyLeverages.erase(id);
+        m_sellLeverages.erase(id);
+    }
+}
+
+//-------------------------------------------------------------------------
+
 ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decimal_t bestBid, decimal_t bestAsk,
-    OrderDirection direction, std::optional<decimal_t> amount)
+    OrderDirection direction, BookId bookId, std::optional<decimal_t> amount)
 {
     
     if (getLeverage(id, direction) == 0_dec) {
         if (direction == OrderDirection::BUY) {
-            const auto freed = ReservationAmounts{.quote = quote.freeReservation(id, amount)};
+            const auto freed = ReservationAmounts{.quote = quote.freeReservation(id, bookId, amount)};
             quote.checkConsistency(std::source_location::current());
             return freed;
         } else {
-            const auto freed = ReservationAmounts{.base = base.freeReservation(id, amount)};
+            const auto freed = ReservationAmounts{.base = base.freeReservation(id, bookId, amount)};
             base.checkConsistency(std::source_location::current());
             return freed;
         }
@@ -70,17 +82,17 @@ ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decima
     const auto freed = [&] -> ReservationAmounts {
         if (!amount.has_value()) {
             return ReservationAmounts{
-                .base = base.tryFreeReservation(id), .quote = quote.tryFreeReservation(id)};
+                .base = base.tryFreeReservation(id, bookId), .quote = quote.tryFreeReservation(id, bookId)};
         }
         if (direction == OrderDirection::BUY) {
             const decimal_t baseQuoteValue =
                 roundQuote(base.getReservation(id).value_or(0_dec) * price);
             if (amount.value() <= baseQuoteValue) {
-                return ReservationAmounts{.base = base.tryFreeReservation(id, amount.value())};
+                return ReservationAmounts{.base = base.tryFreeReservation(id, bookId, amount.value())};
             } else {
                 return ReservationAmounts{
-                    .base = base.tryFreeReservation(id),
-                    .quote = quote.tryFreeReservation(id, amount.value() - baseQuoteValue)
+                    .base = base.tryFreeReservation(id, bookId),
+                    .quote = quote.tryFreeReservation(id, bookId, amount.value() - baseQuoteValue)
                 };
             }
         }
@@ -88,11 +100,11 @@ ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decima
             const decimal_t quoteBaseValue =
                 roundBase(quote.getReservation(id).value_or(0_dec) / price);
             if (amount.value() <= quoteBaseValue) {
-                return ReservationAmounts{.quote = quote.tryFreeReservation(id, amount.value())};
+                return ReservationAmounts{.quote = quote.tryFreeReservation(id, bookId, amount.value())};
             } else {
                 return ReservationAmounts{
-                    .base = base.tryFreeReservation(id, amount.value() - quoteBaseValue),
-                    .quote = quote.tryFreeReservation(id)
+                    .base = base.tryFreeReservation(id, bookId, amount.value() - quoteBaseValue),
+                    .quote = quote.tryFreeReservation(id, bookId)
                 };
             }
         }
@@ -189,10 +201,10 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
 
     if (leverage == 0_dec) {
         if (direction == OrderDirection::BUY) {
-            quote.voidReservation(id, amount + fee);
+            quote.voidReservation(id, bookId, amount + fee);
             base.deposit(counterAmount);
         } else {
-            base.voidReservation(id, amount);
+            base.voidReservation(id, bookId, amount);
             quote.deposit(counterAmount - fee);
         }
     } else {
@@ -559,8 +571,8 @@ void Balances::borrow(
         }
     }();
 
-    if (collateral.base() > 0_dec) base.voidReservation(id, collateral.base());
-    if (collateral.quote() > 0_dec) quote.voidReservation(id, collateral.quote());
+    if (collateral.base() > 0_dec) base.voidReservation(id, bookId, collateral.base());
+    if (collateral.quote() > 0_dec) quote.voidReservation(id, bookId, collateral.quote());
 
      // checking if there is no reservation left
     if (!base.getReservation(id).has_value() && !quote.getReservation(id).has_value()) {

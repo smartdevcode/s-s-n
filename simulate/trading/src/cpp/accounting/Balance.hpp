@@ -43,9 +43,9 @@ public:
 
     void deposit(decimal_t amount);
     decimal_t makeReservation(OrderID id, decimal_t amount, BookId bookId);
-    decimal_t freeReservation(OrderID id, std::optional<decimal_t> amount = {});
-    decimal_t tryFreeReservation(OrderID orderId, std::optional<decimal_t> amount = {});
-    void voidReservation(OrderID id, std::optional<decimal_t> amount = {});
+    decimal_t freeReservation(OrderID id, BookId bookId, std::optional<decimal_t> amount = {});
+    decimal_t tryFreeReservation(OrderID orderId, BookId bookId, std::optional<decimal_t> amount = {});
+    void voidReservation(OrderID id, BookId bookId, std::optional<decimal_t> amount = {});
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;

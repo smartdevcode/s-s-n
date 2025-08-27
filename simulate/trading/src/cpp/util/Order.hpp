@@ -61,7 +61,8 @@ enum class OrderErrorCode : uint32_t
     INVALID_VOLUME,
     INVALID_PRICE,
     EXCEEDING_MAX_ORDERS,
-    DUAL_POSITION
+    DUAL_POSITION,
+    MINIMUM_ORDER_SIZE_VIOLATION
 };
 
 [[nodiscard]] constexpr std::string_view OrderErrorCode2StrView(OrderErrorCode ec) noexcept
@@ -170,6 +171,8 @@ public:
         SettleFlag settleFlag = SettleType::FIFO,
         Currency currency = Currency::BASE) noexcept;
 
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
+
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
     virtual void checkpointSerialize(
@@ -205,6 +208,8 @@ public:
     [[nodiscard]] std::optional<Timestamp> expiryPeriod() const noexcept { return m_expiryPeriod; }
 
     void setPrice(taosim::decimal_t newPrice);
+
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
@@ -312,6 +317,8 @@ struct OrderLogContext : public JsonSerializable
         : agentId{agentId}, bookId{bookId}
     {}
 
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
+
     void jsonSerialize(rapidjson::Document& json, const std::string& key = {}) const override;
 };
 
@@ -327,6 +334,8 @@ struct OrderWithLogContext : public JsonSerializable
     OrderWithLogContext(Order::Ptr order, OrderLogContext::Ptr logContext) noexcept
         : order{order}, logContext{logContext}
     {}
+
+    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     void jsonSerialize(rapidjson::Document& json, const std::string& key = {}) const override;
 };

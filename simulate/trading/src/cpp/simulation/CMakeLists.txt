@@ -19,7 +19,6 @@ target_include_directories(simulation
         "${src_dir}/mp"
         "${src_dir}/net"
         "${src_dir}/process"
-        "${src_dir}/serialization"
         "${src_dir}/util"
 )
 
@@ -28,4 +27,5 @@ target_link_libraries(simulation
         Boost::boost
         pybind11::embed
         taosim::net
+        taosim::serialization
 )
