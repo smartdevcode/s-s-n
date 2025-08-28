@@ -274,8 +274,8 @@ async def report(self : Validator) -> None:
                     time.sleep(0)
                     _set_if_changed(self.prometheus_trades, 1.0,
                         self.wallet.hotkey.ss58_address, self.config.netuid, trade.timestamp, duration_from_timestamp(trade.timestamp),
-                        bookId, trade.taker_agent_id, trade.id, trade.taker_id, trade.maker_id, trade.taker_agent_id, trade.maker_agent_id,
-                        trade.price, trade.quantity, trade.side, trade.maker_fee, trade.taker_fee, "trades")
+                        bookId, trade.taker_agent_id, trade.id, trade.taker_id, trade.taker_agent_id, trade.maker_id, trade.maker_agent_id,
+                        trade.maker_fee, trade.taker_fee, trade.price, trade.quantity, trade.side, "trades")
 
         bt.logging.debug(f"Trade metrics published ({time.time()-start:.4f}s).")
 
@@ -373,9 +373,9 @@ async def report(self : Validator) -> None:
                                 self.wallet.hotkey.ss58_address, self.config.netuid,
                                 miner_trade.timestamp, duration_from_timestamp(miner_trade.timestamp),
                                 miner_trade.bookId, uid, role,
-                                miner_trade.makerFee if role == 'maker' else miner_trade.takerFee,
-                                miner_trade.price, miner_trade.quantity,
+                                miner_trade.price, miner_trade.quantity,                        
                                 miner_trade.side if role == 'taker' else int(not miner_trade.side),
+                                miner_trade.makerFee if role == 'maker' else miner_trade.takerFee,       
                                 "miner_trades"
                             )
 
