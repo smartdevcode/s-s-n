@@ -19,11 +19,12 @@ namespace taosim::agent
 //-------------------------------------------------------------------------
 
 ALGOTraderVolumeStats::ALGOTraderVolumeStats(size_t period, 
-    double alpha, double beta, double omega, double initPrice)
+    double alpha, double beta, double omega, double gamma, double initPrice)
     : m_period{period},
         m_alpha{alpha},
         m_beta{beta},
         m_omega{omega},
+        m_gamma{gamma},
         m_initPrice{initPrice}
 {
     if (m_period == 0) {
@@ -33,17 +34,17 @@ ALGOTraderVolumeStats::ALGOTraderVolumeStats(size_t period,
     }
     if (m_alpha < 0.0) {
         throw std::invalid_argument{fmt::format(
-            "{}: period should be > 0, was {}",
+            "{}: alpha should be > 0, was {}",
             std::source_location::current().file_name(), m_alpha)};
     }
     if (m_beta < 0.0) {
         throw std::invalid_argument{fmt::format(
-            "{}: period should be > 0, was {}",
+            "{}: beta should be > 0, was {}",
             std::source_location::current().file_name(), m_beta)};
     }
-    if (m_alpha <= 0.0) {
+    if (m_omega <= 0.0) {
         throw std::invalid_argument{fmt::format(
-            "{}: period should be > 0, was {}",
+            "{}: omega should be > 0, was {}",
             std::source_location::current().file_name(), m_omega)};
     }
  
@@ -52,9 +53,16 @@ ALGOTraderVolumeStats::ALGOTraderVolumeStats(size_t period,
 
 void ALGOTraderVolumeStats::push_levels(Timestamp timestamp, std::vector<BookLevel>& bids, std::vector<BookLevel>& asks)
 {
-    OLS slopes = {.bid = slopeOLS(bids), .ask = slopeOLS(asks)};
+    BookStat slopes = {.bid = slopeOLS(bids), .ask = slopeOLS(asks)};
     m_OLS[timestamp] = slopes;
-    // fmt::println("New slopes:  bid {} | ask {}", m_OLS.at(timestamp).bid, m_OLS.at(timestamp).ask);
+    BookStat volumes = {.bid=volumeSum(bids), .ask=volumeSum(asks)};
+    m_bookVolumes[timestamp] = volumes;
+    m_lastSeq = timestamp; 
+}
+
+double ALGOTraderVolumeStats::volumeSum(std::vector<BookLevel>& side) {
+    auto volumes = side | views::take(5) | views::transform([] (const auto& level) { return taosim::util::decimal2double(level.quantity);});;
+    return std::accumulate(volumes.begin(),volumes.end(),0);
 }
 
 double ALGOTraderVolumeStats::slopeOLS(std::vector<BookLevel>& side) {
@@ -125,12 +133,13 @@ void ALGOTraderVolumeStats::push(TimestampedVolume timestampedVolume)
 
         Timestamp cur_period_seqnum = timestampedVolume.timestamp / m_period;
         if (cur_period_seqnum == 0) {
-            m_estimatedVol = m_variance;
+            m_estimatedVol = m_omega/(1-m_alpha-m_beta);
         }
         else {
-            m_estimatedVol = m_omega + m_alpha * std::pow(m_logRets[cur_period_seqnum - 1],2) + m_beta * m_cond_variance[cur_period_seqnum - 1];
+            m_estimatedVol = m_omega + m_alpha * std::pow(m_logRets[cur_period_seqnum - 1],2) + m_beta * m_cond_variance[cur_period_seqnum - 1] + m_gamma * m_variance;
         }
         m_cond_variance[cur_period_seqnum] = m_estimatedVol;
+
 
     };
 
@@ -176,7 +185,9 @@ ALGOTraderVolumeStats ALGOTraderVolumeStats::fromXML(pugi::xml_node node, double
     const double beta = attr.as_double();
     attr = node.attribute("omega");
     const double omega = attr.as_double();
-    return ALGOTraderVolumeStats{period,alpha,beta,omega, initPrice};
+    attr = node.attribute("gammaX");
+    const double gamma = attr.as_double();
+    return ALGOTraderVolumeStats{period, alpha, beta, omega, gamma, initPrice};
 }
 
 //-------------------------------------------------------------------------
@@ -329,7 +340,6 @@ void ALGOTraderAgent::handleBookResponse(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<RetrieveL2ResponsePayload>(msg->payload);
     BookId bookId = payload->bookId;
     m_state.at(bookId).volumeStats.push_levels(static_cast<Timestamp>(payload->time / m_period), payload->bids,payload->asks);
-
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         m_period,
@@ -407,6 +417,7 @@ void ALGOTraderAgent::handleWakeup(Message::Ptr msg)
         const double relativeDiff = std::abs(fundamental - lastPrice)/lastPrice;
         if (std::bernoulli_distribution{wakeupProb(state)}(*m_rng)) {
             if (fundamental >= lastPrice) {
+                m_volumeDrawDistribution = boost::math::rayleigh_distribution<double>{std::abs(state.volumeStats.askSlope())};
                 const decimal_t volumeToBeExecuted = drawNewVolume(balances.m_baseDecimals) * (1 + util::double2decimal(relativeDiff));
                 state.status = ALGOTraderStatus::EXECUTING;
                 state.direction = OrderDirection::BUY;
@@ -414,6 +425,7 @@ void ALGOTraderAgent::handleWakeup(Message::Ptr msg)
                 state.volumeToBeExecuted = std::min(volumeToBeExecuted,
                 balances.quote.getFree()*m_lastPrice.at(bookId));
             } else if (fundamental <= lastPrice) {
+                m_volumeDrawDistribution = boost::math::rayleigh_distribution<double>{std::abs(state.volumeStats.bidSlope())};
                 const decimal_t volumeToBeExecuted = drawNewVolume(balances.m_baseDecimals) * (1 + util::double2decimal(relativeDiff));
                 state.status = ALGOTraderStatus::EXECUTING;
                 state.direction = OrderDirection::SELL;
@@ -470,10 +482,12 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 {
     const auto& balances = simulation()->account(name()).at(bookId) ;
     const auto& baseBalance = balances.base;
-    const decimal_t volume = std::min(util::double2decimal(
-                                        m_volumeDistribution->sample(*m_rng),
-                                        balances.m_baseDecimals),
-                                        state.volumeToBeExecuted);
+    double levelVolume = state.direction == OrderDirection::BUY ? state.volumeStats.askVolume() : state.volumeStats.bidVolume();
+    const decimal_t drawnQty = util::double2decimal(
+                                        m_volumeDistribution->sample(*m_rng) * std::log(levelVolume * 0.25),
+                                        balances.m_baseDecimals);
+    const decimal_t volume = std::min(drawnQty,
+                                         state.volumeToBeExecuted);
     const decimal_t volumeToExecute = state.direction == OrderDirection::BUY ? 
     std::min(volume, balances.quote.getFree()*m_lastPrice.at(bookId))
         : std::min(volume, baseBalance.getFree());
@@ -493,12 +507,13 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 }
 //-------------------------------------------------------------------------
 double ALGOTraderAgent::wakeupProb(ALGOTraderState& state) {
-        const double volatilityEstimate = state.volumeStats.estimatedVolatility() * m_volatilityBounds.volatilityScaler;
-        float paretoScale = m_volatilityBounds.paretoScale;
-        double paretoShape = m_volatilityBounds.paretoShape;
-        double probability = paretoShape* std::pow(paretoScale, paretoShape) / std::pow(volatilityEstimate, (1+paretoShape));
+    const double volatilityEstimate = state.volumeStats.estimatedVolatility() * m_volatilityBounds.volatilityScaler;
+    float paretoScale = m_volatilityBounds.paretoScale;
+    double paretoShape = m_volatilityBounds.paretoShape;
+    double probability = paretoShape* std::pow(paretoScale, paretoShape) / std::pow(volatilityEstimate, (1+paretoShape));
     return std::min(1.0,std::max(probability,0.0));
 }
+
 //-------------------------------------------------------------------------
 decimal_t ALGOTraderAgent::drawNewVolume(uint32_t baseDecimals) {
         const double rayleighDraw = boost::math::quantile(m_volumeDrawDistribution, m_volumeDraw(*m_rng));

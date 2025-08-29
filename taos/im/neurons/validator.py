@@ -180,21 +180,24 @@ if __name__ != "__mp_main__":
                                             bt.logging.error(f"Failed to add {log_file.name} to {archive.name} : {ex}")
                     if psutil.disk_usage('/').percent > 85:
                         min_retention_date = int((datetime.today() - timedelta(days=7)).strftime("%Y%m%d"))
-                        bt.logging.warning(f"Disk usage > 85% - cleaning up old archives...")
-                        for output_archive in sorted(log_root.iterdir(), key=lambda f: f.name[:13]):
+                        bt.logging.warning(f"Disk usage > 85% - cleaning up old outputs...")
+                        for output in sorted(log_root.iterdir(), key=lambda f: f.name[:13]):
                             try:
-                                archive_date = int(output_archive.name[:8])
+                                archive_date = int(output.name[:8])
                             except:
                                 continue
-                            if output_archive.is_file() and output_archive.name.endswith('.zip') and archive_date < min_retention_date:
+                            if archive_date < min_retention_date:
                                 try:
-                                    output_archive.unlink()
+                                    if output.is_file() and output.name.endswith('.zip'):
+                                        output.unlink()
+                                    elif output.is_dir():
+                                        shutil.rmtree(output)
                                     disk_usage = psutil.disk_usage('/').percent
-                                    bt.logging.success(f"Deleted {output_dir.name} ({disk_usage}% disk available).")
+                                    bt.logging.success(f"Deleted {output.name} ({disk_usage}% disk available).")
                                     if disk_usage <= 85:
                                         break
                                 except Exception as ex:
-                                    self.pagerduty_alert(f"Failed to remove archive {output_archive.name} : {ex}", details={"trace" : traceback.format_exc()})
+                                    self.pagerduty_alert(f"Failed to remove output {output.name} : {ex}", details={"trace" : traceback.format_exc()})
 
 
             except Exception as ex:

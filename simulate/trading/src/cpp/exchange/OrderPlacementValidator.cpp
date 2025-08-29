@@ -49,6 +49,14 @@ OrderPlacementValidator::ExpectedResult
         payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
     payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);
 
+    if (payload->volume <= 0_dec) {
+        return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+    }
+
+    if (payload->currency == Currency::BASE && payload->volume < m_exchange->config2().minOrderSize) {
+        return std::unexpected{OrderErrorCode::MINIMUM_ORDER_SIZE_VIOLATION};
+    }
+
     const decimal_t payloadTotalAmount = util::round(payload->volume * util::dec1p(payload->leverage),
         payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
 
@@ -136,6 +144,10 @@ OrderPlacementValidator::ExpectedResult
                     //     util::dec1p(feeRates.taker), util::dec1p(payload->leverage), payload->volume, tickVolume, tick->price());
                 }
                 if (done) break;
+            }
+
+            if (volume < m_exchange->config2().minOrderSize) {
+                return std::unexpected{OrderErrorCode::MINIMUM_ORDER_SIZE_VIOLATION};
             }
 
             //---------------
@@ -232,6 +244,11 @@ OrderPlacementValidator::ExpectedResult
                 }
                 if (done) break;
             }
+
+            if (volume < m_exchange->config2().minOrderSize) {
+                return std::unexpected{OrderErrorCode::MINIMUM_ORDER_SIZE_VIOLATION};
+            }
+
             orderSize = util::round(volume / util::dec1p(payload->leverage), m_params.baseIncrementDecimals);
         }
 
@@ -304,6 +321,13 @@ OrderPlacementValidator::ExpectedResult
     payload->volume = util::round(payload->volume, 
         payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
     payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);  
+
+    if (payload->volume <= 0_dec) {
+        return std::unexpected{OrderErrorCode::INVALID_VOLUME};
+    }
+    if (payload->price <= 0_dec) {
+        return std::unexpected{OrderErrorCode::INVALID_PRICE};
+    }
 
     if (!checkMinOrderSizeLimit(payload)) {
         return std::unexpected{OrderErrorCode::MINIMUM_ORDER_SIZE_VIOLATION};

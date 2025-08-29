@@ -52,19 +52,21 @@
             MFLmean="30000000000"
             MFLstd="250000000"
             volumeStatsPeriod="60000000000"
+            updateInterval="120000000000"
             minOPLatency="1000000"
             maxOPLatency="50000000"
             volumeDrawRayleighScale="3000.0"
-            alpha="0.4"
-            beta="0.5"
+            alpha="0.3"
+            beta="0.45"
+            gammaX="0.2"
             omega="0.00000001"
             volatilityParetoScale="0.55"
-            volatilityScaler="100000000"
+            volatilityScaler="10000"
             >
             <VolumeDistribution type="lognormal" mu="2.3" sigma="1.0"/>
               <Balances>
-                <Base total="6000.0" maxLeverage="1" maxLoan="10000"/>
-                <Quote total="1800000.0" maxLeverage="1" maxLoan="10000"/>
+                <Base total="7500.0" maxLeverage="1" maxLoan="10000"/>
+                <Quote total="2250000.0" maxLeverage="1" maxLoan="10000"/>
             </Balances>
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
                 <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0"/>

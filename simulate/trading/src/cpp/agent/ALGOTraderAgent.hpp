@@ -49,7 +49,7 @@ struct TimestampedVolume
     }
 };
 
-struct OLS 
+struct BookStat 
 {
     double bid,ask;
 };
@@ -57,7 +57,7 @@ struct OLS
 class ALGOTraderVolumeStats
 {
 public:
-    explicit ALGOTraderVolumeStats(Timestamp period, double alpha, double beta, double omega, double initPrice);
+    explicit ALGOTraderVolumeStats(Timestamp period, double alpha, double beta, double omega, double gamma, double initPrice);
 
     void push(const Trade& trade);
     void push(TimestampedVolume timestampedVolume);
@@ -65,17 +65,26 @@ public:
     
     [[nodiscard]] decimal_t rollingSum() const noexcept { return m_rollingSum; }
     [[nodiscard]] double variance() const noexcept { return m_variance; }
-    [[nodiscard]] double estimatedVolatility() const noexcept { return m_estimatedVol; }
+    [[nodiscard]] double estimatedVolatility() const noexcept { return std::pow(m_estimatedVol, 0.5); }
+    [[nodiscard]] double bidSlope() noexcept { return lastOLS().bid; }
+    [[nodiscard]] double askSlope() noexcept { return lastOLS().ask; }
+    [[nodiscard]] double bidVolume() noexcept { return lastVolume().bid; }
+    [[nodiscard]] double askVolume() noexcept { return lastVolume().ask; }
 
     [[nodiscard]] static ALGOTraderVolumeStats fromXML(pugi::xml_node node, double initPrice);
 
 private:
     double slopeOLS(std::vector<BookLevel>& side);
+    double volumeSum(std::vector<BookLevel>& side);
+    BookStat lastOLS() {return m_OLS[m_lastSeq]; }
+    BookStat lastVolume() {return m_bookVolumes[m_lastSeq]; }
+
     
     Timestamp m_period;
     double m_alpha;
     double m_beta;
     double m_omega;
+    double m_gamma;
     double m_initPrice;
     std::priority_queue<
         TimestampedVolume,
@@ -87,7 +96,10 @@ private:
     std::map<Timestamp,double> m_logRets; 
     double m_variance;
     double m_estimatedVol;
-    std::map<Timestamp, OLS> m_OLS;
+    Timestamp m_lastSeq;
+    std::map<Timestamp, BookStat> m_OLS;
+    std::map<Timestamp, BookStat> m_bookVolumes;
+    
 };
 
 struct ALGOTraderState
