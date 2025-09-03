@@ -13,8 +13,8 @@
             </FeePolicy>
             <Books instanceCount="5" algorithm="PriceTime" maxDepth="5">
                     <Processes>
-                    <FundamentalPrice name="fundamental" seedInterval="10000000000" mu="0.0" sigma="0.08"
-                        lambda="0.0025" muJump="0.0" sigmaJump="0.0052" updatePeriod="10000000000"/>
+                    <FundamentalPrice name="fundamental" seedInterval="20000000000" mu="0.0" sigma="0.08"
+                        lambda="0.00825" muJump="0.0" sigmaJump="0.025" updatePeriod="20000000000"/>
                     <FuturesSignal name="external" seedInterval="10000000000" updatePeriod="10000000000"/>
                 </Processes>
             </Books>
@@ -49,13 +49,13 @@
             name="ALGO_TRADER_AGENT"
             instanceCount="1"
             exchange="EXCHANGE"
-            MFLmean="30000000000"
+            MFLmean="15000000000"
             MFLstd="250000000"
             volumeStatsPeriod="60000000000"
             updateInterval="120000000000"
             minOPLatency="1000000"
             maxOPLatency="50000000"
-            volumeDrawRayleighScale="3000.0"
+            volumeDrawRayleighScale="5500.0"
             alpha="0.3"
             beta="0.45"
             gammaX="0.2"
@@ -65,8 +65,8 @@
             >
             <VolumeDistribution type="lognormal" mu="2.3" sigma="1.0"/>
               <Balances>
-                <Base total="7500.0" maxLeverage="1" maxLoan="10000"/>
-                <Quote total="2250000.0" maxLeverage="1" maxLoan="10000"/>
+                <Base total="167000.0" maxLeverage="1" maxLoan="10000"/>
+                <Quote total="50000000.0" maxLeverage="1" maxLoan="10000"/>
             </Balances>
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
                 <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0"/>
@@ -84,15 +84,16 @@
             tau="2"
             delta="750000000"
             psiHFT_constant="250"
-            gHFT="0.2"
-            kappa="20"
+            gHFT="0.5"
+            sigmaSqr="0.01"
+            kappa="10"
             spread="0.0025"
-            orderMean="1.6"
+            orderMean="2.0"
             noiseRay="0.23"
-            shiftPercentage="0.02">
+            shiftPercentage="0.05">
             <Balances>
-                <Base total="500" maxLeverage="1" maxLoan="10000" />
-                <Quote total="150000.0" maxLeverage="1" maxLoan="10000" />
+                <Base total="500" maxLeverage="4" maxLoan="10000" />
+                <Quote total="150000.0" maxLeverage="4" maxLoan="10000" />
             </Balances>
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">
                 <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0" />
@@ -109,7 +110,7 @@
             maxOPLatency="300000000"
             scaleR="0.2"
             sigmaN="0.7"
-            volume="8.0"
+            volume="9.0"
             orderTypeProb="0.75"
             lambda="0.001155"
             sigmaEps="0.5">
@@ -154,7 +155,7 @@
                 scale="1.0"
                 shape="1.66"
                 seed="1337"
-                wealth="60000.0"
+                wealth="75000.0"
                 price="300.0"
             />
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">

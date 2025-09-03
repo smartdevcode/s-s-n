@@ -304,6 +304,8 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
     
     attr = node.attribute("sensitivity");
     m_wakeupProb =  (attr.empty() || attr.as_float() == 0.0) ? 1 - 0.05 : attr.as_float();
+    attr = node.attribute("volumeProb");
+    m_volumeProb = (attr.empty() ||attr.as_double() <= 0.0) ? 0.25 : attr.as_double();
 
     attr = node.attribute("volatilityParetoScale");
     m_volatilityBounds.paretoScale = (attr.empty() || attr.as_double() <= 0.0) ? 1.0 : attr.as_double();
@@ -417,16 +419,14 @@ void ALGOTraderAgent::handleWakeup(Message::Ptr msg)
         const double relativeDiff = std::abs(fundamental - lastPrice)/lastPrice;
         if (std::bernoulli_distribution{wakeupProb(state)}(*m_rng)) {
             if (fundamental >= lastPrice) {
-                m_volumeDrawDistribution = boost::math::rayleigh_distribution<double>{std::abs(state.volumeStats.askSlope())};
-                const decimal_t volumeToBeExecuted = drawNewVolume(balances.m_baseDecimals) * (1 + util::double2decimal(relativeDiff));
+                const decimal_t volumeToBeExecuted = drawNewVolume(balances.m_baseDecimals); 
                 state.status = ALGOTraderStatus::EXECUTING;
                 state.direction = OrderDirection::BUY;
                 state.marketFeedLatency = static_cast<Timestamp>(0);
                 state.volumeToBeExecuted = std::min(volumeToBeExecuted,
                 balances.quote.getFree()*m_lastPrice.at(bookId));
             } else if (fundamental <= lastPrice) {
-                m_volumeDrawDistribution = boost::math::rayleigh_distribution<double>{std::abs(state.volumeStats.bidSlope())};
-                const decimal_t volumeToBeExecuted = drawNewVolume(balances.m_baseDecimals) * (1 + util::double2decimal(relativeDiff));
+                const decimal_t volumeToBeExecuted = drawNewVolume(balances.m_baseDecimals); 
                 state.status = ALGOTraderStatus::EXECUTING;
                 state.direction = OrderDirection::SELL;
                 state.marketFeedLatency = static_cast<Timestamp>(0);
@@ -442,7 +442,7 @@ void ALGOTraderAgent::handleWakeup(Message::Ptr msg)
     const Timestamp delay = static_cast<Timestamp>(std::min(
             std::abs(m_delay(*m_rng)),
             m_delay.mean()
-            + 4.0 * m_delay.stddev()));
+            + 3.0 * m_delay.stddev()));
 
     simulation()->dispatchMessage(
             simulation()->currentTimestamp(),
@@ -484,7 +484,7 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
     const auto& baseBalance = balances.base;
     double levelVolume = state.direction == OrderDirection::BUY ? state.volumeStats.askVolume() : state.volumeStats.bidVolume();
     const decimal_t drawnQty = util::double2decimal(
-                                        m_volumeDistribution->sample(*m_rng) * std::log(levelVolume * 0.25),
+                                        m_volumeDistribution->sample(*m_rng) * std::log(levelVolume * m_volumeProb),
                                         balances.m_baseDecimals);
     const decimal_t volume = std::min(drawnQty,
                                          state.volumeToBeExecuted);

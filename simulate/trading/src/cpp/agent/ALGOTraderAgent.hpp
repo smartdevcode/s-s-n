@@ -161,6 +161,7 @@ private:
     std::vector<decimal_t> m_lastPrice;
     std::normal_distribution<double> m_departureThreshold;
     float m_wakeupProb;
+    double m_volumeProb;
     VolatilityBounds m_volatilityBounds;
     Timestamp m_period;
     size_t m_depth;

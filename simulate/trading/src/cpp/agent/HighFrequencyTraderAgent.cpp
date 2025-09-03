@@ -284,19 +284,9 @@ void HighFrequencyTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
         taosim::util::decimal2double(simulation()->exchange()->account(name()).at(bookId).base.getFree());
     m_quoteFree[bookId] = m_wealthFrac * 
         taosim::util::decimal2double(simulation()->exchange()->account(name()).at(bookId).quote.getFree());
-    // const auto& logReturns = m_logReturns.at(bookId);
-    // double sigmaSqr = [&] {
-    //         namespace bacc = boost::accumulators;
-    //         bacc::accumulator_set<double, bacc::stats<bacc::tag::lazy_variance>> acc;
-    //         const auto n = logReturns.capacity();
-    //         for (auto logRet : logReturns) {
-    //             acc(logRet);
-    //         }
-    //         return bacc::variance(acc) * (n - 1) / n;
-    //     }();
 
     if (m_orderFlag.at(bookId)) return;
-    double timescaling = 1-simulation()->currentTimestamp()/simulation()->duration();
+    double timescaling = 1-(simulation()->currentTimestamp()/ m_delta)/(simulation()->duration() / m_delta);
     m_pRes = midquote - m_gHFT * m_inventory[bookId] * m_sigmaSqr *timescaling;
 
     m_orderFlag.at(bookId) = true;
@@ -455,11 +445,13 @@ void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
 
     // Seed the random number generator
     m_rng->seed(std::random_device{}());
-    std::lognormal_distribution<> lognormalDist(m_orderMean*(1+relativeSpread), m_orderSTD); // mean=m_orderMean, stddev=1
+    // Here we might want to change that order volume is small in case relative spread is small unless need to go aggressive 
+    // That would be similar as just adjusting the sides? split half according to the weight based on inventory
+    std::lognormal_distribution<> lognormalDist(m_orderMean*(1+(relativeSpread - m_spread)), m_orderSTD); // mean=m_orderMean, stddev=1
     const double orderVolume = lognormalDist(*m_rng);
     const double currentInventory = m_inventory[bookId];
     const double rayleighShift = m_noiseRay * std::sqrt(-2.0 * std::log(1.0 - m_shiftPercentage));
-    const double optimalSpread = m_sigmaSqr*m_gHFT*(1-simulation()->currentTimestamp()/simulation()->duration()) + 2/m_gHFT * std::log(1 + m_gHFT/m_kappa);
+    const double optimalSpread = m_sigmaSqr*m_gHFT*(1-(simulation()->currentTimestamp()/ m_delta)/(simulation()->duration()/m_delta)) + 2/m_gHFT * std::log(1 + m_gHFT/m_kappa);
     const double spread = (relativeSpread < m_spread && relativeSpread > m_spread*0.4)? actualSpread : optimalSpread;
     
 
