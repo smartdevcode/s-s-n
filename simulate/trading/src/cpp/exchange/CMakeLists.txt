@@ -3,9 +3,10 @@ add_library(exchange STATIC
     Exchange.cpp
     ExchangeConfig.cpp
     ExchangeSignals.cpp
+    FeePolicy.cpp
     FeePolicyWrapper.cpp
     OrderPlacementValidator.cpp
-    FeePolicy.cpp
+    ReplayEventLogger.cpp
 )
 add_library(taosim::exchange ALIAS exchange)
 

@@ -4,7 +4,6 @@
  */
 #include "ExchangeSignals.hpp"
 
-
 //-------------------------------------------------------------------------
 
 namespace taosim::exchange
@@ -18,13 +17,13 @@ ExchangeSignals::ExchangeSignals() noexcept
         L3({ .item = item, .id = eventCounter++ });
     });
     orderLog.connect([this](OrderWithLogContext item) {
-        L3({ .item = item, .id = eventCounter++ });
+        L3({.item = item, .id = eventCounter++});
     });
     tradeLog.connect([this](TradeWithLogContext item) {
-        L3({ .item = item, .id = eventCounter++ });
+        L3({.item = item, .id = eventCounter++});
     });
     cancelLog.connect([this](CancellationWithLogContext item) {
-        L3({ .item = item, .id = eventCounter++ });
+        L3({.item = item, .id = eventCounter++});
     });
 }
 

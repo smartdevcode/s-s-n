@@ -251,12 +251,6 @@ Output Directory : {self.output_dir}
         """
         self.model = model
 
-        self.data_dir = getattr(self.config, 'data_dir', '../../../agents/data')
-        Path(self.data_dir).mkdir(parents=True, exist_ok=True)
-
-        self.output_dir = os.path.join(self.data_dir, str(self.uid))
-        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
-
         self.checkpoint_dir = self.config.checkpoint_dir if hasattr(self.config, 'checkpoint_dir') else os.path.join(self.output_dir, 'checkpoints',f'{self.model}')
         Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
         self.checkpoint = self.config.checkpoint if hasattr(self.config, 'checkpoint') else None

@@ -4,6 +4,7 @@ import os
 import msgpack
 import traceback
 import time
+import csv
 import bittensor as bt
 from threading import Thread
 from abc import ABC, abstractmethod
@@ -41,6 +42,85 @@ class FinanceSimulationAgent(SimulationAgent):
         if notification.event.type == 'EVENT_SIMULATION_END':
             self.onEnd(notification.event)
         return notification
+    
+    def simulation_output_dir(self, state : MarketSimulationStateUpdate):
+        simulation_output_dir = os.path.join(self.output_dir, state.dendrite.hotkey, state.config.simulation_id)
+        os.makedirs(simulation_output_dir, exist_ok=True)
+        return simulation_output_dir
+    
+    def log_order_event(self, event : LimitOrderPlacementEvent | MarketOrderPlacementEvent, state : MarketSimulationStateUpdate):
+        """Log LimitOrderPlacementEvent or MarketOrderPlacementEvent to CSV."""
+        orders_log_file = os.path.join(self.simulation_output_dir(state), 'orders.csv')
+        file_exists = os.path.exists(orders_log_file)
+        with open(orders_log_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    'timestamp', 'bookId', 'orderId', 'clientOrderId',
+                    'side', 'price', 'quantity', 'leverage', 'settleFlag',
+                    'success', 'message'
+                ])
+            writer.writerow([
+                duration_from_timestamp(event.timestamp),
+                getattr(event, 'bookId', None),
+                getattr(event, 'orderId', None),
+                getattr(event, 'clientOrderId', None),
+                getattr(event, 'side', None),
+                getattr(event, 'price', None),
+                getattr(event, 'quantity', None),
+                getattr(event, 'leverage', None),
+                getattr(event, 'settleFlag', None),
+                event.success,
+                event.message
+            ])
+
+    def log_cancellation_event(self, event : OrderCancellationEvent, state : MarketSimulationStateUpdate):
+        """Log OrderCancellationEvent to CSV."""
+        cancellations_log_file = os.path.join(self.simulation_output_dir(state), 'cancellations.csv')
+        file_exists = os.path.exists(cancellations_log_file)
+        with open(cancellations_log_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    'timestamp', 'bookId', 'orderId', 'quantity', 'success', 'message'
+                ])
+            writer.writerow([
+                duration_from_timestamp(event.timestamp),
+                event.bookId,
+                event.orderId,
+                event.quantity,
+                event.success,
+                event.message
+            ])
+
+    def log_trade_event(self, event : TradeEvent, state : MarketSimulationStateUpdate):
+        """Log TradeEvent to CSV."""
+        trades_log_file = os.path.join(self.simulation_output_dir(state), 'trades.csv')
+        file_exists = os.path.exists(trades_log_file)
+        with open(trades_log_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    'timestamp', 'bookId', 'tradeId', 'clientOrderId',
+                    'takerAgentId', 'takerOrderId', 'takerFee',
+                    'makerAgentId', 'makerOrderId', 'makerFee',
+                    'side', 'price', 'quantity'
+                ])
+            writer.writerow([
+                duration_from_timestamp(event.timestamp),
+                event.bookId,
+                event.tradeId,
+                event.clientOrderId,
+                event.takerAgentId,
+                event.takerOrderId,
+                event.takerFee,
+                event.makerAgentId,
+                event.makerOrderId,
+                event.makerFee,
+                event.side,
+                event.price,
+                event.quantity
+            ])
 
     def update(self, state : MarketSimulationStateUpdate) -> None:
         """
@@ -103,11 +183,13 @@ class FinanceSimulationAgent(SimulationAgent):
                     match event.type:
                         case "RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "RDPOL" | "RDPOM":
                             self.onOrderAccepted(event)
+                            self.log_order_event(event, state)
                         case "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "ERDPOL" | "ERDPOM":
                             self.onOrderRejected(event)
                         case "RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "RDCO":
                             for cancellation in event.cancellations:
                                 self.onOrderCancelled(cancellation)
+                                self.log_cancellation_event(cancellation, state)
                         case "ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "ERDCO":
                             for cancellation in event.cancellations:
                                 self.onOrderCancellationFailed(cancellation)
@@ -126,6 +208,7 @@ class FinanceSimulationAgent(SimulationAgent):
                             debug_text += f"{trade_text}" + "\n"
                             update_text += f"BOOK {book_id} : {trade_text}" + "\n"
                             self.onTrade(event)
+                            self.log_trade_event(event, state)
                         case _:
                             bt.logging.warning(f"Unknown event : {event}")
             if len(account.orders) > 0:

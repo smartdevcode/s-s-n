@@ -24,6 +24,7 @@
 #include "ClearingManager.hpp"
 #include "SubscriptionRegistry.hpp"
 #include "taosim/exchange/ExchangeConfig.hpp"
+#include "taosim/exchange/ReplayEventLogger.hpp"
 
 #include <boost/asio.hpp>
 
@@ -55,6 +56,7 @@ public:
     [[nodiscard]] taosim::decimal_t getMaxLoan() const noexcept { return m_config2.maxLoan; }
     [[nodiscard]] const taosim::exchange::ExchangeConfig& config2() const noexcept { return m_config2; }
     [[nodiscard]] auto&& L3Record(this auto&& self) noexcept { return self.m_L3Record; }
+    [[nodiscard]] auto&& replayMode(this auto&& self) noexcept { return self.m_replayMode; }
 
     void retainRecord(bool flag) noexcept;
     void checkMarginCall() noexcept;
@@ -122,6 +124,9 @@ private:
     uint64_t m_marginCallCounter{};
     taosim::exchange::ExchangeConfig m_config2;
     taosim::accounting::AccountRegistry m_accounts;
+    bool m_replayLog{};
+    bool m_replayMode{};
+    std::vector<std::unique_ptr<taosim::exchange::ReplayEventLogger>> m_replayEventLoggers;
 
     SubscriptionRegistry<LocalAgentId> m_localMarketOrderSubscribers;
     SubscriptionRegistry<LocalAgentId> m_localLimitOrderSubscribers;

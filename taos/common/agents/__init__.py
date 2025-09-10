@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
 import os
+from pathlib import Path
 from abc import ABC, abstractmethod  # Importing the ABC class and abstractmethod decorator for creating abstract base classes
 from fastapi import APIRouter
 from taos.common.protocol import SimulationStateUpdate, AgentResponse, EventNotification  # Importing required classes for simulation state and agent responses
@@ -16,6 +17,10 @@ class SimulationAgent(ABC):
         if not log_dir:
             log_dir = f"logs/{uid}"
         self.log_dir = log_dir
+        self.data_dir = getattr(self.config, 'data_dir', '../../../agents/data')
+        Path(self.data_dir).mkdir(parents=True, exist_ok=True)
+        self.output_dir = os.path.join(self.data_dir, str(self.uid))
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         self.state_file = os.path.join(log_dir, 'state.mp')
         self.router = APIRouter()
         self.router.add_api_route("/handle", self.handle, methods=["POST"])

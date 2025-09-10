@@ -104,9 +104,10 @@ public:
     [[nodiscard]] std::mt19937& rng() const noexcept;
     [[nodiscard]] const taosim::simulation::SimulationConfig& config() const noexcept { return m_config2; }
     [[nodiscard]] const std::unique_ptr<LocalAgentManager>& localAgentManager() const noexcept { return m_localAgentManager; }
-    [[nodiscard]] const auto& time() const noexcept { return m_time; }
+    [[nodiscard]] auto&& time(this auto&& self) noexcept { return self.m_time; }
     [[nodiscard]] uint32_t blockIdx() const noexcept { return m_blockIdx; }
     [[nodiscard]] auto&& logWindow(this auto&& self) noexcept { return self.m_logWindow; }
+    [[nodiscard]] auto&& messageQueue(this auto&& self) noexcept { return self.m_messageQueue; }
 
     [[nodiscard]] BookId bookIdCanon(BookId bookId) const noexcept
     {

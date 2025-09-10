@@ -6,6 +6,7 @@
 #include "taosim/simulation/util.hpp"
 #include "MultiBookMessagePayloads.hpp"
 
+#include <boost/algorithm/string.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -15,6 +16,7 @@
 
 #include <barrier>
 #include <latch>
+#include <ranges>
 #include <source_location>
 #include <thread>
 
@@ -45,10 +47,215 @@ void SimulationManager::runSimulations()
                 latch.count_down();
             });
     }
-
     latch.wait();
 
     publishEndInfo();
+}
+
+//-------------------------------------------------------------------------
+
+void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
+{
+    static constexpr auto ctx = std::source_location::current().function_name();
+
+    auto it = ranges::find_if(
+        m_simulations,
+        [&](const auto& sim) { return sim->blockIdx() == bookId / m_blockInfo.dimension; });
+    if (it == m_simulations.end()) {
+        throw std::runtime_error{fmt::format(
+            "{}: Could not find simulation matching bookId {} within {}; "
+            "blockInfo was {{.count = {}, .dimension = {}}}",
+            ctx, bookId, replayDir.c_str(), m_blockInfo.count, m_blockInfo.dimension)};
+    }
+    const auto& simulation = *it;
+
+    auto replayLogFiles = [&] {
+        std::vector<fs::path> replayLogFiles;
+        const std::regex pat{fmt::format("^Replay-{}{}", bookId, R"(\.\d{8}-\d{8}.log$)")};
+        for (const auto& entry : fs::directory_iterator(replayDir)) {
+            const auto path = entry.path();
+            if (entry.is_regular_file() && std::regex_match(path.filename().string(), pat)) {
+                replayLogFiles.push_back(path);
+            }
+        }
+        ranges::sort(replayLogFiles);
+        return replayLogFiles;
+    }();
+
+    [&] {
+        std::vector<fs::path> replayBalancesPaths;
+        const std::regex pat{R"(^Replay-Balances-\d+-\d+\.json$)"};
+        for (const auto& entry : fs::directory_iterator(replayDir)) {
+            const auto path = entry.path();
+            if (entry.is_regular_file() && std::regex_match(path.filename().string(), pat)) {
+                replayBalancesPaths.push_back(path);
+            }
+        }
+        ranges::sort(replayBalancesPaths);
+        for (const auto& [simulation, path] : views::zip(m_simulations, replayBalancesPaths)) {
+            rapidjson::Document balancesJson = json::loadJson(path);
+            for (const auto& member : balancesJson.GetObject()) {
+                const auto name = member.name.GetString();
+                const AgentId agentId = std::stoi(name);
+                BookId bookId{};
+                for (const auto& balsJson : balancesJson[name].GetArray()) {
+                    auto& bals = simulation->exchange()->accounts().at(agentId).at(bookId);
+                    bals.base = taosim::accounting::Balance(
+                        taosim::json::getDecimal(balsJson["base"]),
+                        "",
+                        bals.m_roundParams.baseDecimals);
+                    bals.quote = taosim::accounting::Balance(
+                        taosim::json::getDecimal(balsJson["quote"]),
+                        "",
+                        bals.m_roundParams.quoteDecimals);
+                    ++bookId;
+                }
+            }
+        }
+    }();
+
+    auto makePayload = [&](const rapidjson::Value& json) -> MessagePayload::Ptr {
+        const std::string msgType{json["p"].GetString()};
+        const auto& payloadJson =
+            msgType.starts_with("DISTRIBUTED") ? json["pld"]["pld"] : json["pld"];
+        if (msgType.ends_with("PLACE_ORDER_MARKET")) {
+            return MessagePayload::create<PlaceOrderMarketPayload>(
+                OrderDirection{payloadJson["d"].GetUint()},
+                json::getDecimal(payloadJson["v"]),
+                json::getDecimal(payloadJson["l"]),
+                bookId,
+                Currency{payloadJson["n"].GetUint()},
+                payloadJson["ci"].IsNull()
+                    ? std::nullopt : std::make_optional(payloadJson["ci"].GetUint()),
+                magic_enum::enum_cast<taosim::STPFlag>(
+                    std::string{payloadJson["s"].GetString()}).value(),
+                [&] -> taosim::SettleFlag {
+                    if (payloadJson["f"].IsUint()) {
+                        return payloadJson["f"].GetUint();
+                    } else if (payloadJson["f"].IsString()) {
+                        return magic_enum::enum_cast<taosim::SettleType>(
+                            std::string{payloadJson["f"].GetString()}).value();
+                    } else {
+                        throw std::runtime_error{fmt::format(
+                            "{}: Unrecogized 'settleFlag': {}", ctx, json::json2str(payloadJson["f"]))};
+                    }
+                }());
+        }
+        else if (msgType.ends_with("PLACE_ORDER_LIMIT")) {
+            return MessagePayload::create<PlaceOrderLimitPayload>(
+                OrderDirection{payloadJson["d"].GetUint()},
+                json::getDecimal(payloadJson["v"]),
+                json::getDecimal(payloadJson["p"]),
+                json::getDecimal(payloadJson["l"]),
+                bookId,
+                Currency{payloadJson["n"].GetUint()},
+                payloadJson["ci"].IsNull()
+                    ? std::nullopt : std::make_optional(payloadJson["ci"].GetUint()),
+                payloadJson["y"].GetBool(),
+                magic_enum::enum_cast<taosim::TimeInForce>(
+                    std::string{payloadJson["r"].GetString()}).value(),
+                payloadJson["x"].IsNull()
+                    ? std::nullopt : std::make_optional<Timestamp>(payloadJson["x"].GetUint64()),
+                magic_enum::enum_cast<taosim::STPFlag>(
+                    std::string{payloadJson["s"].GetString()}).value(),
+                [&] -> taosim::SettleFlag {
+                    if (payloadJson["f"].IsUint()) {
+                        return payloadJson["f"].GetUint();
+                    } else if (payloadJson["f"].IsString()) {
+                        return magic_enum::enum_cast<taosim::SettleType>(
+                            std::string{payloadJson["f"].GetString()}).value();
+                    } else {
+                        throw std::runtime_error{fmt::format(
+                            "{}: Unrecogized 'settleFlag': {}", ctx, json::json2str(payloadJson["f"]))};
+                    }
+                }());
+        }
+        else if (msgType.ends_with("CANCEL_ORDERS")) {
+            return MessagePayload::create<CancelOrdersPayload>(
+                [&] {
+                    std::vector<Cancellation> cancellations;
+                    for (const auto& cancellationJson : payloadJson["cs"].GetArray()) {
+                        cancellations.emplace_back(
+                            cancellationJson["i"].GetUint(),
+                            cancellationJson["v"].IsNull()
+                                ? std::nullopt : std::make_optional(json::getDecimal(cancellationJson["v"])));
+                    }
+                    return cancellations;
+                }(),
+                bookId);
+        }
+        else if (msgType.ends_with("CLOSE_POSITIONS")) {
+            return MessagePayload::create<ClosePositionsPayload>(
+                [&] {
+                    std::vector<ClosePosition> closePositions;
+                    for (const auto& closePositionJson : payloadJson["cps"].GetArray()) {
+                        closePositions.emplace_back(
+                            closePositionJson["i"].GetUint(),
+                            closePositionJson["v"].IsNull()
+                                ? std::nullopt : std::make_optional(json::getDecimal(closePositionJson["v"])));
+                    }
+                    return closePositions;
+                }(),
+                bookId);
+        }
+        else if (msgType.ends_with("RESET_AGENT")) {
+            return MessagePayload::create<ResetAgentsPayload>(
+                [&] {
+                    std::vector<AgentId> agentIds;
+                    for (const auto& agentIdJson : payloadJson["as"].GetArray()) {
+                        agentIds.push_back(agentIdJson.GetInt());
+                    }
+                    return agentIds;
+                }());
+        }
+        throw std::runtime_error{fmt::format(
+            "{}: Unexpected message type encountered during replay: {}", ctx, msgType)};
+    };
+
+    auto createMessageFromLogFileEntry = [&](const std::string& entry, size_t lineCounter) {
+        const auto jsonEntryStr = entry.substr(
+            boost::algorithm::find_nth(entry, ",", 1).begin() - entry.begin() + 1);
+        rapidjson::Document json;
+        if (json.Parse(jsonEntryStr.c_str()).HasParseError()) {
+            throw std::runtime_error{fmt::format(
+                "{}: Error parsing log file entry at line {}: {}", ctx, lineCounter, entry)};
+        }
+        const std::string msgType{json["p"].GetString()};
+        return Message::create(
+            json["o"].GetUint64(),
+            json["o"].GetUint64() + json["d"].GetUint64(),
+            json["s"].GetString(),
+            json["t"].GetString(),
+            msgType,
+            msgType.starts_with("DISTRIBUTED")
+                ? MessagePayload::create<DistributedAgentResponsePayload>(
+                    json["pld"]["a"].GetInt(),
+                    makePayload(json))
+                : makePayload(json));
+    };
+
+    for (const auto& replayLogFile : replayLogFiles) {
+        std::ifstream ifs{replayLogFile, std::ios::in};
+        std::vector<std::string> lines;
+        std::string buf;
+        std::getline(ifs, buf);
+        size_t lineCounter{1};
+        while (true) {
+            lines.clear();
+            while (std::getline(ifs, buf)) {
+                lines.push_back(buf);
+                ++lineCounter;
+            }
+            if (lines.empty()) break;
+            for (const auto& line : lines) {
+                Message::Ptr msg = createMessageFromLogFileEntry(line, lineCounter);
+                simulation->queueMessage(msg);
+                simulation->time().duration = msg->arrival;
+            }
+        }
+    }
+
+    simulation->simulate();
 }
 
 //-------------------------------------------------------------------------
@@ -252,9 +459,7 @@ rapidjson::Document SimulationManager::makeCollectiveBookStateJson() const
             auto& allocator = json.GetAllocator();
             const auto& representativeSimulation = m_simulations.front();
             for (AgentId agentId : views::keys(representativeSimulation->exchange()->accounts())) {
-                if (agentId < 0) {
-                    continue;
-                }
+                if (agentId < 0) continue;
                 const auto agentIdStr = std::to_string(agentId);
                 const char* agentIdCStr = agentIdStr.c_str();
                 json.AddMember(
@@ -344,9 +549,7 @@ rapidjson::Document SimulationManager::makeCollectiveBookStateJson() const
                             for (const auto tick : level) {
                                 const auto [agentId, clientOrderId] =
                                     books[book->id()]->orderClientContext(tick->id());
-                                if (agentId < 0) {
-                                    continue;
-                                }
+                                if (agentId < 0) continue;
                                 const auto agentIdStr = std::to_string(agentId);
                                 const char* agentIdCStr = agentIdStr.c_str();
                                 rapidjson::Document orderJson{&allocator};
@@ -408,10 +611,16 @@ std::unique_ptr<SimulationManager> SimulationManager::fromConfig(const fs::path&
         };
     }();
     mngr->m_threadPool = std::make_unique<boost::asio::thread_pool>(mngr->m_blockInfo.count);
+    boost::asio::signal_set{mngr->m_io, SIGINT, SIGTERM}.async_wait(
+        [&](boost::system::error_code, int) {
+            mngr->m_threadPool->stop();
+            mngr->m_io.stop();
+        });
 
     mngr->setupLogDir(node);
-    mngr->m_simulations = views::iota(0u, mngr->m_blockInfo.count)
-        | views::transform([&](auto blockIdx) { 
+    mngr->m_simulations =
+        views::iota(0u, mngr->m_blockInfo.count)
+        | views::transform([&](auto blockIdx) {
             auto simulation = std::make_unique<Simulation>(blockIdx, mngr->m_logDir);
             simulation->configure(node);
             return simulation;
@@ -439,6 +648,97 @@ std::unique_ptr<SimulationManager> SimulationManager::fromConfig(const fs::path&
             simulation->exchange()->L3Record().clear();
         }
     });
+
+    if (node.attribute("traceTime").as_bool()) {
+        mngr->m_stepSignal.connect([&] {
+            const auto& representativeSimulation = mngr->m_simulations.front();
+            uint64_t total, seconds, hours, minutes, nanos;
+            total = representativeSimulation->time().current / 1'000'000'000;
+            minutes = total / 60;
+            seconds = total % 60;
+            hours = minutes / 60;
+            minutes = minutes % 60;
+            nanos = representativeSimulation->time().current % 1'000'000'000;
+            fmt::println("TIME : {:02d}:{:02d}:{:02d}.{:09d}", hours, minutes, seconds, nanos); 
+        });
+    }
+
+    return mngr;
+}
+
+//-------------------------------------------------------------------------
+
+std::unique_ptr<SimulationManager> SimulationManager::fromReplay(
+    const fs::path& replayDir, BookId bookId)
+{
+    static constexpr auto ctx = std::source_location::current().function_name();
+
+    pugi::xml_document doc;
+    const fs::path configPath = replayDir / "config.xml";;
+    pugi::xml_parse_result result = doc.load_file(configPath.c_str());
+    fmt::println(" - '{}' loaded successfully", configPath.c_str());
+    pugi::xml_node node = doc.child("Simulation");
+    node.attribute("id").set_value(
+        fmt::format("{}-replay", replayDir.filename().c_str()).c_str());
+    
+    static constexpr const char* replayNodeName = "Replay";
+    auto replayLogNode = node.child("Agents")
+        .child("MultiBookExchangeAgent")
+        .child("Logging")
+        .child(replayNodeName);
+    if (replayLogNode) {
+        replayLogNode.parent().remove_child(replayNodeName);
+    }
+
+    auto mngr = std::make_unique<SimulationManager>();
+
+    mngr->m_blockInfo = [&] -> SimulationBlockInfo {
+        static constexpr const char* attrName = "blockCount";
+        pugi::xml_attribute attr = node.attribute(attrName);
+        const auto threadCount = [&] {
+            const auto threadCount = attr.as_uint(1);
+            if (threadCount > std::thread::hardware_concurrency()) {
+                throw std::runtime_error{fmt::format(
+                    "{}: requested thread count ({}) exceeds count available ({})",
+                    ctx, threadCount, std::thread::hardware_concurrency()
+                )};
+            }
+            return threadCount;
+        }();
+        const auto booksNode = node.child("Agents").child("MultiBookExchangeAgent").child("Books");
+        if (!booksNode) {
+            throw std::runtime_error{fmt::format(
+                "{}: missing node 'Agents/MultiBookExchangeAgent/Books'",
+                ctx
+            )};
+        }
+        return {
+            .count = threadCount,
+            .dimension = booksNode.attribute("instanceCount").as_uint(1)
+        };
+    }();
+    mngr->m_threadPool = std::make_unique<boost::asio::thread_pool>(mngr->m_blockInfo.count);
+    boost::asio::signal_set{mngr->m_io, SIGINT, SIGTERM}.async_wait(
+        [&](boost::system::error_code, int) {
+            mngr->m_threadPool->stop();
+            mngr->m_io.stop();
+        });
+
+    mngr->setupLogDir(node);
+    mngr->m_simulations =
+        views::iota(0u, mngr->m_blockInfo.count)
+        | views::transform([&](auto blockIdx) {
+            auto simulation = std::make_unique<Simulation>(blockIdx, mngr->m_logDir);
+            simulation->configure(node);
+            simulation->exchange()->replayMode() = true;
+            return simulation;
+        })
+        | ranges::to<std::vector>;
+
+    mngr->m_gracePeriod = node.child("Agents")
+        .child("MultiBookExchangeAgent")
+        .attribute("gracePeriod")
+        .as_ullong();
 
     if (node.attribute("traceTime").as_bool()) {
         mngr->m_stepSignal.connect([&] {

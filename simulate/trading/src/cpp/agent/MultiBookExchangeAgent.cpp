@@ -117,7 +117,7 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                         0,
                                         accounts().idBimap().right.at(idIt->agentId),
                                         name(),
-                                        "PLACE_ORDER_MARKET",
+                                        "PLACE_ORDER_MARKET_MC",
                                         MessagePayload::create<PlaceOrderMarketPayload>(
                                             OrderDirection::SELL,
                                             remainingVolume,
@@ -137,7 +137,7 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                         0,
                                         "DISTRIBUTED_PROXY_AGENT",
                                         name(),
-                                        "DISTRIBUTED_PLACE_ORDER_MARKET",
+                                        "DISTRIBUTED_PLACE_ORDER_MARKET_MC",
                                         MessagePayload::create<DistributedAgentResponsePayload>(
                                             idIt->agentId,
                                             MessagePayload::create<PlaceOrderMarketPayload>(
@@ -217,7 +217,7 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                         0,
                                         accounts().idBimap().right.at(idIt->agentId),
                                         name(),
-                                        "PLACE_ORDER_MARKET",
+                                        "PLACE_ORDER_MARKET_MC",
                                         MessagePayload::create<PlaceOrderMarketPayload>(
                                             OrderDirection::BUY,
                                             remainingVolume,
@@ -237,7 +237,7 @@ void MultiBookExchangeAgent::checkMarginCall() noexcept
                                         0,
                                         "DISTRIBUTED_PROXY_AGENT",
                                         name(),
-                                        "DISTRIBUTED_PLACE_ORDER_MARKET",
+                                        "DISTRIBUTED_PLACE_ORDER_MARKET_MC",
                                         MessagePayload::create<DistributedAgentResponsePayload>(
                                             idIt->agentId,
                                             MessagePayload::create<PlaceOrderMarketPayload>(
@@ -334,6 +334,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
         pugi::xml_node L2Node;
         pugi::xml_node L3Node;
         pugi::xml_node feeLogNode;
+        pugi::xml_node replayNode;
         if (loggingNode = node.child("Logging")) {
             std::istringstream in{loggingNode.attribute("startDate").as_string()};
             // TODO: Handle the timezone
@@ -348,6 +349,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             if (feeLogNode = loggingNode.child("FeeLog")) {
                 feeLogTag = feeLogNode.attribute("tag").as_string();
             }
+            replayNode = loggingNode.child("Replay");
         }
 
         m_L3Record = L3RecordContainer{bookCount};
@@ -427,6 +429,14 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                         m_signals.at(bookId)->feeLog,
                         simulation());
                 }
+                if (replayNode) {
+                    m_replayLog = true;
+                    const fs::path path =
+                        simulation()->logDir() / fmt::format("Replay-{}.log", bookIdCanon);
+                    m_replayEventLoggers.push_back(
+                        std::make_unique<taosim::exchange::ReplayEventLogger>(
+                            path, startTimePoint, simulation()));
+                }
             }
         }
 
@@ -462,6 +472,40 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                     &accounts());
                 m_balanceLoggers.push_back(std::move(balanceLogger));
             }
+        });
+        simulation()->signals().agentsCreated.connect([this] {
+            if (!m_replayLog) return;
+            rapidjson::Document json{rapidjson::kObjectType};
+            auto& allocator = json.GetAllocator();
+            for (const auto& [agentId, acct] : accounts()) {
+                json.AddMember(
+                    rapidjson::Value{std::to_string(agentId).c_str(), allocator},
+                    [&] {
+                        rapidjson::Document balancesJson{rapidjson::kArrayType, &allocator};
+                        for (const auto& bals : acct) {
+                            rapidjson::Document balanceJson{rapidjson::kObjectType, &allocator};
+                            balanceJson.AddMember(
+                                "base",
+                                rapidjson::Value{taosim::util::packDecimal(bals.base.getTotal())},
+                                allocator);
+                            balanceJson.AddMember(
+                                "quote",
+                                rapidjson::Value{taosim::util::packDecimal(bals.quote.getTotal())},
+                                allocator);
+                            balancesJson.PushBack(balanceJson, allocator);
+                        }
+                        return balancesJson;
+                    }().Move(),
+                    allocator);
+            }
+            std::ofstream ofs{
+                simulation()->logDir() /
+                fmt::format(
+                    "Replay-Balances-{}-{}.json",
+                    simulation()->blockIdx() * m_books.size(),
+                    (simulation()->blockIdx() + 1) * m_books.size() - 1)};
+            taosim::json::dumpJson(
+                json, ofs, taosim::json::FormatOptions{.indent = taosim::json::IndentOptions{}});
         });
     }
     catch (...) {
@@ -652,7 +696,7 @@ void MultiBookExchangeAgent::handleException()
 
 void MultiBookExchangeAgent::handleDistributedMessage(Message::Ptr msg)
 {
-    if (msg->type.ends_with("PLACE_ORDER_MARKET")) {
+    if (msg->type.contains("PLACE_ORDER_MARKET")) {
         handleDistributedPlaceMarketOrder(msg);
     }
     else if (msg->type.ends_with("PLACE_ORDER_LIMIT")) {
@@ -681,6 +725,12 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<ResetAgentsPayload>(payload->payload);
+
+    if (m_replayLog) {
+        for (const auto& logger : m_replayEventLoggers) {
+            logger->log(msg);
+        }
+    }
 
     std::vector<AgentId> valid = {};
     for (AgentId agentId : subPayload->agentIds) {
@@ -731,7 +781,9 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     const std::unordered_set<AgentId> resetAgentIds{valid.begin(), valid.end()};
 
     m_clearingManager->feePolicy()->resetHistory(resetAgentIds);
-	
+
+    if (m_replayMode) return;
+
     simulation()->m_messageQueue = MessageQueue{
         simulation()->m_messageQueue.m_queue.underlying()
             | views::filter([&](const auto& prioMsgWithId) {
@@ -758,6 +810,14 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<PlaceOrderMarketPayload>(payload->payload);
 
+    const bool isMarginCall = msg->type.ends_with("_MC");
+    if (isMarginCall) {
+        msg->type = "DISTRIBUTED_PLACE_MARKET_ORDER";
+    }
+    if (m_replayLog && !isMarginCall) {
+        m_replayEventLoggers.at(subPayload->bookId)->log(msg);
+    }
+
     if (simulation()->debug()) {
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
         simulation()->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", simulation()->currentTimestamp(), payload->agentId, simulation()->bookIdCanon(subPayload->bookId), balances.quote, balances.base);
@@ -777,6 +837,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
             "Invalid Market Order Placement by Distributed Agent - {} : {}",
             orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
+        if (m_replayMode) return;
         return fastRespondToMessage(
             msg,
             "ERROR",
@@ -799,6 +860,8 @@ void MultiBookExchangeAgent::handleDistributedPlaceMarketOrder(Message::Ptr msg)
         subPayload->currency
     );
 
+    if (m_replayMode) return;
+
     const auto retSubPayload =
         MessagePayload::create<PlaceOrderMarketResponsePayload>(order->id(), subPayload);
 
@@ -816,6 +879,10 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<PlaceOrderLimitPayload>(payload->payload);
+
+    if (m_replayLog) {
+        m_replayEventLoggers.at(subPayload->bookId)->log(msg);
+    }
 
     if (simulation()->debug()) {
         const auto& balances = simulation()->exchange()->accounts()[payload->agentId][subPayload->bookId];
@@ -836,6 +903,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
             "Invalid Limit Order Placement by Distributed Agent - {} : {}",
             orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
+        if (m_replayMode) return;
         return fastRespondToMessage(
             msg,
             "ERROR",
@@ -861,6 +929,8 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
         subPayload->expiryPeriod,
         subPayload->currency
     );
+
+    if (m_replayMode) return;
 
     const auto retSubPayload =
         MessagePayload::create<PlaceOrderLimitResponsePayload>(order->id(), subPayload);
@@ -915,6 +985,10 @@ void MultiBookExchangeAgent::handleDistributedCancelOrders(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<CancelOrdersPayload>(payload->payload);
 
+    if (m_replayLog) {
+        m_replayEventLoggers.at(subPayload->bookId)->log(msg);
+    }
+
     const auto bookId = subPayload->bookId;
     const auto book = m_books[bookId];
 
@@ -932,6 +1006,8 @@ void MultiBookExchangeAgent::handleDistributedCancelOrders(Message::Ptr msg)
             failures.push_back(cancellation);
         }
     }
+
+    if (m_replayMode) return;
 
     if (!cancellations.empty()) {        
         std::vector<OrderID> orderIds;
@@ -976,6 +1052,10 @@ void MultiBookExchangeAgent::handleDistributedClosePositions(Message::Ptr msg)
     const auto payload = std::dynamic_pointer_cast<DistributedAgentResponsePayload>(msg->payload);
     const auto subPayload = std::dynamic_pointer_cast<ClosePositionsPayload>(payload->payload);
 
+    if (m_replayLog) {
+        m_replayEventLoggers.at(subPayload->bookId)->log(msg);
+    }
+
     const auto bookId = subPayload->bookId;
     const auto book = m_books[bookId];
 
@@ -995,6 +1075,8 @@ void MultiBookExchangeAgent::handleDistributedClosePositions(Message::Ptr msg)
             failures.push_back(close);
         }
     }
+
+    if (m_replayMode) return;
 
     if (!closes.empty()) {        
         std::vector<OrderID> orderIds;
@@ -1053,7 +1135,7 @@ void MultiBookExchangeAgent::handleDistributedUnknownMessage(Message::Ptr msg)
 
 void MultiBookExchangeAgent::handleLocalMessage(Message::Ptr msg)
 {
-    if (msg->type == "PLACE_ORDER_MARKET") {
+    if (msg->type.starts_with("PLACE_ORDER_MARKET")) {
         handleLocalPlaceMarketOrder(msg);
     }
     else if (msg->type == "PLACE_ORDER_LIMIT") {
@@ -1097,6 +1179,14 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
 {
     const auto& payload = std::dynamic_pointer_cast<PlaceOrderMarketPayload>(msg->payload);
 
+    const bool isMarginCall = msg->type.ends_with("_MC");
+    if (isMarginCall) {
+        msg->type = "PLACE_MARKET_ORDER";
+    }
+    if (m_replayLog && !isMarginCall) {
+        m_replayEventLoggers.at(payload->bookId)->log(msg);
+    }
+
     if (simulation()->debug()) {
         auto agentId = accounts().idBimap().left.at(msg->source);
         const auto& balances = simulation()->exchange()->accounts()[agentId][payload->bookId];
@@ -1118,6 +1208,7 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
             "Invalid Market Order Placement by Local Agent - {} : {}",
             orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
+        if (m_replayMode) return;
         return fastRespondToMessage(
             msg,
             "ERROR",
@@ -1138,6 +1229,8 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
         payload->currency
     );
 
+    if (m_replayMode) return;
+
     respondToMessage(
         msg,
         MessagePayload::create<PlaceOrderMarketResponsePayload>(order->id(), payload),
@@ -1151,6 +1244,10 @@ void MultiBookExchangeAgent::handleLocalPlaceMarketOrder(Message::Ptr msg)
 void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
 {
     const auto& payload = std::dynamic_pointer_cast<PlaceOrderLimitPayload>(msg->payload);
+
+    if (m_replayLog) {
+        m_replayEventLoggers.at(payload->bookId)->log(msg);
+    }
 
     if (simulation()->debug()) {
         auto agentId = accounts().idBimap().left.at(msg->source);
@@ -1173,6 +1270,7 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
             "Invalid Limit Order Placement by Local Agent - {} : {}",
             orderResult.ec,
             taosim::json::jsonSerializable2str(payload));
+        if (m_replayMode) return;
         return fastRespondToMessage(
             msg,
             "ERROR",
@@ -1196,6 +1294,8 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
         payload->expiryPeriod,
         payload->currency
     );
+
+    if (m_replayMode) return;
 
     respondToMessage(
         msg,
@@ -1241,17 +1341,20 @@ void MultiBookExchangeAgent::handleLocalCancelOrders(Message::Ptr msg)
 {
     const auto& payload = std::dynamic_pointer_cast<CancelOrdersPayload>(msg->payload);
 
+    if (m_replayLog) {
+        m_replayEventLoggers.at(payload->bookId)->log(msg);
+    }
+
     const auto bookId = payload->bookId;
     const auto book = m_books[bookId];
 
     std::vector<Cancellation> cancellations;
     std::vector<Cancellation> failures;
     for (auto& cancellation : payload->cancellations) {
-        ////###
-        if (cancellation.volume.has_value()){
-            cancellation.volume = taosim::util::round(cancellation.volume.value(), m_config.parameters().volumeIncrementDecimals);
+        if (cancellation.volume) {
+            cancellation.volume = taosim::util::round(
+                cancellation.volume.value(), m_config.parameters().volumeIncrementDecimals);
         }
-        
         if (book->cancelOrderOpt(cancellation.id, cancellation.volume)) {
             cancellations.push_back(cancellation);
             m_signals.at(bookId)->cancelLog(CancellationWithLogContext(
@@ -1265,6 +1368,8 @@ void MultiBookExchangeAgent::handleLocalCancelOrders(Message::Ptr msg)
             failures.push_back(cancellation);
         }
     }
+
+    if (m_replayMode) return;
 
     if (!cancellations.empty()) {
         respondToMessage(
@@ -1298,32 +1403,33 @@ void MultiBookExchangeAgent::handleLocalClosePositions(Message::Ptr msg)
 {
     const auto& payload = std::dynamic_pointer_cast<ClosePositionsPayload>(msg->payload);
 
+    if (m_replayLog) {
+        m_replayEventLoggers.at(payload->bookId)->log(msg);
+    }
+
     const auto bookId = payload->bookId;
     const auto book = m_books[bookId];
     const auto agentId = accounts().idBimap().left.at(msg->source);
 
     std::vector<ClosePosition> closes;
     std::vector<ClosePosition> failures;
-    for (const auto& close : payload->closePositions) {        
-        if (m_clearingManager->handleClosePosition(ClosePositionDesc{
-                .bookId = bookId,
-                .agentId = agentId,
-                .orderId = close.id,
-                .volumeToClose = close.volume
-            })
-        ) {
+    for (const auto& close : payload->closePositions) {
+        const auto res = m_clearingManager->handleClosePosition(ClosePositionDesc{
+            .bookId = bookId,
+            .agentId = agentId,
+            .orderId = close.id,
+            .volumeToClose = close.volume
+        });
+        if (res) {
             closes.push_back(close);
-            // m_signals[bookId]->cancelLog(CancellationWithLogContext(
-            //     cancellation,
-            //     std::make_shared<CancellationLogContext>(
-            //         payload->agentId, bookId, simulation()->currentTimestamp())));
-        }
-        else {
+        } else {
             failures.push_back(close);
         }
     }
 
-    if (!closes.empty()) {   
+    if (m_replayMode) return;
+
+    if (!closes.empty()) {
         respondToMessage(
             msg,
             MessagePayload::create<ClosePositionsResponsePayload>(
@@ -1675,24 +1781,25 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
         trade,
         std::make_shared<TradeLogContext>(aggressingAgentId, restingAgentId, bookId, fees));
 
-    const Timestamp now = simulation()->currentTimestamp();
-    const std::array<std::pair<AgentId, std::optional<ClientOrderID>>, 2> idPairs{
-        std::pair{restingAgentId, restingClientOrderId},
-        std::pair{aggressingAgentId, aggressingClientOrderId}};
-    for (const auto [agentId, clientOrderId] : idPairs) {
-        const bool isLocalAgent = agentId < AgentId{};
-        if (isLocalAgent)
-            continue;
-        simulation()->dispatchMessage(
-            now,
-            Timestamp{},
-            name(),
-            "DISTRIBUTED_PROXY_AGENT",
-            "EVENT_TRADE",
-            MessagePayload::create<DistributedAgentResponsePayload>(
-                agentId,
-                MessagePayload::create<EventTradePayload>(
-                    *trade, *tradeWithCtx->logContext, bookId, clientOrderId)));
+    if (!m_replayMode) {
+        const Timestamp now = simulation()->currentTimestamp();
+        const std::array<std::pair<AgentId, std::optional<ClientOrderID>>, 2> idPairs{
+            std::pair{restingAgentId, restingClientOrderId},
+            std::pair{aggressingAgentId, aggressingClientOrderId}};
+        for (const auto [agentId, clientOrderId] : idPairs) {
+            const bool isLocalAgent = agentId < AgentId{};
+            if (isLocalAgent) continue;
+            simulation()->dispatchMessage(
+                now,
+                Timestamp{},
+                name(),
+                "DISTRIBUTED_PROXY_AGENT",
+                "EVENT_TRADE",
+                MessagePayload::create<DistributedAgentResponsePayload>(
+                    agentId,
+                    MessagePayload::create<EventTradePayload>(
+                        *trade, *tradeWithCtx->logContext, bookId, clientOrderId)));
+        }
     }
 
     m_signals[bookId]->tradeLog(*tradeWithCtx);
@@ -1707,6 +1814,8 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
             .volume = trade->volume()
         }   
     );
+
+    if (m_replayMode) return;
 
     notifyTradeSubscribers(tradeWithCtx);
 }

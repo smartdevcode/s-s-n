@@ -36,3 +36,4 @@ struct ClosePosition : public JsonSerializable, public CheckpointSerializable
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
 };
 
+//-------------------------------------------------------------------------

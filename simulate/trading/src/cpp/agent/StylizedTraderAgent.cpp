@@ -108,6 +108,21 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
     m_riskAversion0 = attr.as_double();
     m_riskAversion = m_riskAversion0 * (1.0f + m_weight.F) / (1.0f + m_weight.C);
 
+    attr = node.attribute("volGuard");
+    if (attr.empty() || attr.as_double() <= 0.0f) {
+        throw std::invalid_argument(fmt::format(
+            "{}: attribute 'volatility Guard (volGuard)' should have a value greater than 0.0f", ctx));
+    }
+    m_volatilityGuard =  attr.as_double();
+    // Logistic curve for probability to make volatility guard
+    // Post Only is inspired by the real market volatility guards
+    const float p_low  = m_volatilityGuard;
+    const float p_high = 1- m_volatilityGuard;    
+    const float L1 = std::log((1 - m_volatilityGuard) / m_volatilityGuard);
+    const float L2 = std::log(m_volatilityGuard / (1- m_volatilityGuard));
+    m_slopeVolGuard =  (L1 - L2) / (10*m_volatilityGuard - m_volatilityGuard/100);
+    m_volGuardX0 = m_volatilityGuard/10 + L1/m_slopeVolGuard;
+
     if (attr = node.attribute("minOPLatency"); attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'minLatency' should have a value greater than 0", ctx));
@@ -266,7 +281,6 @@ void StylizedTraderAgent::configure(const pugi::xml_node& node)
 
 void StylizedTraderAgent::receiveMessage(Message::Ptr msg)
 {
-
     if (msg->type == "EVENT_SIMULATION_START") {
         handleSimulationStart();
     }
@@ -509,10 +523,7 @@ StylizedTraderAgent::ForecastResult StylizedTraderAgent::forecast(BookId bookId)
     const double tauFNormalizer = m_regimeState.at(bookId) == RegimeState::REGIME_A ?  m_tauF.at(bookId) / m_weightNormalizer *0.01 : 1;
     const double logReturnForecast = m_weightNormalizer
         * (m_weight.F * compF + m_weight.C * compC + m_weight.N * compN) * tauFNormalizer;
-   
-    return {
-        .price = m_price * std::exp(logReturnForecast),
-        .varianceOfLastLogReturns = [&] {
+    const double varLastLogs = [&] {
             namespace bacc = boost::accumulators;
             bacc::accumulator_set<double, bacc::stats<bacc::tag::lazy_variance>> acc;
             const auto n = logReturns.capacity();
@@ -520,8 +531,12 @@ StylizedTraderAgent::ForecastResult StylizedTraderAgent::forecast(BookId bookId)
                 acc(logRet);
             }
             return bacc::variance(acc) * (n - 1) / n;
-        }()
-    };
+        }();
+
+   
+    return {
+        .price = m_price * std::exp(logReturnForecast),
+        .varianceOfLastLogReturns =  varLastLogs};
 }
 
 //-------------------------------------------------------------------------
@@ -677,7 +692,10 @@ void StylizedTraderAgent::placeLimitBuy(
 
     m_orderFlag.at(bookId) = true;
 
-    const bool postOnly = std::bernoulli_distribution{m_alpha}(*m_rng);
+
+     // choose bigger from m_alpha and postOnlyProb so that fixed version can be used;; 
+    const float postOnlyProb = std::max(1.0/(1.0 + std::exp(-m_slopeVolGuard* (forecastResult.varianceOfLastLogReturns - m_volGuardX0))), m_alpha);
+    const bool postOnly = std::bernoulli_distribution{postOnlyProb}(*m_rng);
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         orderPlacementLatency(),
@@ -717,7 +735,9 @@ void StylizedTraderAgent::placeLimitSell(
     }
 
     m_orderFlag.at(bookId) = true;
-    const bool postOnly = std::bernoulli_distribution{m_alpha}(*m_rng);
+    // choose bigger from m_alpha and postOnlyProb so that fixed version can be used;; 
+    const float postOnlyProb = std::max(1.0/(1.0 + std::exp(-m_slopeVolGuard* (forecastResult.varianceOfLastLogReturns - m_volGuardX0))), m_alpha);
+    const bool postOnly = std::bernoulli_distribution{postOnlyProb}(*m_rng);
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         orderPlacementLatency(),

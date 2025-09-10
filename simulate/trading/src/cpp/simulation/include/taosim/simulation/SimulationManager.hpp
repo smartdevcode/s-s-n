@@ -40,6 +40,7 @@ class SimulationManager
 {
 public:
     void runSimulations();
+    void runReplay(const fs::path& replayDir, BookId bookId);
     void publishStartInfo();
     void publishEndInfo();
     void publishState();
@@ -49,9 +50,11 @@ public:
     [[nodiscard]] bool online() const noexcept { return !m_netInfo.host.empty() && !m_netInfo.port.empty(); }
 
     static std::unique_ptr<SimulationManager> fromConfig(const fs::path& path);
+    static std::unique_ptr<SimulationManager> fromReplay(const fs::path& replayDir, BookId bookId);
 
 private:
     SimulationBlockInfo m_blockInfo;
+    boost::asio::io_context m_io;
     std::unique_ptr<boost::asio::thread_pool> m_threadPool;
     std::vector<std::unique_ptr<Simulation>> m_simulations;
     fs::path m_logDir;

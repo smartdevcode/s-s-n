@@ -182,6 +182,7 @@ class MarketSimulationConfig(BaseModel):
         futures_agent_order_latency_max (int | None): Maximum order latency for futures agents.
         futures_agent_selection_scale (float | None): Scale factor for futures agent selection.
     """
+    simulation_id : str | None = None
     logDir : str | None = None
 
     block_count : int
@@ -1870,6 +1871,7 @@ class Balance(BaseModel):
     t : float = Field(alias="total")
     f : float = Field(alias="free")
     r : float = Field(alias="reserved")
+    i : float = Field(alias="initial", default=None)
 
     @property
     def currency(self) -> str:
@@ -1887,12 +1889,16 @@ class Balance(BaseModel):
     def reserved(self) -> float:
         return self.r
 
+    @property
+    def initial(self) -> float:
+        return self.i
+
     @classmethod
     def from_json(self, currency : str, json : dict):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Balance.model_construct(currency=currency,total=json['total'],free=json['free'],reserved=json['reserved'])
+        return Balance.model_construct(currency=currency,total=json['total'],free=json['free'],reserved=json['reserved'], initial=json['initial'])
 
 class Fees(BaseModel):
     """

@@ -106,7 +106,7 @@ taosim::accounting::Account& Simulation::account(const LocalAgentId& id) const n
 
 std::span<const std::unique_ptr<Agent>> Simulation::agents() const noexcept
 {
-    return m_localAgentManager->agents(); 
+    return m_localAgentManager->agents();
 }
 
 //-------------------------------------------------------------------------
@@ -151,7 +151,7 @@ void Simulation::configure(const pugi::xml_node& node)
     m_config2 = taosim::simulation::SimulationConfig::fromXML(node);
 
     pugi::xml_attribute attr;
-    
+
     if (attr = node.attribute("start"); attr.empty()) {
         throw std::invalid_argument(fmt::format(
             "{}: missing required attribute 'start'",
@@ -638,20 +638,22 @@ void Simulation::deliverMessage(Message::Ptr msg)
 
 void Simulation::start()
 {
-    dispatchMessage(
-        m_time.start,
-        0,
-        "SIMULATION",
-        "*",
-        "EVENT_SIMULATION_START",
-        MessagePayload::create<StartSimulationPayload>(logDir().generic_string()));
-    dispatchMessage(
-        m_time.start,
-        m_time.duration - 1,
-        "SIMULATION",
-        "*",
-        "EVENT_SIMULATION_END",
-        MessagePayload::create<EmptyPayload>());
+    if (!m_exchange->replayMode()) {
+        dispatchMessage(
+            m_time.start,
+            0,
+            "SIMULATION",
+            "*",
+            "EVENT_SIMULATION_START",
+            MessagePayload::create<StartSimulationPayload>(logDir().generic_string()));
+        dispatchMessage(
+            m_time.start,
+            m_time.duration - 1,
+            "SIMULATION",
+            "*",
+            "EVENT_SIMULATION_END",
+            MessagePayload::create<EmptyPayload>());
+    }
 
     m_state = taosim::simulation::SimulationState::STARTED;
     m_signals.start();

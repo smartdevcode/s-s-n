@@ -28,6 +28,7 @@ Balance::Balance(
 
     m_free = total;
     m_total = total;
+    m_initial = total;
 }
 
 //-------------------------------------------------------------------------
@@ -247,6 +248,8 @@ void Balance::jsonSerialize(rapidjson::Document& json, const std::string& key) c
         json.SetObject();
         auto& allocator = json.GetAllocator();
         json.AddMember(
+            "initial", rapidjson::Value{util::decimal2double(m_initial)}, allocator);
+        json.AddMember(
             "free", rapidjson::Value{util::decimal2double(m_free)}, allocator);
         json.AddMember(
             "reserved", rapidjson::Value{util::decimal2double(m_reserved)}, allocator);
@@ -271,6 +274,7 @@ void Balance::checkpointSerialize(rapidjson::Document& json, const std::string& 
     auto serialize = [this](rapidjson::Document& json) {
         json.SetObject();
         auto& allocator = json.GetAllocator();
+        json.AddMember("initial", rapidjson::Value{util::packDecimal(m_initial)}, allocator);
         json.AddMember("free", rapidjson::Value{util::packDecimal(m_free)}, allocator);
         json.AddMember("reserved", rapidjson::Value{util::packDecimal(m_reserved)}, allocator);
         json.AddMember("total", rapidjson::Value{util::packDecimal(m_total)}, allocator);
@@ -321,6 +325,7 @@ Balance Balance::fromJson(const rapidjson::Value& json)
 {
     Balance balance;
     balance.m_roundingDecimals = json["roundingDecimals"].GetUint();
+    balance.m_initial = balance.roundAmount(json::getDecimal(json["initial"]));
     balance.m_free = balance.roundAmount(json::getDecimal(json["free"]));
     balance.m_reserved = balance.roundAmount(json::getDecimal(json["reserved"]));
     balance.m_total = balance.roundAmount(json::getDecimal(json["total"]));
@@ -337,6 +342,7 @@ Balance Balance::fromJson(const rapidjson::Value& json)
 
 void Balance::move(Balance&& other) noexcept
 {
+    m_initial = std::exchange(other.m_initial, {});
     m_free = std::exchange(other.m_free, {});
     m_total = std::exchange(other.m_total, {});
     m_reserved = std::exchange(other.m_reserved, {});

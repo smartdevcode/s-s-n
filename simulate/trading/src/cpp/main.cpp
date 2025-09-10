@@ -28,17 +28,30 @@ int main(int argc, char* argv[])
     fs::path checkpoint;
     initGroup->add_option("-c,--checkpoint-file", checkpoint, "Checkpoint file")
         ->check(CLI::ExistingFile);
+    fs::path replayDir;
+    auto optReplayDir = initGroup->add_option(
+        "-r,--replay-dir", replayDir, "Log directory to use in a replay context")
+        ->check(CLI::ExistingDirectory);
+    std::optional<BookId> bookId;
+    app.add_option("--book-id", bookId, "Book to replay")
+        ->needs(optReplayDir);
     initGroup->require_option(1);
 
     CLI11_PARSE(app, argc, argv);
 
     fmt::println("{}", app.get_description());
 
-    if (config.empty()) {
-        throw std::runtime_error{"Loading from checkpoint not supported currently!"};
+    if (!checkpoint.empty()) {
+        throw std::runtime_error{"Loading from checkpoint currently unsupported!"};
     }
-    auto mngr = taosim::simulation::SimulationManager::fromConfig(config);
-    mngr->runSimulations();
+    if (!replayDir.empty()) {
+        auto mngr = taosim::simulation::SimulationManager::fromReplay(replayDir, *bookId);
+        mngr->runReplay(replayDir, *bookId);
+    }
+    else {
+        auto mngr = taosim::simulation::SimulationManager::fromConfig(config);
+        mngr->runSimulations();
+    }
 
     fmt::println(" - all simulations finished, exiting");
 

@@ -32,6 +32,7 @@ public:
     Balance(Balance&& other) noexcept;
     Balance& operator=(Balance&& other) noexcept;
 
+    [[nodiscard]] decimal_t getInitial() const noexcept { return m_initial; }
     [[nodiscard]] decimal_t getFree() const noexcept { return m_free; }
     [[nodiscard]] decimal_t getTotal() const noexcept { return m_total; }
     [[nodiscard]] decimal_t getReserved() const noexcept { return m_reserved; }
@@ -64,6 +65,7 @@ private:
     [[nodiscard]] decimal_t roundAmount(decimal_t amount) const;
     [[nodiscard]] std::optional<decimal_t> roundAmount(std::optional<decimal_t> amount) const;   
 
+    decimal_t m_initial{};
     decimal_t m_free{};
     decimal_t m_reserved{};
     decimal_t m_total{};

@@ -86,13 +86,15 @@ void PlaceOrderMarketPayload::jsonSerialize(
         json.AddMember("leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
         std::visit([&](auto&& flag) {
             using T = std::remove_cvref_t<decltype(flag)>;
-            if constexpr (std::is_same_v<T, SettleType>) {
+            if constexpr (std::same_as<T, SettleType>) {
                 json.AddMember(
                     "settleFlag",
                     rapidjson::Value{magic_enum::enum_name(flag).data(), allocator},
                     allocator);
-            } else if constexpr (std::is_same_v<T, OrderID>) {
+            } else if constexpr (std::same_as<T, OrderID>) {
                 json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
+            } else {
+                static_assert(false, "Non-exchaustive visitor");
             }
         }, settleFlag);
     };

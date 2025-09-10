@@ -647,6 +647,7 @@ if __name__ != "__mp_main__":
             self.last_state = state
             if self.simulation:
                 state.config = self.simulation.model_copy()
+                state.config.simulation_id = os.path.basename(state.config.logDir)[:13]
                 state.config.logDir = None
             self.step += 1
             del message

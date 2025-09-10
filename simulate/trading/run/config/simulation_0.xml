@@ -13,8 +13,8 @@
             </FeePolicy>
             <Books instanceCount="5" algorithm="PriceTime" maxDepth="5">
                     <Processes>
-                    <FundamentalPrice name="fundamental" seedInterval="20000000000" mu="0.0" sigma="0.08"
-                        lambda="0.00825" muJump="0.0" sigmaJump="0.025" updatePeriod="20000000000"/>
+                    <FundamentalPrice name="fundamental" seedInterval="30000000000" mu="0.0" sigma="0.08"
+                        lambda="0.004125" muJump="0.0" sigmaJump="0.025" updatePeriod="30000000000"/>
                     <FuturesSignal name="external" seedInterval="10000000000" updatePeriod="10000000000"/>
                 </Processes>
             </Books>
@@ -141,8 +141,9 @@
             tau="175000000000"
             tauHist="100"
             tauF="1"
+            volGuard="0.000001"
             sigmaEps="0.001"
-            r_aversion="0.001"
+            r_aversion="0.005"
             regimeChangeFlag="0"
             regimeProb="0.75"
             sigmaFRegime="4"

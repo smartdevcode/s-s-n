@@ -104,8 +104,7 @@ BasicOrder::BasicOrder(
     : m_id{id},
       m_timestamp{timestamp},
       m_volume{volume},
-      m_leverage{leverage}
-      
+      m_leverage{leverage}    
 {}
 
 //-------------------------------------------------------------------------

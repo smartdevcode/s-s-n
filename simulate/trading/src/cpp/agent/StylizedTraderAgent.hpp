@@ -110,6 +110,9 @@ private:
     double m_riskAversion0;
     double m_priceIncrement;
     double m_volumeIncrement;
+    float m_volatilityGuard;
+    float m_slopeVolGuard;
+    float m_volGuardX0;
 
     std::vector<TopLevel> m_topLevel;
     DelayBounds m_opl;

@@ -4,8 +4,8 @@
  */
 #pragma once
 
-#include "L3LogEvent.hpp"
 #include "FeeLogEvent.hpp"
+#include "L3LogEvent.hpp"
 
 //-------------------------------------------------------------------------
 
