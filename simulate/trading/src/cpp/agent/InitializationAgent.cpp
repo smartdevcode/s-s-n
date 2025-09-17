@@ -42,11 +42,11 @@ void InitializationAgent::configure(const pugi::xml_node& node)
 
     m_price = taosim::util::decimal2double(simulation()->exchange()->config2().initialPrice);
 
-    if (attr = node.attribute("tau"); attr.empty()) {
+    if (attr = node.attribute("tau"); attr.empty() || attr.as_ullong() == 0) {
         throw std::invalid_argument(fmt::format(
             "{}: Missing required attribute 'tau'", ctx));
     }
-    m_tau = attr.as_double();    
+    m_tau = attr.as_ullong();    
 
     m_priceIncrement =
         1 / std::pow(10, simulation()->exchange()->config().parameters().priceIncrementDecimals);
@@ -148,7 +148,6 @@ void InitializationAgent::placeSellOrders()
 void InitializationAgent::handleLimitOrderPlacementResponse(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<PlaceOrderLimitResponsePayload>(msg->payload);
-
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         m_tau,

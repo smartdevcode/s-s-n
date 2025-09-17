@@ -28,7 +28,7 @@ private:
     std::string m_exchange;
     uint32_t m_bookCount;
     double m_price;
-    int m_tau;
+    Timestamp m_tau;
     double m_priceIncrement;
     double m_volumeIncrement;
 };

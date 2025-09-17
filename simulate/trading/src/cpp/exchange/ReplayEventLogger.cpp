@@ -142,7 +142,7 @@ rapidjson::Document ReplayEventLogger::makeLogEntryJson(Message::Ptr msg)
                     } else if constexpr (std::same_as<T, OrderID>) {
                         payloadJson.AddMember("f", rapidjson::Value{flag}, allocator);
                     } else {
-                        static_assert(false, "Non-exchaustive visitor");
+                        static_assert(false, "Non-exhaustive visitor");
                     }
                 },
                 pld->settleFlag);
@@ -182,7 +182,7 @@ rapidjson::Document ReplayEventLogger::makeLogEntryJson(Message::Ptr msg)
                     } else if constexpr (std::same_as<T, OrderID>) {
                         payloadJson.AddMember("f", rapidjson::Value{flag}, allocator);
                     } else {
-                        static_assert(false, "Non-exchaustive visitor");
+                        static_assert(false, "Non-exhaustive visitor");
                     }
                 },
                 pld->settleFlag);
@@ -191,9 +191,9 @@ rapidjson::Document ReplayEventLogger::makeLogEntryJson(Message::Ptr msg)
             payloadJson.AddMember(
                 "cs",
                 [&] {
-                    rapidjson::Document cancellationsJson{rapidjson::kArrayType, &allocator};
+                    rapidjson::Value cancellationsJson{rapidjson::kArrayType};
                     for (const auto& cancellation : pld->cancellations) {
-                        rapidjson::Document cancellationJson{rapidjson::kObjectType, &allocator};
+                        rapidjson::Value cancellationJson{rapidjson::kObjectType};
                         cancellationJson.AddMember("i", rapidjson::Value{cancellation.id}, allocator);
                         if (cancellation.volume) {
                             cancellationJson.AddMember(
@@ -213,9 +213,9 @@ rapidjson::Document ReplayEventLogger::makeLogEntryJson(Message::Ptr msg)
             payloadJson.AddMember(
                 "cps",
                 [&] {
-                    rapidjson::Document closePositionsJson{rapidjson::kArrayType, &allocator};
+                    rapidjson::Value closePositionsJson{rapidjson::kArrayType};
                     for (const auto& closePosition : pld->closePositions) {
-                        rapidjson::Document closePositionJson{rapidjson::kObjectType, &allocator};
+                        rapidjson::Value closePositionJson{rapidjson::kObjectType};
                         closePositionJson.AddMember("i", rapidjson::Value{closePosition.id}, allocator);
                         if (closePosition.volume) {
                             closePositionJson.AddMember(
@@ -235,9 +235,9 @@ rapidjson::Document ReplayEventLogger::makeLogEntryJson(Message::Ptr msg)
             payloadJson.AddMember(
                 "as",
                 [&] {
-                    rapidjson::Document agentIdsJson{rapidjson::kObjectType, &allocator};
+                    rapidjson::Value agentIdsJson{rapidjson::kArrayType};
                     for (AgentId agentId : pld->agentIds) {
-                        agentIdsJson.PushBack(rapidjson::Value{agentId}.Move(), allocator);
+                        agentIdsJson.PushBack(rapidjson::Value{agentId}, allocator);
                     }
                     return agentIdsJson;
                 }().Move(),

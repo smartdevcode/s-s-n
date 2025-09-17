@@ -22,7 +22,9 @@ FundamentalPrice::FundamentalPrice(
     double lambda, 
     double sigmaJump, 
     double muJump,
-    Timestamp updatePeriod) noexcept
+    Timestamp updatePeriod,
+    double hurst,
+    double epsilon) noexcept
     : m_simulation{simulation},
       m_bookId{bookId},
       m_seedInterval{seedInterval},
@@ -33,10 +35,34 @@ FundamentalPrice::FundamentalPrice(
       m_X0{X0},
       m_poisson{lambda},
       m_jump{muJump,sigmaJump},
-      m_dJ{0}
+      m_dJ{0},
+      m_epsilon{epsilon}
 {
     m_updatePeriod = updatePeriod;
     m_value = m_X0;
+
+    Timestamp N = 86'400'000'000'000/updatePeriod;
+    m_hurst = hurst;
+    const double dtH = std::pow(N,-m_hurst);
+    m_L = Eigen::MatrixXd::Zero(N, N);
+    m_X = Eigen::VectorXd::Zero(N);
+    m_V.resize(N);
+    // random normal generator to initialize V
+    // TODO seed
+    std::mt19937 rng(std::random_device{}());
+    m_fractional_gaussian = std::normal_distribution<double>{0.0, dtH};
+
+    for (int i = 0; i < 2; i++) {
+        m_V(i) = epsilon*m_fractional_gaussian(rng);
+    }
+
+    m_L(0,0) = 1.0;
+    m_X(0) = m_V(0);
+
+    m_L(1,0) = gamma_fn(1, m_hurst);
+    m_L(1,1) = std::sqrt(1.0 - std::pow(m_L(1,0), 2));
+    m_X(1) = m_L.row(1).head(2).dot(m_V.head(2));
+
     m_seedfile = (simulation->logDir() / "fundamental_seed.csv").generic_string();
 }
 
@@ -81,16 +107,47 @@ void FundamentalPrice::update(Timestamp timestamp)
         m_rng = RNG{seed}; 
         m_last_count = count;
         m_last_seed = seed;
-        m_last_seed_time = timestamp;
-        
+        m_last_seed_time = timestamp; 
         m_t += m_dt;
-        m_W += m_gaussian(m_rng);
+        // Jump part
         m_dJ += m_poisson(m_rng)* m_jump(m_rng);
-        m_value = m_X0 * std::exp((m_mu - 0.5 * m_sigma * m_sigma) * m_t + m_sigma * m_W + m_dJ);
+        //fBM
+        int step = m_t/m_dt;
+        cholesky_step(step);
+        m_BH += m_X(step);
+        const double fBM_comp =  m_epsilon*m_BH - (0.5*m_epsilon*m_epsilon *std::pow(m_t,2*m_hurst));
+        // BM 
+        m_W += m_gaussian(m_rng);
+        // pricing
+        m_value = m_X0 * std::exp((m_mu - 0.5 * m_sigma * m_sigma) * m_t + m_sigma* m_W + fBM_comp + m_dJ);
         m_valueSignal(m_value);
     }
 }
 
+//-------------------------------------------------------------------------
+void FundamentalPrice::cholesky_step(int i)
+{
+    m_L(i, 0) = gamma_fn(i, m_hurst);
+    m_V(i + 1) = m_fractional_gaussian(m_rng);
+
+    for (int j = 1; j < i; j++)
+    {
+        double dot_val = m_L.row(i).head(j).dot(m_L.row(j).head(j));
+        m_L(i, j) = (1.0 / m_L(j, j)) * (gamma_fn(i - j, m_hurst) - dot_val);
+    }
+
+    double sumsq = m_L.row(i).head(i).squaredNorm();
+    m_L(i, i) = std::sqrt(1.0 - sumsq);
+
+    m_X(i) = m_L.row(i).head(i + 1).dot(m_V.head(i + 1));
+}
+//-------------------------------------------------------------------------
+double FundamentalPrice::gamma_fn(int k, double H) const
+{
+    return 0.5 * (std::pow(std::abs(k - 1), 2.0 * H)
+                - 2.0 * std::pow(std::abs(k), 2.0 * H)
+                + std::pow(std::abs(k + 1), 2.0 * H));
+}
 //-------------------------------------------------------------------------
 
 double FundamentalPrice::value() const
@@ -98,11 +155,13 @@ double FundamentalPrice::value() const
     return m_value;
 }
 
+
 //-------------------------------------------------------------------------
 
 void FundamentalPrice::checkpointSerialize(
     rapidjson::Document& json, const std::string& key) const
 {
+    //FIXME!!!!
     auto serialize = [this](rapidjson::Document& json) {
         json.SetObject();
         auto& allocator = json.GetAllocator();
@@ -150,7 +209,8 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
             return value;
         }
     };
-
+    const double hurst = node.attribute("Hurst").as_double(0.5); 
+    const double epsilon = node.attribute("epsilon").as_double(0.0);
     return std::make_unique<FundamentalPrice>(
         simulation,
         bookId,
@@ -162,7 +222,9 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
         getNonNegativeFloatAttribute(node, "lambda"),
         getNonNegativeFloatAttribute(node, "sigmaJump"),
         getNonNegativeFloatAttribute(node, "muJump"),
-        updatePeriod);
+        updatePeriod,
+        hurst, 
+        epsilon);
 }
 
 //-------------------------------------------------------------------------
@@ -170,6 +232,7 @@ std::unique_ptr<FundamentalPrice> FundamentalPrice::fromXML(
 std::unique_ptr<FundamentalPrice> FundamentalPrice::fromCheckpoint(
     taosim::simulation::ISimulation* simulation, const rapidjson::Value& json, double X0)
 {
+    //FIXME
     auto fp = std::make_unique<FundamentalPrice>(
         simulation,
         json["bookId"].GetUint64(),

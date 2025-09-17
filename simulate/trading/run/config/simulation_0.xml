@@ -13,8 +13,9 @@
             </FeePolicy>
             <Books instanceCount="5" algorithm="PriceTime" maxDepth="5">
                     <Processes>
-                    <FundamentalPrice name="fundamental" seedInterval="30000000000" mu="0.0" sigma="0.08"
-                        lambda="0.004125" muJump="0.0" sigmaJump="0.025" updatePeriod="30000000000"/>
+                    <FundamentalPrice name="fundamental" seedInterval="30000000000" mu="0.0" sigma="0.068"
+                        lambda="0.00206" muJump="0.0" sigmaJump="0.025" updatePeriod="30000000000"
+                        Hurst="0.65" epsilon="0.07"/>
                     <FuturesSignal name="external" seedInterval="10000000000" updatePeriod="10000000000"/>
                 </Processes>
             </Books>
@@ -36,7 +37,7 @@
             name="INITIALIZATION_AGENT"
             instanceCount="500"
             exchange="EXCHANGE"
-            tau="300000000000">
+            tau="86400000000000">
             <Balances>
                 <Base total="100.0" maxLeverage="0" maxLoan="0" />
                 <Quote total="30000.0" maxLeverage="0" maxLoan="0" />

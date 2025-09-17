@@ -8,6 +8,8 @@
 #include "Process.hpp"
 #include "RNG.hpp"
 #include "common.hpp"
+#include <Eigen/Dense>
+
 
 #include <pugixml.hpp>
 
@@ -27,8 +29,10 @@ public:
         double lambda,
         double muJump,
         double sigmaJump,
-        Timestamp updatePeriod) noexcept;
-    
+        Timestamp updatePeriod,
+        double hurst= 0.5,
+        double epsilon=0.0) noexcept;
+
     virtual void update(Timestamp timestamp) override;
     virtual double value() const override;
     virtual void checkpointSerialize(
@@ -49,6 +53,17 @@ private:
     double m_dJ;
     double m_t{}, m_W{};
     std::normal_distribution<double> m_gaussian;
+    // fBm
+    Eigen::MatrixXd m_L; 
+    Eigen::VectorXd m_X;
+    Eigen::VectorXd m_V;
+    double m_epsilon;
+    double m_hurst;
+    std::normal_distribution<double> m_fractional_gaussian;
+    double m_BH{};
+    void cholesky_step(int i);
+    double gamma_fn(int k, double H) const;
+    //end
     std::normal_distribution<double> m_jump;
     std::poisson_distribution<int> m_poisson;
     double m_value;

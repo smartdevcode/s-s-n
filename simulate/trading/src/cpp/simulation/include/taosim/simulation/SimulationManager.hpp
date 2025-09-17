@@ -41,16 +41,21 @@ class SimulationManager
 public:
     void runSimulations();
     void runReplay(const fs::path& replayDir, BookId bookId);
+    void runReplayAdvanced(const fs::path& replayDir);
     void publishStartInfo();
     void publishEndInfo();
     void publishState();
 
     [[nodiscard]] rapidjson::Document makeStateJson() const;
     [[nodiscard]] rapidjson::Document makeCollectiveBookStateJson() const;
-    [[nodiscard]] bool online() const noexcept { return !m_netInfo.host.empty() && !m_netInfo.port.empty(); }
+
+    [[nodiscard]] bool online() const noexcept
+    {
+        return !m_netInfo.host.empty() && !m_netInfo.port.empty() && !m_disallowPublish;
+    }
 
     static std::unique_ptr<SimulationManager> fromConfig(const fs::path& path);
-    static std::unique_ptr<SimulationManager> fromReplay(const fs::path& replayDir, BookId bookId);
+    static std::unique_ptr<SimulationManager> fromReplay(const fs::path& replayDir);
 
 private:
     SimulationBlockInfo m_blockInfo;
@@ -61,6 +66,7 @@ private:
     Timestamp m_gracePeriod;
     NetworkingInfo m_netInfo;
     UnsyncSignal<void()> m_stepSignal;
+    bool m_disallowPublish{};
 
     void setupLogDir(pugi::xml_node node);
 

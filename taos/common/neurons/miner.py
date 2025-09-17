@@ -276,6 +276,7 @@ class BaseMinerNeuron(BaseNeuron):
                     served = self.subtensor.serve_axon(netuid=self.config.netuid, axon=self.axon)
                     if not served:
                         bt.logging.error(f"Failed to serve axon! Retrying (Attempt {attempts})")
+                        time.sleep(30)
                     else:
                         bt.logging.success("Published axon to chain.")
                 except Exception as ex:

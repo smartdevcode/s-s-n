@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "taosim/simulation/SimulationManager.hpp"
+#include "taosim/simulation/replay_helpers.hpp"
 #include "taosim/simulation/util.hpp"
 #include "MultiBookMessagePayloads.hpp"
 
@@ -15,6 +16,7 @@
 #include <fmt/format.h>
 
 #include <barrier>
+#include <generator>
 #include <latch>
 #include <ranges>
 #include <source_location>
@@ -114,126 +116,6 @@ void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
         }
     }();
 
-    auto makePayload = [&](const rapidjson::Value& json) -> MessagePayload::Ptr {
-        const std::string msgType{json["p"].GetString()};
-        const auto& payloadJson =
-            msgType.starts_with("DISTRIBUTED") ? json["pld"]["pld"] : json["pld"];
-        if (msgType.ends_with("PLACE_ORDER_MARKET")) {
-            return MessagePayload::create<PlaceOrderMarketPayload>(
-                OrderDirection{payloadJson["d"].GetUint()},
-                json::getDecimal(payloadJson["v"]),
-                json::getDecimal(payloadJson["l"]),
-                bookId,
-                Currency{payloadJson["n"].GetUint()},
-                payloadJson["ci"].IsNull()
-                    ? std::nullopt : std::make_optional(payloadJson["ci"].GetUint()),
-                magic_enum::enum_cast<taosim::STPFlag>(
-                    std::string{payloadJson["s"].GetString()}).value(),
-                [&] -> taosim::SettleFlag {
-                    if (payloadJson["f"].IsUint()) {
-                        return payloadJson["f"].GetUint();
-                    } else if (payloadJson["f"].IsString()) {
-                        return magic_enum::enum_cast<taosim::SettleType>(
-                            std::string{payloadJson["f"].GetString()}).value();
-                    } else {
-                        throw std::runtime_error{fmt::format(
-                            "{}: Unrecogized 'settleFlag': {}", ctx, json::json2str(payloadJson["f"]))};
-                    }
-                }());
-        }
-        else if (msgType.ends_with("PLACE_ORDER_LIMIT")) {
-            return MessagePayload::create<PlaceOrderLimitPayload>(
-                OrderDirection{payloadJson["d"].GetUint()},
-                json::getDecimal(payloadJson["v"]),
-                json::getDecimal(payloadJson["p"]),
-                json::getDecimal(payloadJson["l"]),
-                bookId,
-                Currency{payloadJson["n"].GetUint()},
-                payloadJson["ci"].IsNull()
-                    ? std::nullopt : std::make_optional(payloadJson["ci"].GetUint()),
-                payloadJson["y"].GetBool(),
-                magic_enum::enum_cast<taosim::TimeInForce>(
-                    std::string{payloadJson["r"].GetString()}).value(),
-                payloadJson["x"].IsNull()
-                    ? std::nullopt : std::make_optional<Timestamp>(payloadJson["x"].GetUint64()),
-                magic_enum::enum_cast<taosim::STPFlag>(
-                    std::string{payloadJson["s"].GetString()}).value(),
-                [&] -> taosim::SettleFlag {
-                    if (payloadJson["f"].IsUint()) {
-                        return payloadJson["f"].GetUint();
-                    } else if (payloadJson["f"].IsString()) {
-                        return magic_enum::enum_cast<taosim::SettleType>(
-                            std::string{payloadJson["f"].GetString()}).value();
-                    } else {
-                        throw std::runtime_error{fmt::format(
-                            "{}: Unrecogized 'settleFlag': {}", ctx, json::json2str(payloadJson["f"]))};
-                    }
-                }());
-        }
-        else if (msgType.ends_with("CANCEL_ORDERS")) {
-            return MessagePayload::create<CancelOrdersPayload>(
-                [&] {
-                    std::vector<Cancellation> cancellations;
-                    for (const auto& cancellationJson : payloadJson["cs"].GetArray()) {
-                        cancellations.emplace_back(
-                            cancellationJson["i"].GetUint(),
-                            cancellationJson["v"].IsNull()
-                                ? std::nullopt : std::make_optional(json::getDecimal(cancellationJson["v"])));
-                    }
-                    return cancellations;
-                }(),
-                bookId);
-        }
-        else if (msgType.ends_with("CLOSE_POSITIONS")) {
-            return MessagePayload::create<ClosePositionsPayload>(
-                [&] {
-                    std::vector<ClosePosition> closePositions;
-                    for (const auto& closePositionJson : payloadJson["cps"].GetArray()) {
-                        closePositions.emplace_back(
-                            closePositionJson["i"].GetUint(),
-                            closePositionJson["v"].IsNull()
-                                ? std::nullopt : std::make_optional(json::getDecimal(closePositionJson["v"])));
-                    }
-                    return closePositions;
-                }(),
-                bookId);
-        }
-        else if (msgType.ends_with("RESET_AGENT")) {
-            return MessagePayload::create<ResetAgentsPayload>(
-                [&] {
-                    std::vector<AgentId> agentIds;
-                    for (const auto& agentIdJson : payloadJson["as"].GetArray()) {
-                        agentIds.push_back(agentIdJson.GetInt());
-                    }
-                    return agentIds;
-                }());
-        }
-        throw std::runtime_error{fmt::format(
-            "{}: Unexpected message type encountered during replay: {}", ctx, msgType)};
-    };
-
-    auto createMessageFromLogFileEntry = [&](const std::string& entry, size_t lineCounter) {
-        const auto jsonEntryStr = entry.substr(
-            boost::algorithm::find_nth(entry, ",", 1).begin() - entry.begin() + 1);
-        rapidjson::Document json;
-        if (json.Parse(jsonEntryStr.c_str()).HasParseError()) {
-            throw std::runtime_error{fmt::format(
-                "{}: Error parsing log file entry at line {}: {}", ctx, lineCounter, entry)};
-        }
-        const std::string msgType{json["p"].GetString()};
-        return Message::create(
-            json["o"].GetUint64(),
-            json["o"].GetUint64() + json["d"].GetUint64(),
-            json["s"].GetString(),
-            json["t"].GetString(),
-            msgType,
-            msgType.starts_with("DISTRIBUTED")
-                ? MessagePayload::create<DistributedAgentResponsePayload>(
-                    json["pld"]["a"].GetInt(),
-                    makePayload(json))
-                : makePayload(json));
-    };
-
     for (const auto& replayLogFile : replayLogFiles) {
         std::ifstream ifs{replayLogFile, std::ios::in};
         std::vector<std::string> lines;
@@ -248,7 +130,7 @@ void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
             }
             if (lines.empty()) break;
             for (const auto& line : lines) {
-                Message::Ptr msg = createMessageFromLogFileEntry(line, lineCounter);
+                Message::Ptr msg = replay_helpers::createMessageFromLogFileEntry(line, lineCounter);
                 simulation->queueMessage(msg);
                 simulation->time().duration = msg->arrival;
             }
@@ -256,6 +138,155 @@ void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
     }
 
     simulation->simulate();
+}
+
+//-------------------------------------------------------------------------
+
+void SimulationManager::runReplayAdvanced(const fs::path& replayDir)
+{
+    static constexpr auto ctx = std::source_location::current().function_name();
+
+    auto bookIdToReplayLogPaths = [&] {
+        std::vector<fs::path> replayLogPaths;
+        const std::regex pat{R"(^Replay-\d+\.\d{8}-\d{8}\.log$)"};
+        for (const auto& entry : fs::directory_iterator(replayDir)) {
+            const auto path = entry.path();
+            if (entry.is_regular_file() && std::regex_match(path.filename().string(), pat)) {
+                replayLogPaths.push_back(path);
+            }
+        }
+        auto parseBookId = [](auto&& path) {
+            const auto filenameStr = path.filename().string();
+            const std::regex pat{R"(^Replay-(\d+).*)"};
+            if (std::smatch match; std::regex_match(filenameStr, match, pat)) {
+                return std::stoul(match[1]);
+            }
+            return std::numeric_limits<uint64_t>::max();
+        };
+        ranges::sort(
+            replayLogPaths,
+            [&](auto&& lhs, auto&& rhs) {
+                const auto lhsKey = parseBookId(lhs);
+                const auto rhsKey = parseBookId(rhs);
+                if (lhsKey == rhsKey) {
+                    return lhs < rhs;
+                }
+                return lhsKey < rhsKey;
+            });
+        return replayLogPaths
+            | views::chunk_by([&](auto&& lhs, auto&& rhs) {
+                return parseBookId(lhs) == parseBookId(rhs);
+            })
+            | views::transform([](auto&& chunk) {
+                std::vector<fs::path> chunkPaths;
+                for (auto&& item : chunk) {
+                    chunkPaths.push_back(item);
+                }
+                return chunkPaths;
+            })
+            | ranges::to<std::vector>();
+    }();
+
+    [&] {
+        std::vector<fs::path> replayBalancesPaths;
+        const std::regex pat{R"(^Replay-Balances-\d+-\d+\.json$)"};
+        for (const auto& entry : fs::directory_iterator(replayDir)) {
+            const auto path = entry.path();
+            if (entry.is_regular_file() && std::regex_match(path.filename().string(), pat)) {
+                replayBalancesPaths.push_back(path);
+            }
+        }
+        ranges::sort(replayBalancesPaths);
+        for (const auto& [simulation, path] : views::zip(m_simulations, replayBalancesPaths)) {
+            rapidjson::Document balancesJson = json::loadJson(path);
+            for (const auto& member : balancesJson.GetObject()) {
+                const auto name = member.name.GetString();
+                const AgentId agentId = std::stoi(name);
+                BookId bookId{};
+                for (const auto& balsJson : balancesJson[name].GetArray()) {
+                    auto& bals = simulation->exchange()->accounts().at(agentId).at(bookId);
+                    bals.base = taosim::accounting::Balance(
+                        taosim::json::getDecimal(balsJson["base"]),
+                        "",
+                        bals.m_roundParams.baseDecimals);
+                    bals.quote = taosim::accounting::Balance(
+                        taosim::json::getDecimal(balsJson["quote"]),
+                        "",
+                        bals.m_roundParams.quoteDecimals);
+                    ++bookId;
+                }
+            }
+        }
+    }();
+
+    struct BookReplayFilesState
+    {
+        std::vector<std::ifstream> fileStreams;
+        std::vector<size_t> lineCounters;
+        size_t currentFileIdx{};
+
+        [[nodiscard]] auto& currentFile()
+        {
+            return fileStreams.at(std::min(currentFileIdx, fileStreams.size() - 1));
+        }
+    
+        [[nodiscard]] size_t currentLineCounter() const noexcept
+        {
+            return lineCounters.at(std::min(currentFileIdx, lineCounters.size() - 1));
+        }
+    
+        [[nodiscard]] bool done() const noexcept { return currentFileIdx >= fileStreams.size(); }
+    
+        bool getLine(std::string& buf)
+        {
+            if (done()) return false;
+            if (!std::getline(currentFile(), buf)) {
+                ++currentFileIdx;
+                if (done()) return false;
+                std::getline(currentFile(), buf);
+            }
+            ++lineCounters.at(currentFileIdx);
+            return true;
+        }
+    };
+
+    auto bookIdToReplayFilesState = bookIdToReplayLogPaths
+        | views::transform([](auto&& replayLogPaths) {
+            return BookReplayFilesState{
+                .fileStreams = replayLogPaths
+                    | views::transform([](auto&& path) {
+                        std::ifstream ifs{path, std::ios::in};
+                        std::string sink;
+                        std::getline(ifs, sink);  // Discard header.
+                        return ifs;
+                    })
+                    | ranges::to<std::vector>,
+                .lineCounters = std::vector<size_t>(replayLogPaths.size(), 1)
+            };
+        })
+        | ranges::to<std::vector>;
+
+    m_stepSignal.connect([&] {
+        const auto& representativeSimulation = m_simulations.front();
+        const auto& time = representativeSimulation->time();
+        const auto cutoff = time.current + time.step;
+        for (BookId bookId{}; bookId < bookIdToReplayFilesState.size(); ++bookId) {
+            const auto& simulation = m_simulations.at(bookId / m_blockInfo.dimension);
+            auto& state = bookIdToReplayFilesState.at(bookId);
+            if (state.done()) continue;
+            std::string lineBuf;
+            while (true) {
+                if (!state.getLine(lineBuf)) break;
+                const auto msg = replay_helpers::createMessageFromLogFileEntry(
+                    lineBuf, state.currentLineCounter() - 1);
+                simulation->queueMessage(msg);
+                simulation->time().duration = msg->arrival;
+                if (msg->arrival >= cutoff) break;
+            }
+        }
+    });
+
+    runSimulations();
 }
 
 //-------------------------------------------------------------------------
@@ -668,8 +699,7 @@ std::unique_ptr<SimulationManager> SimulationManager::fromConfig(const fs::path&
 
 //-------------------------------------------------------------------------
 
-std::unique_ptr<SimulationManager> SimulationManager::fromReplay(
-    const fs::path& replayDir, BookId bookId)
+std::unique_ptr<SimulationManager> SimulationManager::fromReplay(const fs::path& replayDir)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
 
@@ -753,6 +783,8 @@ std::unique_ptr<SimulationManager> SimulationManager::fromReplay(
             fmt::println("TIME : {:02d}:{:02d}:{:02d}.{:09d}", hours, minutes, seconds, nanos); 
         });
     }
+
+    mngr->m_disallowPublish = true;
 
     return mngr;
 }

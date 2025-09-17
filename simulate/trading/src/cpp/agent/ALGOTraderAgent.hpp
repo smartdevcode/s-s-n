@@ -66,8 +66,8 @@ public:
     [[nodiscard]] decimal_t rollingSum() const noexcept { return m_rollingSum; }
     [[nodiscard]] double variance() const noexcept { return m_variance; }
     [[nodiscard]] double estimatedVolatility() const noexcept { return std::pow(m_estimatedVol, 0.5); }
-    [[nodiscard]] double bidSlope() noexcept { return lastOLS().bid; }
-    [[nodiscard]] double askSlope() noexcept { return lastOLS().ask; }
+    // [[nodiscard]] double bidSlope() noexcept { return lastOLS().bid; }
+    // [[nodiscard]] double askSlope() noexcept { return lastOLS().ask; }
     [[nodiscard]] double bidVolume() noexcept { return lastVolume().bid; }
     [[nodiscard]] double askVolume() noexcept { return lastVolume().ask; }
 
@@ -76,7 +76,7 @@ public:
 private:
     double slopeOLS(std::vector<BookLevel>& side);
     double volumeSum(std::vector<BookLevel>& side);
-    BookStat lastOLS() {return m_OLS[m_lastSeq]; }
+    // BookStat lastOLS() {return m_OLS[m_lastSeq]; }
     BookStat lastVolume() {return m_bookVolumes[m_lastSeq]; }
 
     
@@ -97,7 +97,7 @@ private:
     double m_variance;
     double m_estimatedVol;
     Timestamp m_lastSeq;
-    std::map<Timestamp, BookStat> m_OLS;
+    // std::map<Timestamp, BookStat> m_OLS;
     std::map<Timestamp, BookStat> m_bookVolumes;
     
 };

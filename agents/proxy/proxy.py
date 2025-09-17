@@ -15,6 +15,7 @@ from threading import Thread
 
 from fastapi import FastAPI, APIRouter, Request
 
+from taos import __spec_version__
 from taos.common.neurons import BaseNeuron
 from taos.im.neurons.validator import Validator
 from taos.im.protocol import MarketSimulationStateUpdate, MarketSimulationConfig, FinanceAgentResponse, FinanceEventNotification
@@ -85,6 +86,8 @@ class Proxy(Validator):
         body = await request.body()
         message = YpyObject(body, 1)
         state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
+        state.version = __spec_version__
+        state.dendrite.hotkey = 'proxy'
         if not self.start_time:
             self.start_time = time.time()
             self.start_timestamp = state.timestamp
@@ -94,6 +97,7 @@ class Proxy(Validator):
         self.simulation_timestamp = state.timestamp
         if self.simulation:
             state.config = self.simulation.model_copy()
+            state.config.simulation_id = os.path.basename(state.config.logDir)[:13]
             state.config.logDir = None
         self.step += 1
         bt.logging.debug(f"STATE : {state}")

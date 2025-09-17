@@ -9,8 +9,9 @@ LOG_LEVEL=info
 PD_KEY="\"\""
 PROM_PORT=9001
 TIMEOUT=3.0
+SIMULATION_CONFIG=simulation_0
 PRESERVE_SIMULATOR=0
-while getopts e:p:w:h:u:l:d:o:t:s: flag
+while getopts e:p:w:h:u:l:d:o:t:c:s: flag
 do
     case "${flag}" in
         e) ENDPOINT=${OPTARG};;
@@ -22,6 +23,7 @@ do
         d) PD_KEY=${OPTARG};;
         o) PROM_PORT=${OPTARG};;
         t) TIMEOUT=${OPTARG};;
+        c) SIMULATION_CONFIG=${OPTARG};;
         s) PRESERVE_SIMULATOR=${OPTARG};;
         # c) CHECKPOINT=${OPTARG};;
     esac
@@ -35,6 +37,7 @@ echo "CHECKPOINT: $CHECKPOINT"
 echo "PAGERDUTY KEY: $PD_KEY"
 echo "PROMETHEUS PORT: $PROM_PORT"
 echo "TIMEOUT: $TIMEOUT"
+echo "SIMULATION_CONFIG: $SIMULATION_CONFIG"
 echo "PRESERVE_SIMULATOR: $PRESERVE_SIMULATOR"
 
 if [ $PRESERVE_SIMULATOR = 0 ]; then
@@ -63,13 +66,13 @@ else
 fi
 
 echo "Starting Validator"
-pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY --prometheus.port $PROM_PORT --neuron.timeout $TIMEOUT"
+pm2 start --name=validator "python validator.py --netuid $NETUID --subtensor.chain_endpoint $ENDPOINT --wallet.path $WALLET_PATH --wallet.name $WALLET_NAME --wallet.hotkey $HOTKEY_NAME --logging.$LOG_LEVEL --alerting.pagerduty.integration_key $PD_KEY --prometheus.port $PROM_PORT --neuron.timeout $TIMEOUT --simulation.xml_config ../../../simulate/trading/run/config/$SIMULATION_CONFIG.xml"
 
 if [ $PRESERVE_SIMULATOR = 0 ]; then
     echo "Starting Simulator"
     cd ../../../simulate/trading/run
     # if [ $CHECKPOINT = 0 ]; then
-        pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -f config/simulation_0.xml"
+        pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -f config/$SIMULATION_CONFIG.xml"
     # else
         # pm2 start --no-autorestart --name=simulator "../build/src/cpp/taosim -c $CHECKPOINT"
     # fi

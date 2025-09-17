@@ -53,8 +53,6 @@ ALGOTraderVolumeStats::ALGOTraderVolumeStats(size_t period,
 
 void ALGOTraderVolumeStats::push_levels(Timestamp timestamp, std::vector<BookLevel>& bids, std::vector<BookLevel>& asks)
 {
-    BookStat slopes = {.bid = slopeOLS(bids), .ask = slopeOLS(asks)};
-    m_OLS[timestamp] = slopes;
     BookStat volumes = {.bid=volumeSum(bids), .ask=volumeSum(asks)};
     m_bookVolumes[timestamp] = volumes;
     m_lastSeq = timestamp; 

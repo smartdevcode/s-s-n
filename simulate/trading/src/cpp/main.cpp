@@ -45,8 +45,12 @@ int main(int argc, char* argv[])
         throw std::runtime_error{"Loading from checkpoint currently unsupported!"};
     }
     if (!replayDir.empty()) {
-        auto mngr = taosim::simulation::SimulationManager::fromReplay(replayDir, *bookId);
-        mngr->runReplay(replayDir, *bookId);
+        auto mngr = taosim::simulation::SimulationManager::fromReplay(replayDir);
+        if (bookId) {
+            mngr->runReplay(replayDir, *bookId);
+        } else {
+            mngr->runReplayAdvanced(replayDir);
+        }
     }
     else {
         auto mngr = taosim::simulation::SimulationManager::fromConfig(config);
