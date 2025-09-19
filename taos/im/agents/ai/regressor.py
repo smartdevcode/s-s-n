@@ -9,6 +9,8 @@ import bittensor as bt
 import pandas as pd
 import numpy as np
 
+from bittensor.utils import is_valid_ss58_address
+
 from taos.im.agents.ai import FinanceSimulationAIAgent
 from taos.im.protocol.models import *
 from taos.im.protocol.instructions import *
@@ -76,7 +78,7 @@ Output Directory : {self.output_dir}
                 self.model_kwargs['penalty'] = 'elasticnet'
         super().prepare(model)
 
-    def init_model(self, book_id):
+    def init_model(self, validator : str, book_id : int):
         """
         Instantiate a new model with the configured parameters.
 
@@ -127,34 +129,37 @@ Output Directory : {self.output_dir}
         Returns:
             bool: Always True (assumes pretraining completes).
         """
-        pretrain_files = glob.glob(os.path.join(self.output_dir, self.features_file('*')))
-        for pretrain_file in pretrain_files:
-            book_id = os.path.basename(pretrain_file).split('.')[1]
-            bt.logging.info(f"Pre-Training Model for Book {book_id}...")
+        validators = os.listdir(self.output_dir)
+        for validator in validators:
+            if not is_valid_ss58_address(validator): continue
+            pretrain_files = glob.glob(self.features_file(validator, '*'))
+            for pretrain_file in pretrain_files:
+                book_id = os.path.basename(pretrain_file).split('.')[1]
+                bt.logging.info(f"Pre-Training Model for Book {book_id}...")
 
-            self.init_book(book_id)
+                self.init_book(validator, book_id)
 
-            self.prevX = pd.read_csv(self.features_file(book_id), header=None)
-            self.prevY = pd.read_csv(self.targets_file(book_id), header=None)
-            self.prevX.columns = self.predKeys
-            self.prevY.columns = self.targetKeys
+                self.prevX = pd.read_csv(self.features_file(validator, book_id), header=None)
+                self.prevY = pd.read_csv(self.targets_file(validator, book_id), header=None)
+                self.prevX.columns = self.predKeys
+                self.prevY.columns = self.targetKeys
 
-            X_train, X_test, y_train, y_test = train_test_split(
-                self.prevX, self.prevY, test_size=0.1, random_state=42 + int(int(book_id))
-            )
-            y_train, y_test = np.ravel(y_train), np.ravel(y_test)
+                X_train, X_test, y_train, y_test = train_test_split(
+                    self.prevX, self.prevY, test_size=0.1, random_state=42 + int(int(book_id))
+                )
+                y_train, y_test = np.ravel(y_train), np.ravel(y_test)
 
-            self.models[book_id] = self.models[book_id].fit(X_train, y_train)
-            self.save_model(self.models[book_id], self.checkpoint_file(book_id))
+                self.models[validator][book_id] = self.models[validator][book_id].fit(X_train, y_train)
+                self.save_model(self.models[validator][book_id], self.checkpoint_file(validator, book_id))
 
-            y_pred = self.models[book_id].predict(X_test)
-            mse = mean_squared_error(y_test, y_pred)
-            bt.logging.info(f"Pre-trained Model For Book {book_id} saved to {self.checkpoint_file(book_id)} | Mean Squared Error = {mse}")
-            self.model_trained[book_id] = True
+                y_pred = self.models[validator][book_id].predict(X_test)
+                mse = mean_squared_error(y_test, y_pred)
+                bt.logging.info(f"Pre-trained Model For Book {book_id} at Validator {validator} saved to {self.checkpoint_file(validator, book_id)} | Mean Squared Error = {mse}")
+                self.model_trained[validator][book_id] = True
 
-        return True
+            return True
 
-    def train(self, book_id: int, timestamp: int, test: bool = False) -> bool:
+    def train(self, validator : str, book_id: int, timestamp: int, test: bool = False) -> bool:
         """
         Train the model on the most recent simulation data.
 
@@ -169,12 +174,12 @@ Output Directory : {self.output_dir}
             bool: True if training was successful, False otherwise.
         """
         try:
-            if len(self.predictors[book_id][self.predKeys[0]]) < self.train_n + 3:
-                bt.logging.info(f"BOOK {book_id} : ONLY {len(self.target[book_id][self.targetKeys[0]])} / {self.train_n + 3} OBSERVATIONS AVAILABLE FOR TRAINING")
+            if len(self.predictors[validator][book_id][self.predKeys[0]]) < self.train_n + 3:
+                bt.logging.info(f"BOOK {book_id} : ONLY {len(self.predictors[validator][book_id][self.predKeys[0]])} / {self.train_n + 3} OBSERVATIONS AVAILABLE FOR TRAINING")
                 return False
 
-            X_data = pd.DataFrame(self.predictors[book_id])
-            y_data = pd.DataFrame(self.target[book_id])
+            X_data = pd.DataFrame(self.predictors[validator][book_id])
+            y_data = pd.DataFrame(self.target[validator][book_id])
 
             if test:
                 X_train = X_data.iloc[-self.train_n - 3:-3]
@@ -185,24 +190,24 @@ Output Directory : {self.output_dir}
                 X_train = X_data.iloc[-self.train_n:-1]
                 y_train = np.ravel(y_data.iloc[-self.train_n + 1:])
 
-            model = deepcopy(self.models[book_id])
+            model = deepcopy(self.models[validator][book_id])
             model = model.partial_fit(X_train, y_train)
 
-            checkpoint_path = self.checkpoint_file(book_id) + '.new'
+            checkpoint_path = self.checkpoint_file(validator, book_id) + '.new'
             self.save_model(model, checkpoint_path)
 
             if test:
                 y_pred = model.predict(X_test)
                 mse = mean_squared_error(y_test, y_pred)
-                bt.logging.info(f"BOOK {book_id} MODEL {self.model} : Mean Squared Error = {mse}")
+                bt.logging.info(f"VALI {validator} BOOK {book_id} MODEL {self.model} : Mean Squared Error = {mse}")
 
             return True
 
         except Exception as e:
-            bt.logging.error(f"Training failed for book {book_id}: {e}")
+            bt.logging.error(f"Training failed for book {book_id} at validator {validator}: {e}")
             return False
 
-    def record_data(self, book_id: int, data: dict):
+    def record_data(self, validator : str, book_id: int, data: dict):
         """
         Persist new predictor and target data to CSV files for future training or pretraining.
 
@@ -214,5 +219,5 @@ Output Directory : {self.output_dir}
             df = pd.DataFrame(data)
             df.to_csv(file_path, index=False, mode='a', header=include_header)
 
-        append_to_csv(self.features_file(book_id), data['predictors'])
-        append_to_csv(self.targets_file(book_id), data['target'])
+        append_to_csv(self.features_file(validator, book_id), data['predictors'])
+        append_to_csv(self.targets_file(validator, book_id), data['target'])

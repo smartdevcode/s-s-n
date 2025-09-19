@@ -128,7 +128,7 @@ class MovingHurstAgent(FinanceSimulationAgent):
         self.last_signal = {}
         self.midquotes = {}
         self.directions = {}
-        self.event_history = None
+        self.book_event_history : dict[str, EventHistory | None] = {}
         self.trade_counter = defaultdict(int)
 
     def simple_hurst(self, price_history):
@@ -171,7 +171,7 @@ class MovingHurstAgent(FinanceSimulationAgent):
             H = self.simple_hurst(price_history)
         return H
 
-    def update_predictors(self, book: Book, timestamp: int) -> None:
+    def update_predictors(self, validator : str, book: Book, timestamp: int) -> None:
         """
         Gathers and processes historical event data to update predictors and targets.
         Features are computed based on sampling intervals.
@@ -180,17 +180,17 @@ class MovingHurstAgent(FinanceSimulationAgent):
             book (Book): Book object from the state update.
             timestamp (int): Simulation timestamp of the associated state update.
         """
-        if not self.event_history:
+        if not validator in self.book_event_history or not self.book_event_history[validator]:
             lookback_minutes = max(
                 (self.simulation_config.publish_interval // 1_000_000_000) // 60,
                 self.sampling_interval * 2 // 60,
                 1
             )
-            self.event_history = book.event_history(timestamp, self.simulation_config, lookback_minutes)
+            self.book_event_history[validator] = book.event_history(timestamp, self.simulation_config, lookback_minutes)
         else:
-            book.append_to_event_history(timestamp, self.event_history, self.simulation_config)
+            book.append_to_event_history(timestamp, self.book_event_history[validator], self.simulation_config)
 
-        ohlc = self.event_history.ohlc(self.sampling_interval)
+        ohlc = self.book_event_history[validator].ohlc(self.sampling_interval)
         n_new = max((self.simulation_config.publish_interval // 1_000_000_000) // self.sampling_interval, 1)
         latest_timestamps = sorted(ohlc.keys())[-n_new:]
 
@@ -204,17 +204,17 @@ class MovingHurstAgent(FinanceSimulationAgent):
             new_predictors['Close'].append(close)
 
         book_id = book.id
-        if len(self.predictors.get(book_id, {}).get('Timestamp', [])) > 0:
-            if latest_timestamps and self.predictors[book_id]['Timestamp'][-1] > latest_timestamps[-1]:
+        if len(self.predictors.get(validator, {}).get(book_id, {}).get('Timestamp', [])) > 0:
+            if latest_timestamps and self.predictors[validator][book_id]['Timestamp'][-1] > latest_timestamps[-1]:
                 bt.logging.info(f"[RESET] Timestamp mismatch in book {book_id}, clearing history")
-                self.reset()
+                self.reset(validator)
 
 
-        self.predictors[book_id] = {
-            k: self.predictors.get(book_id, {}).get(k, []) + new_predictors[k]
+        self.predictors[validator][book_id] = {
+            k: self.predictors.get(validator, {}).get(book_id, {}).get(k, []) + new_predictors[k]
             for k in self.predKeys
         }
-        self.predictors[book_id] = {k: v[-self.rolling_window.max:] for k, v in self.predictors[book_id].items()}
+        self.predictors[validator][book_id] = {k: v[-self.rolling_window.max:] for k, v in self.predictors[validator][book_id].items()}
 
     def signal(self, predictions: dict[str, float]) -> HurstSignals:
         """Convert Hurst prediction into discrete trading signal."""
@@ -251,26 +251,31 @@ class MovingHurstAgent(FinanceSimulationAgent):
                 bestAsk = book.asks[0].price if book.asks else bestBid + 10 ** (-self.simulation_config.priceDecimals)
                 midquote = (bestBid + bestAsk) / 2
 
+                if not state.dendrite.hotkey in self.predictors:
+                    self.predictors[state.dendrite.hotkey] = {}
+                    self.last_signal[state.dendrite.hotkey] = {}
+                    self.midquotes[state.dendrite.hotkey] = {}
+                    self.directions[state.dendrite.hotkey] = {}
                 # Initialize buffers if first time seeing this book
-                if book_id not in self.predictors:
-                    self.predictors[book_id] = {key: [] for key in self.predKeys}
-                    self.last_signal[book_id] = 0.0
-                    self.midquotes[book_id] = [TimestampedPrice(0, self.simulation_config.init_price)]
-                    self.directions[book_id] = Positions(open=False,direction=OrderDirection.BUY,amount=0) 
+                if book_id not in self.predictors[state.dendrite.hotkey]:
+                    self.predictors[state.dendrite.hotkey][book_id] = {key: [] for key in self.predKeys}
+                    self.last_signal[state.dendrite.hotkey][book_id] = 0.0
+                    self.midquotes[state.dendrite.hotkey][book_id] = [TimestampedPrice(0, self.simulation_config.init_price)]
+                    self.directions[state.dendrite.hotkey][book_id] = Positions(open=False,direction=OrderDirection.BUY,amount=0) 
 
-                self.update_predictors(book, state.timestamp)
+                self.update_predictors(state.dendrite.hotkey, book, state.timestamp)
 
                 # Skip if insufficient data or rolling interval not reached
-                if len(self.predictors[book_id]['Close']) < self.rolling_window.min:
+                if len(self.predictors[state.dendrite.hotkey][book_id]['Close']) < self.rolling_window.min:
                     bt.logging.info(
-                        f"BOOK {book_id} | Insufficient data : {len(self.predictors[book_id]['Close'])}/{self.rolling_window.min} Observations Available"
+                        f"BOOK {book_id} | Insufficient data : {len(self.predictors[state.dendrite.hotkey][book_id]['Close'])}/{self.rolling_window.min} Observations Available"
                     )
                     continue
                 if (state.timestamp // 1e9) % self.rolling_window.min != 0:
                     continue
 
                 predictions = {
-                    'Hurst': self.estimate_hurst(self.predictors[book_id]['Close']),
+                    'Hurst': self.estimate_hurst(self.predictors[state.dendrite.hotkey][book_id]['Close']),
                     'timestamp': state.timestamp // 1e9
                 }
                 signal = self.signal(predictions)
@@ -281,79 +286,79 @@ class MovingHurstAgent(FinanceSimulationAgent):
                     f"Signal={signal.name} Midquote={midquote:.4f} TradeID={trade_id}"
                 )
 
-                self.last_signal[book_id] = signal
-                self.midquotes[book_id].append(
+                self.last_signal[state.dendrite.hotkey][book_id] = signal
+                self.midquotes[state.dendrite.hotkey][book_id].append(
                     TimestampedPrice((state.timestamp // 1e9) // self.rolling_window.min, midquote)
                 )
 
                 # Execute trades
                 if signal == HurstSignals.ENTRY:
                     # Determine the order direction based on long term (rolling window max) and short term (rolling window min) returns
-                    long_term_direction = OrderDirection.BUY if self.predictors[book_id]['Close'][0] <= self.predictors[book_id]['Close'][-1] else OrderDirection.SELL
-                    short_term_direction = OrderDirection.BUY if self.predictors[book_id]['Close'][-self.rolling_window.min] <= self.predictors[book_id]['Close'][-1] else OrderDirection.SELL
+                    long_term_direction = OrderDirection.BUY if self.predictors[state.dendrite.hotkey][book_id]['Close'][0] <= self.predictors[state.dendrite.hotkey][book_id]['Close'][-1] else OrderDirection.SELL
+                    short_term_direction = OrderDirection.BUY if self.predictors[state.dendrite.hotkey][book_id]['Close'][-self.rolling_window.min] <= self.predictors[state.dendrite.hotkey][book_id]['Close'][-1] else OrderDirection.SELL
                     if long_term_direction != short_term_direction:
                         bt.logging.info("There is momentum but the direction might have changed, general advice exit")
-                        if self.directions[book_id].open:
-                            response, total_amount, close_dir = self.generate_exit_response(response, book_id)
+                        if self.directions[state.dendrite.hotkey][book_id].open:
+                            response, total_amount, close_dir = self.generate_exit_response(response, state.dendrite.hotkey, book_id)
                             bt.logging.debug(
-                            f"[TRADE] EXIT Book={book_id} Direction={close_dir} "
+                            f"[TRADE] EXIT Vali={state.dendrite.hotkey} Book={book_id} Direction={close_dir} "
                             f"Amount={total_amount} Midquote={midquote:.4f} Hurst={predictions['Hurst']:.4f} TradeID={trade_id}"
                             )
                         continue
 
-                    if self.directions[book_id].open:
-                        if long_term_direction != self.directions[book_id].direction:
+                    if self.directions[state.dendrite.hotkey][book_id].open:
+                        if long_term_direction != self.directions[state.dendrite.hotkey][book_id].direction:
                             bt.logging.info("There is momentum but the direction is most likely wrong, Exit (stop loss) and make new entry")
-                            response, total_amount, close_dir = self.generate_exit_response(response, book_id)
+                            response, total_amount, close_dir = self.generate_exit_response(response, state.dendrite.hotkey, book_id)
                             bt.logging.debug(
-                            f"[TRADE] EXIT Book={book_id} Direction={close_dir} "
+                            f"[TRADE] EXIT Vali={state.dendrite.hotkey} Book={book_id} Direction={close_dir} "
                             f"Amount={total_amount} Midquote={midquote:.4f} Hurst={predictions['Hurst']:.4f} TradeID={trade_id}"
                             )
-                            response = self.entry_or_extend(response,book_id, long_term_direction)
+                            response = self.entry_or_extend(response, state.dendrite.hotkey, book_id, long_term_direction)
                             bt.logging.debug(
-                            f"[TRADE] ENTRY Book={book_id} Direction={self.directions[book_id].direction} "
+                            f"[TRADE] ENTRY Vali={state.dendrite.hotkey} Book={book_id} Direction={self.directions[state.dendrite.hotkey][book_id].direction} "
                             f"Amount={self.quantity} Midquote={midquote:.4f} Hurst={predictions['Hurst']:.4f} TradeID={trade_id}"
                             )
                             continue
 
-                    response = self.entry_or_extend(response,book_id,long_term_direction)
+                    response = self.entry_or_extend(response, state.dendrite.hotkey, book_id, long_term_direction)
                     bt.logging.debug(
-                        f"[TRADE] ENTRY Book={book_id} Direction={self.directions[book_id].direction} "
+                        f"[TRADE] ENTRY Vali={state.dendrite.hotkey} Book={book_id} Direction={self.directions[state.dendrite.hotkey][book_id].direction} "
                         f"Amount={self.quantity} Midquote={midquote:.4f} Hurst={predictions['Hurst']:.4f} TradeID={trade_id}"
                     )
-                elif signal == HurstSignals.EXIT and self.directions[book_id].open:
-                    response, total_amount, close_dir = self.generate_exit_response(response, book_id, midquote, predictions, trade_id)
+                elif signal == HurstSignals.EXIT and self.directions[state.dendrite.hotkey][book_id].open:
+                    response, total_amount, close_dir = self.generate_exit_response(response, state.dendrite.hotkey, book_id)
                     bt.logging.debug(
-                        f"[TRADE] EXIT Book={book_id} Direction={close_dir} "
+                        f"[TRADE] EXIT Vali={state.dendrite.hotkey} Book={book_id} Direction={close_dir} "
                         f"Amount={total_amount} Midquote={midquote:.4f} Hurst={predictions['Hurst']:.4f} TradeID={trade_id}"
                     )
             except Exception as e:
-                bt.logging.error(f"[ERROR] Book {book_id} processing failed: {str(e)}")
+                bt.logging.error(f"[ERROR] Vali {state.dendrite.hotkey} Book {book_id} processing failed: {str(e)}")
                 bt.logging.error(traceback.format_exc())
 
         bt.logging.debug(f"[LOOP] Respond completed in {time.time() - start:.2f}s")
         return response
     
-    def entry_or_extend(self, response: FinanceAgentResponse, book_id: int, direction:  OrderDirection)-> FinanceAgentResponse:
-        self.directions[book_id].direction = direction
-        if self.directions[book_id].open:    
-            self.directions[book_id].amount = self.directions[book_id].amount + 1
+    def entry_or_extend(self, response: FinanceAgentResponse, validator : str, book_id: int, direction:  OrderDirection)-> FinanceAgentResponse:
+        self.directions[validator][book_id].direction = direction
+        if self.directions[validator][book_id].open:    
+            self.directions[validator][book_id].amount = self.directions[validator][book_id].amount + 1
         else:
-            self.directions[book_id].amount = 1
-            self.directions[book_id].open = True
-        response.market_order(book_id, self.directions[book_id].direction, self.quantity)
+            self.directions[validator][book_id].amount = 1
+            self.directions[validator][book_id].open = True
+        response.market_order(book_id, self.directions[validator][book_id].direction, self.quantity)
         return response
 
 
-    def generate_exit_response(self, response: FinanceAgentResponse, book_id: int) -> tuple[FinanceAgentResponse, float, float]:
-        self.directions[book_id].open = False
+    def generate_exit_response(self, response: FinanceAgentResponse, validator : str, book_id: int) -> tuple[FinanceAgentResponse, float, float]:
+        self.directions[validator][book_id].open = False
         close_dir = (
-                        OrderDirection.BUY
-                        if self.directions[book_id].direction == OrderDirection.SELL
-                        else OrderDirection.SELL
-                    )
-        total_amount = self.quantity * self.directions[book_id].amount
-        self.directions[book_id].amount = 0
+            OrderDirection.BUY
+            if self.directions[validator][book_id].direction == OrderDirection.SELL
+            else OrderDirection.SELL
+        )
+        total_amount = self.quantity * self.directions[validator][book_id].amount
+        self.directions[validator][book_id].amount = 0
 
         response.market_order(book_id, close_dir, total_amount)
         return response, total_amount, close_dir
@@ -362,11 +367,11 @@ class MovingHurstAgent(FinanceSimulationAgent):
         bt.logging.info(f"[SIMULATION END] Clearing history")
         self.reset()
 
-    def reset(self):
-        for book_id in self.predictors.keys():
-            self.predictors[book_id] = {key: [] for key in self.predKeys}
-            self.midquotes[book_id] = [TimestampedPrice(0, self.simulation_config.init_price)]
-            self.directions[book_id] = Positions(open=False, direction=OrderDirection.BUY, amount=0)
+    def reset(self, validator : str):
+        for book_id in self.predictors[validator].keys():
+            self.predictors[validator][book_id] = {key: [] for key in self.predKeys}
+            self.midquotes[validator][book_id] = [TimestampedPrice(0, self.simulation_config.init_price)]
+            self.directions[validator][book_id] = Positions(open=False, direction=OrderDirection.BUY, amount=0)
 
 if __name__ == "__main__":
     """

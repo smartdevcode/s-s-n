@@ -29,7 +29,7 @@ class FinanceSimulationAgent(SimulationAgent):
         """
         self.history = []
         self.accounts = {}
-        self.event_history : AgentEventHistory | None = None
+        self.event_history : dict[str, AgentEventHistory | None] = {}
         super().__init__(uid, config, log_dir)
 
     def handle(self, state: MarketSimulationStateUpdate) -> FinanceAgentResponse:
@@ -60,7 +60,7 @@ class FinanceSimulationAgent(SimulationAgent):
         - Applies optional retention logic based on `event_lookback_minutes`.
 
         Populates:
-            self.event_history (AgentEventHistory | None)
+            self.event_history[state.dendrite.hotkey] (AgentEventHistory | None)
         """
         self.event_lookback_minutes = getattr(self.config, "event_lookback_minutes", 60)
 
@@ -166,7 +166,7 @@ class FinanceSimulationAgent(SimulationAgent):
 
         all_events = orders + cancels + trades
         if not all_events:
-            self.event_history = AgentEventHistory(
+            self.event_history[state.dendrite.hotkey] = AgentEventHistory(
                 uid=self.uid,
                 start=state.timestamp - state.config.publish_interval,
                 end=state.timestamp,
@@ -180,7 +180,7 @@ class FinanceSimulationAgent(SimulationAgent):
 
             start = all_events[0].timestamp
             end = all_events[-1].timestamp
-            self.event_history = AgentEventHistory(
+            self.event_history[state.dendrite.hotkey] = AgentEventHistory(
                 uid=self.uid,
                 start=start,
                 end=end,
@@ -281,9 +281,9 @@ class FinanceSimulationAgent(SimulationAgent):
         self.accounts = state.accounts[self.uid]
         self.events = state.notices[self.uid]
         
-        if not self.event_history:            
+        if not state.dendrite.hotkey in self.event_history or not self.event_history[state.dendrite.hotkey]:            
             self.load_event_history(state)        
-        self.event_history.append(state)
+        self.event_history[state.dendrite.hotkey].append(state)
         
         simulation_ended = False
         update_text = ''

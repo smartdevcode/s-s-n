@@ -2012,6 +2012,7 @@ class Account(BaseModel):
     o : list[Order] = Field(alias="orders", default=[])
     l : dict[int, Loan] = Field(alias="loans", default={})
     f : Fees | None = Field(alias="fees")
+    v : float | None = Field(alias="traded_volume", default=None)
 
     @property
     def agent_id(self) -> int:
@@ -2056,6 +2057,10 @@ class Account(BaseModel):
     @property
     def fees(self) -> Fees | None:
         return self.f
+
+    @property
+    def traded_volume(self) -> float | None:
+        return self.v
     
     @property
     def own_quote(self) -> float:

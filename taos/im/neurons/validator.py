@@ -628,11 +628,17 @@ if __name__ != "__mp_main__":
             bt.logging.info(f"Retrieved request body ({time.time()-start:.4f}s).")
             if body[-3:].decode() != "]}}":
                 raise Exception(f"Incomplete JSON!")
+            start = time.time()
             message = YpyObject(body, 1)
             bt.logging.info(f"Constructed YpyObject ({time.time()-start:.4f}s).")
             state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
             state.version = __spec_version__
-            bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")
+            start = time.time()
+            for uid, accounts in state.accounts.items():
+                for book_id in accounts:
+                    state.accounts[uid][book_id].v = round(sum([volume for volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals)
+            bt.logging.info(f"Volumes added ({time.time()-start:.4f}s).")
+            bt.logging.info(f"Synapse populated ({time.time()-global_start:.4f}s).")
             del body
 
             # Update variables
@@ -671,7 +677,7 @@ if __name__ != "__mp_main__":
             # Process deregistration notices
             self.process_resets(state)
 
-            # Await reporting and state saving to complete before proceeding with next step
+            # Await state saving, rewarding and metagraph maintenance to complete before proceeding with next step
             while self.saving or self.rewarding or self.maintaining:
                 bt.logging.info(f"Waiting for {'state saving' if self.saving else ''}{', ' if self.saving and self.rewarding else ''}{'rewarding' if self.rewarding else ''}{', ' if (self.saving or self.rewarding) and self.maintaining else ''}{'maintaining' if self.maintaining else ''} to complete...")
                 time.sleep(0.5)

@@ -41,18 +41,18 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         """
         self.update(state)
         for book_id, book in state.books.items():
-            if book_id in self.last_train_time and int(state.timestamp - self.last_train_time[book_id]) > self.train_interval * 1_000_000_000:
-                if self.trained_events[book_id] == 0:
-                    self._train(book_id, state.timestamp, test=True)
-                    self.update_model(book_id)
+            if state.dendrite.hotkey in self.last_train_time and book_id in self.last_train_time[state.dendrite.hotkey] and int(state.timestamp - self.last_train_time[state.dendrite.hotkey][book_id]) > self.train_interval * 1_000_000_000:
+                if self.trained_events[state.dendrite.hotkey][book_id] == 0:
+                    self._train(state.dendrite.hotkey, book_id, state.timestamp, test=True)
+                    self.update_model(state.dendrite.hotkey, book_id)
                 else:
-                    Thread(target=self._train, args=(book_id, state.timestamp), kwargs={'test': True}).start()
+                    Thread(target=self._train, args=(state.dendrite.hotkey, book_id, state.timestamp), kwargs={'test': True}).start()
 
         response = self.respond(state)
         self.report(state, response)
         return response
 
-    def features_file(self, book_id: int) -> str:
+    def features_file(self, validator : str, book_id: int) -> str:
         """
         Returns the path to the CSV file containing recorded feature data for a given book.
 
@@ -62,9 +62,11 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         Returns:
             str: File path to the features CSV.
         """
-        return os.path.join(self.output_dir, f'features.{book_id}.csv')
+        validator_dir = os.path.join(self.output_dir, validator)
+        os.makedirs(validator_dir, exist_ok=True)
+        return os.path.join(validator_dir, f'features.{book_id}.csv')
 
-    def targets_file(self, book_id: int) -> str:
+    def targets_file(self, validator : str, book_id: int) -> str:
         """
         Returns the path to the CSV file containing target labels for a given book.
 
@@ -74,9 +76,11 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         Returns:
             str: File path to the targets CSV.
         """
-        return os.path.join(self.output_dir, f'targets.{book_id}.csv')
+        validator_dir = os.path.join(self.output_dir, validator)
+        os.makedirs(validator_dir, exist_ok=True)
+        return os.path.join(validator_dir, f'targets.{book_id}.csv')
 
-    def checkpoint_file(self, book_id: int) -> str:
+    def checkpoint_file(self, validator : str, book_id: int) -> str:
         """
         Returns the full path to the model checkpoint file for a specific book.
 
@@ -86,10 +90,12 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         Returns:
             str: File path to the model checkpoint.
         """
-        return os.path.join(self.checkpoint_dir, f"{self.model}.{book_id}")
+        checkpoints_dir = os.path.join(self.output_dir, validator, 'checkpoints')
+        os.makedirs(checkpoints_dir, exist_ok=True)
+        return os.path.join(checkpoints_dir, f"{self.model}.{book_id}")
 
     @abstractmethod
-    def init_model(self, book_id: int):
+    def init_model(self, validator : str, book_id: int):
         """
         Abstract method to initialize a new model instance for a given book.
 
@@ -125,7 +131,7 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         ...
 
     @abstractmethod
-    def record_data(self, book_id: int, data: Any):
+    def record_data(self, validator : str, book_id: int, data: Any):
         """
         Abstract method to record training data (features and targets).
 
@@ -137,23 +143,23 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         """
         ...
 
-    def update_model(self, book_id: int):
+    def update_model(self, validator : str, book_id: int):
         """
         Update the in-memory model from a newly saved checkpoint, if available.
 
         If a new checkpoint (with `.new` suffix) exists, it replaces the old one.
         """
         try:
-            new_path = self.checkpoint_file(book_id) + '.new'
+            new_path = self.checkpoint_file(validator, book_id) + '.new'
             if os.path.exists(new_path):
-                self.models[book_id] = self.load_model(new_path)
-                if os.path.exists(self.checkpoint_file(book_id)):
+                self.models[validator][book_id] = self.load_model(new_path)
+                if os.path.exists(self.checkpoint_file(validator, book_id)):
                     try:
-                        os.remove(self.checkpoint_file(book_id))
-                        bt.logging.debug(f"Removed old checkpoint for book {book_id}")
+                        os.remove(self.checkpoint_file(validator, book_id))
+                        bt.logging.debug(f"Removed old checkpoint for book {book_id} at validator {validator}")
                     except Exception as e:
                         bt.logging.error(f"Failed to remove old checkpoint: {e}")
-                os.rename(new_path, self.checkpoint_file(book_id))
+                os.rename(new_path, self.checkpoint_file(validator, book_id))
             else:
                 bt.logging.debug(f"No new model found for book {book_id}")
         except Exception as ex:
@@ -169,7 +175,7 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         ...
 
     @abstractmethod
-    def train(self, book_id: int, timestamp: int, test: bool = False) -> bool:
+    def train(self, validator : str, book_id: int, timestamp: int, test: bool = False) -> bool:
         """
         Abstract method for training the model on recent data.
 
@@ -185,7 +191,7 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
         """
         ...
 
-    def _train(self, book_id: int, timestamp: int, test: bool = False):
+    def _train(self, validator : str, book_id: int, timestamp: int, test: bool = False):
         """
         Internal wrapper for model training that also updates training state.
 
@@ -194,11 +200,11 @@ class FinanceSimulationAIAgent(FinanceSimulationAgent):
             timestamp (int): Simulation timestamp.
             test (bool): Run training in test mode.
         """
-        success = self.train(book_id, timestamp, test)
+        success = self.train(validator, book_id, timestamp, test)
         if success:
-            self.last_train_time[book_id] = timestamp
-            self.trained_events[book_id] += 1
-            self.model_trained[book_id] = self.model_trained[book_id] or (self.trained_events[book_id] >= self.min_train_events)
+            self.last_train_time[validator][book_id] = timestamp
+            self.trained_events[validator][book_id] += 1
+            self.model_trained[validator][book_id] = self.model_trained[validator][book_id] or (self.trained_events[validator][book_id] >= self.min_train_events)
 
     def get_module_parameters(self, module):
         """
@@ -251,8 +257,6 @@ Output Directory : {self.output_dir}
         """
         self.model = model
 
-        self.checkpoint_dir = self.config.checkpoint_dir if hasattr(self.config, 'checkpoint_dir') else os.path.join(self.output_dir, 'checkpoints',f'{self.model}')
-        Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
         self.checkpoint = self.config.checkpoint if hasattr(self.config, 'checkpoint') else None
 
         self.reset = bool(self.config.reset) if hasattr(self.config,'reset') else False
@@ -280,32 +284,37 @@ Output Directory : {self.output_dir}
         if self.should_pretrain:
             self.pretrain()
                     
-    def init_book(self, book_id : int) -> None:
+    def init_book(self, validator : str, book_id : int) -> None:
         """
         Initialize model utilized in response processing for the specified book
         """
         if not self.reset:
+            if not validator in self.models:
+                self.models[validator] = {}
+                self.model_trained[validator] = {}
+                self.trained_events[validator] = {}
+                self.last_train_time[validator] = {}
             if self.checkpoint:
                 bt.logging.info(f'Loading checkpoint {self.checkpoint}')
-                self.models[book_id] = self.load_model(os.path.join(self.checkpoint_dir, self.checkpoint))
-                self.model_trained[book_id] = True
-                self.trained_events[book_id] = self.min_train_events
-                self.last_train_time[book_id] = 0
+                self.models[validator][book_id] = self.load_model(self.checkpoint)
+                self.model_trained[validator][book_id] = True
+                self.trained_events[validator][book_id] = self.min_train_events
+                self.last_train_time[validator][book_id] = 0
             else:
-                if os.path.exists(self.checkpoint_file(book_id)):
-                    bt.logging.info(f'Loading model {self.checkpoint_file(book_id)} for book {book_id}')
-                    self.models[book_id] = self.load_model(self.checkpoint_file(book_id))
-                    self.model_trained[book_id] = True
-                    self.trained_events[book_id] = self.min_train_events
-                    self.last_train_time[book_id] = 0
-                else:
+                if os.path.exists(self.checkpoint_file(validator, book_id)):
+                    bt.logging.info(f'Loading model {self.checkpoint_file(validator, book_id)} for book {book_id}')
+                    self.models[validator][book_id] = self.load_model(self.checkpoint_file(validator, book_id))
+                    self.model_trained[validator][book_id] = True
+                    self.trained_events[validator][book_id] = self.min_train_events
+                    self.last_train_time[validator][book_id] = 0
+                elif not book_id in self.models[validator]:
                     bt.logging.info(f'No {self.model} checkpoint for book {book_id} - initializing new model.')
-                    self.models[book_id] = self.init_model(book_id)
-                    self.model_trained[book_id] = False
-                    self.trained_events[book_id] = 0
-                    self.last_train_time[book_id] = 0
+                    self.models[validator][book_id] = self.init_model(validator, book_id)
+                    self.model_trained[validator][book_id] = False
+                    self.trained_events[validator][book_id] = 0
+                    self.last_train_time[validator][book_id] = 0
         else:
-            self.models[book_id] = self.init_model(book_id)
-            self.model_trained[book_id] = False
-            self.trained_events[book_id] = 0
-            self.last_train_time[book_id] = 0
+            self.models[validator][book_id] = self.init_model(validator, book_id)
+            self.model_trained[validator][book_id] = False
+            self.trained_events[validator][book_id] = 0
+            self.last_train_time[validator][book_id] = 0

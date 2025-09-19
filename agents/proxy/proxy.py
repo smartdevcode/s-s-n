@@ -21,6 +21,8 @@ from taos.im.neurons.validator import Validator
 from taos.im.protocol import MarketSimulationStateUpdate, MarketSimulationConfig, FinanceAgentResponse, FinanceEventNotification
 from taos.im.protocol.simulator import SimulatorResponseBatch
 from taos.im.protocol.events import SimulationStartEvent
+from taos.im.validator.forward import validate_responses
+from taos.im.validator.reward import set_delays
 
 from ypyjson import YpyObject
 import xml.etree.ElementTree as ET
@@ -32,6 +34,7 @@ class Proxy(Validator):
         base_config = copy.deepcopy(BaseNeuron.config())
         self.config = self.config()
         self.config.merge(base_config)
+        self.config.neuron.timeout = config['proxy']['timeout']
         self.check_config(self.config)
         config_file = launcher_config['proxy']['simulation_xml']
         if not os.path.exists(config_file):
@@ -103,29 +106,37 @@ class Proxy(Validator):
         bt.logging.debug(f"STATE : {state}")
 
         # Forward state to agents
-        async def query_agent(agent, url, session, json):
+        async def query_agent(uid, agent, url, session, json):
+            response_time = None
             try:
                 bt.logging.info(f"Querying {agent} at {url}...")
-                async with session.post(url=url, json=json, timeout=config['proxy']['timeout']) as r:
+                start = time.time()
+                async with session.post(url=url, json=json, timeout=self.config.neuron.timeout) as r:
                     response = await r.json()
-                    bt.logging.success(f"{agent} | Response : {response}")
-                return agent, response
+                    response_time = time.time() - start
+                    bt.logging.success(f"{agent} | Response : {response} ({response_time}s)")
+                return uid, agent, response, response_time
             except asyncio.exceptions.TimeoutError as e:
-                bt.logging.error(f"{agent} | Timed out after {config['proxy']['timeout']}s while awaiting response from {url}.")
-                return agent, None
+                bt.logging.error(f"{agent} | Timed out after {self.config.neuron.timeout}s while awaiting response from {url}.")
+                return uid, agent, None, response_time
             except Exception as e:
                 bt.logging.error(f"{agent} | Failed to query {url}: {e}")
-                return agent, None
+                return uid, agent, None, response_time
 
         async with aiohttp.ClientSession() as session:
-            responses = await asyncio.gather(*(query_agent(agent, agent_url, session, state.model_dump()) for agent, agent_url in self.agent_urls.items()))
-        agent_responses = []
-        for agent, response in responses:
+            responses = await asyncio.gather(*(query_agent(uid, agent, agent_url, session, state.model_dump()) for uid, (agent, agent_url) in enumerate(self.agent_urls.items())))
+        responses = {uid : (response, agent, response_time) for uid, agent, response, response_time in responses}
+        synapse_responses = {}
+        for uid, (response, agent, response_time) in responses.items():
             if response:
                 try:
-                    agent_responses.append(FinanceAgentResponse.model_validate(response))
+                    agent_response = FinanceAgentResponse.model_validate(response)
+                    synapse = state.model_copy(update={"response":agent_response})
+                    synapse.dendrite.process_time = response_time
+                    synapse_responses[uid] = synapse
                 except Exception as e:
                     bt.logging.error(f"{agent} | Failed to validate response : {e}")
+        agent_responses = set_delays(self, synapse_responses)
         simulator_response = SimulatorResponseBatch(agent_responses).serialize()
         return simulator_response
 

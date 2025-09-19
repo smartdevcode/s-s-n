@@ -86,9 +86,9 @@ Output Directory           : {self.output_dir}
         self.signs = {}
         self.trueSigns = {}
         self.errors = {}
-        self.event_history = None
+        self.book_event_history : dict[str, EventHistory | None] = {}
 
-    def update_predictors(self, book: Book, timestamp: int) -> None:
+    def update_predictors(self, validator : str, book: Book, timestamp: int) -> None:
         """
         Gathers and processes historical event data to update predictors and targets.
         Features are computed based on sampling intervals.
@@ -97,23 +97,23 @@ Output Directory           : {self.output_dir}
             book (Book): Book object from the state update.
             timestamp (int): Simulation timestamp of the associated state update.
         """
-        if not self.event_history:
+        if not validator in self.book_event_history or not self.book_event_history[validator]:
             lookback_minutes = max(
                 (self.simulation_config.publish_interval // 1_000_000_000) // 60,
                 self.sampling_interval * 2 // 60,
                 1
             )
-            self.event_history = book.event_history(timestamp, self.simulation_config, lookback_minutes)
+            self.book_event_history[validator] = book.event_history(timestamp, self.simulation_config, lookback_minutes)
         else:
-            book.append_to_event_history(timestamp, self.event_history, self.simulation_config)
+            book.append_to_event_history(timestamp, self.book_event_history[validator], self.simulation_config)
 
         interval = self.sampling_interval
 
         # Aggregate data
-        ohlc = self.event_history.ohlc(interval)
-        mean_price = self.event_history.mean_trade_price(interval)
-        trade_buckets = self.event_history.bucket(self.event_history.trades, interval)
-        order_buckets = self.event_history.bucket(self.event_history.orders, interval)
+        ohlc = self.book_event_history[validator].ohlc(interval)
+        mean_price = self.book_event_history[validator].mean_trade_price(interval)
+        trade_buckets = self.book_event_history[validator].bucket(self.book_event_history[validator].trades, interval)
+        order_buckets = self.book_event_history[validator].bucket(self.book_event_history[validator].orders, interval)
 
         trade_volumes = {ts: sum(t.quantity for t in trades) for ts, trades in trade_buckets.items()}
         trade_imbalance = {
@@ -157,18 +157,18 @@ Output Directory           : {self.output_dir}
             new_targets['LogReturn'].append(np.log(close / open_) if open_ > 0 else 0.0)
 
         book_id = book.id
-        self.predictors[book_id] = {
-            k: self.predictors.get(book_id, {}).get(k, []) + new_predictors[k] for k in self.predKeys
+        self.predictors[validator][book_id] = {
+            k: self.predictors.get(validator, {}).get(book_id, {}).get(k, []) + new_predictors[k] for k in self.predKeys
         }
-        self.target[book_id] = {
-            k: self.target.get(book_id, {}).get(k, []) + new_targets[k] for k in self.targetKeys
+        self.target[validator][book_id] = {
+            k: self.target.get(validator, {}).get(book_id, {}).get(k, []) + new_targets[k] for k in self.targetKeys
         }
 
         max_len = self.train_n + 3
-        self.predictors[book_id] = {k: v[-max_len:] for k, v in self.predictors[book_id].items()}
-        self.target[book_id] = {k: v[-max_len:] for k, v in self.target[book_id].items()}
+        self.predictors[validator][book_id] = {k: v[-max_len:] for k, v in self.predictors[validator][book_id].items()}
+        self.target[validator][book_id] = {k: v[-max_len:] for k, v in self.target[validator][book_id].items()}
 
-        self.record_data(book_id, {
+        self.record_data(validator, book_id, {
             "predictors": dict(new_predictors),
             "target": dict(new_targets)
         })
@@ -207,31 +207,39 @@ Output Directory           : {self.output_dir}
         for book_id, book in state.books.items():
             bestBid = book.bids[0].price if book.bids else 0.0
             bestAsk = book.asks[0].price if book.asks else bestBid + 10 ** (-self.simulation_config.priceDecimals)
-            midquote = (bestBid + bestAsk) / 2
+            midquote = (bestBid + bestAsk) / 2            
 
+            if not state.dendrite.hotkey in self.predictors:
+                self.predictors[state.dendrite.hotkey] = {}
+                self.target[state.dendrite.hotkey] = {}
+                self.last_signal[state.dendrite.hotkey] = {}
+                self.midquotes[state.dendrite.hotkey] = {}
+                self.signs[state.dendrite.hotkey] = {}
+                self.trueSigns[state.dendrite.hotkey] = {}
+                self.errors[state.dendrite.hotkey] = {}
             # Initialization for unseen books
-            if book_id not in self.predictors:
-                self.predictors[book_id] = {key: [] for key in self.predKeys}
-                self.target[book_id] = {key: [] for key in self.targetKeys}
-                self.last_signal[book_id] = 0.0
-                self.midquotes[book_id] = 0.0
-                self.signs[book_id] = []
-                self.trueSigns[book_id] = []
-                self.errors[book_id] = []
-                self.init_book(book_id)
+            if book_id not in self.predictors[state.dendrite.hotkey]:
+                self.predictors[state.dendrite.hotkey][book_id] = {key: [] for key in self.predKeys}
+                self.target[state.dendrite.hotkey][book_id] = {key: [] for key in self.targetKeys}
+                self.last_signal[state.dendrite.hotkey][book_id] = 0.0
+                self.midquotes[state.dendrite.hotkey][book_id] = 0.0
+                self.signs[state.dendrite.hotkey][book_id] = []
+                self.trueSigns[state.dendrite.hotkey][book_id] = []
+                self.errors[state.dendrite.hotkey][book_id] = []
+                self.init_book(state.dendrite.hotkey, book_id)
 
-            self.update_predictors(book, state.timestamp)
+            self.update_predictors(state.dendrite.hotkey, book, state.timestamp)
 
-            if not self.model_trained[book_id] or len(self.predictors[book_id][self.predKeys[0]]) < 1:
-                bt.logging.info(f"BOOK {book_id}: Training Progress {self.trained_events[book_id]}/{self.min_train_events}")
+            if not self.model_trained[state.dendrite.hotkey][book_id] or len(self.predictors[state.dendrite.hotkey][book_id][self.predKeys[0]]) < 1:
+                bt.logging.info(f"BOOK {book_id}: Training Progress {self.trained_events[state.dendrite.hotkey][book_id]}/{self.min_train_events}")
                 continue
 
             # Prepare latest predictor sample
-            predictors = {key: self.predictors[book_id][key][-1] for key in self.predKeys}
+            predictors = {key: self.predictors[state.dendrite.hotkey][book_id][key][-1] for key in self.predKeys}
             X = pd.DataFrame(predictors, index=[0])
 
             # Make predictions
-            predictions = dict(zip(self.targetKeys, self.models[book_id].predict(X)))
+            predictions = dict(zip(self.targetKeys, self.models[state.dendrite.hotkey][book_id].predict(X)))
             signal = self.signal(predictions)
 
             bt.logging.info(f"BOOK {book_id}: PREDICTION " +
@@ -239,19 +247,20 @@ Output Directory           : {self.output_dir}
                             f" | SIGNAL {signal:.4f}")
 
             # Track performance
-            if self.midquotes[book_id] != 0.0:
-                curr_return = np.log(midquote / self.midquotes[book_id])
-                self.errors[book_id].append((self.last_signal[book_id] - curr_return) ** 2)
-                self.signs[book_id].append(np.sign(self.last_signal[book_id]))
-                self.trueSigns[book_id].append(np.sign(curr_return))
+            if self.midquotes[state.dendrite.hotkey][book_id] != 0.0:
+                curr_return = np.log(midquote / self.midquotes[state.dendrite.hotkey][book_id])
+                self.errors[state.dendrite.hotkey][book_id].append((self.last_signal[state.dendrite.hotkey][book_id] - curr_return) ** 2)
+                self.signs[state.dendrite.hotkey][book_id].append(np.sign(self.last_signal[state.dendrite.hotkey][book_id]))
+                self.trueSigns[state.dendrite.hotkey][book_id].append(np.sign(curr_return))
                 bt.logging.info(
+                    f"VALIDATOR {state.dendrite.hotkey} | "
                     f"BOOK {book_id}: RETURN {curr_return:.4f} | "
-                    f"MSE: {np.mean(self.errors[book_id]):.4f} | "
-                    f"ACC: {accuracy_score(self.trueSigns[book_id], self.signs[book_id]):.2f}"
+                    f"MSE: {np.mean(self.errors[state.dendrite.hotkey][book_id]):.4f} | "
+                    f"ACC: {accuracy_score(self.trueSigns[state.dendrite.hotkey][book_id], self.signs[state.dendrite.hotkey][book_id]):.2f}"
                 )
 
-            self.last_signal[book_id] = signal
-            self.midquotes[book_id] = midquote
+            self.last_signal[state.dendrite.hotkey][book_id] = signal
+            self.midquotes[state.dendrite.hotkey][book_id] = midquote
 
             # Trading logic
             dec = self.simulation_config.priceDecimals
@@ -291,7 +300,7 @@ Output Directory           : {self.output_dir}
                 )
 
             # Launch asynchronous model update
-            Thread(target=self.update_model, args=(book_id,)).start()
+            Thread(target=self.update_model, args=(state.dendrite.hotkey, book_id,)).start()
 
         bt.logging.info(f"Response Generated in {time.time() - start:.2f}s")
         return response
