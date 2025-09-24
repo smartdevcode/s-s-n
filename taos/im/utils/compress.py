@@ -19,14 +19,14 @@ def compress(
     payload,
     level: int = 1,
     engine: Literal["zlib", "lz4"] = "lz4",
-    version: int = 44,
+    version: int = 45,
 ) -> str | None:
     """
-    Compress a payload using either JSON (legacy, version < 44)
-    or Msgpack (version >= 44), wrapped in Base64 text.
+    Compress a payload using either JSON (legacy, version < 45)
+    or Msgpack (version >= 45), wrapped in Base64 text.
     """
     try:
-        if version < 44:
+        if version < 45:
             raw = msgspec.json.encode(payload)
         else:
             raw = msgspec.msgpack.encode(payload)
@@ -41,12 +41,12 @@ def compress(
 def decompress(
     payload: str | dict,
     engine: Literal["zlib", "lz4"] = "lz4",
-    version: int = 44,
+    version: int = 45,
 ) -> dict | None:
     """
     Decompress payload using the correct codec depending on version.
-    - version < 44 → JSON
-    - version >= 44 → Msgpack
+    - version < 45 → JSON
+    - version >= 45 → Msgpack
     Supports Base64-encoded transport, and old dict container format.
     """
     try:
@@ -54,7 +54,7 @@ def decompress(
             decoded = pybase64.b64decode(payload)
             raw = decompressors[engine](decoded)
 
-            if version < 44:
+            if version < 45:
                 return msgspec.json.decode(raw)
             return msgspec.msgpack.decode(raw)
 
@@ -62,7 +62,7 @@ def decompress(
             # Legacy container with 'payload' and 'books'
             decoded_main = pybase64.b64decode(payload["payload"])
             raw_main = decompressors[engine](decoded_main)
-            if version < 44:
+            if version < 45:
                 decompressed_payload = msgspec.json.decode(raw_main)
             else:
                 decompressed_payload = msgspec.msgpack.decode(raw_main)
@@ -70,7 +70,7 @@ def decompress(
             if payload.get("books"):
                 decoded_books = pybase64.b64decode(payload["books"])
                 raw_books = decompressors[engine](decoded_books)
-                if version < 44:
+                if version < 45:
                     books = msgspec.json.decode(raw_books)
                 else:
                     books = msgspec.msgpack.decode(raw_books)
@@ -84,7 +84,7 @@ def decompress(
         return None
 
 
-def compress_batch(payloads: dict, level: int = 1, engine: str = "lz4", version: int = 44) -> dict:
+def compress_batch(payloads: dict, level: int = 1, engine: str = "lz4", version: int = 45) -> dict:
     return {uid: compress(payload, level=level, engine=engine, version=version) for uid, payload in payloads.items()}
 
 
@@ -93,7 +93,7 @@ def batch_compress(
     batches: list[list[int]],
     level: int = 1,
     engine: str = "lz4",
-    version: int = 44,
+    version: int = 45,
 ) -> dict:
     payload_batches = []
     with ThreadPoolExecutor(max_workers=len(batches)) as pool:
