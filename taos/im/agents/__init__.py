@@ -98,7 +98,7 @@ class FinanceSimulationAgent(SimulationAgent):
                                     orderId=int(row["orderId"]) if row["orderId"] else None,
                                     clientOrderId=int(row["clientOrderId"]) if row["clientOrderId"] else None,
                                     side=int(row["side"]),
-                                    r=row["currency"] if "currency" in row else OrderCurrency.BASE,
+                                    r=(row["currency"] if row["currency"].isnumeric() else OrderCurrency[row["currency"].split('.')[1]]) if "currency" in row and row["currency"] else OrderCurrency.BASE,
                                     quantity=float(row["quantity"]),
                                     leverage=float(row["leverage"]),
                                     settleFlag=row.get("settleFlag"),
@@ -855,7 +855,7 @@ class StateHistoryManager:
                     snapshots={t: L2Snapshot.model_validate(snapshot) for t, snapshot in history_data["snapshots"].items()},
                     trades={t: TradeInfo.model_validate(trade) for t, trade in history_data["trades"].items()},
                     retention_mins=self.history_retention_mins,
-                    publish_interval=serialized["history"]["publish_interval"]
+                    publish_interval=serialized["publish_interval"]
                 )
                 for book_id, history_data in validator_history.items()
             }

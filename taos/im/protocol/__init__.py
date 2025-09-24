@@ -228,7 +228,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                     agent_id = self.response.agent_id
                 compressed = self.model_copy()
                 if not compressed_books:
-                    compressed_books = compress({bookId : book.model_dump(mode='json') for bookId, book in compressed.books.items()} if compressed.books else None, level, compressed.compression_engine)
+                    compressed_books = compress({bookId : book.model_dump(mode='json') for bookId, book in compressed.books.items()} if compressed.books else None, level, compressed.compression_engine, self.version)
                 payload = {
                     "accounts" : {accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in compressed.accounts.items()} if compressed.accounts else None,
                     "notices" : {agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in compressed.notices.items()} if compressed.notices else None,
@@ -237,7 +237,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                 }
                 compressed.compressed = {
                     "books" : compressed_books,
-                    "payload" : compress(payload, level, compressed.compression_engine)
+                    "payload" : compress(payload, level, compressed.compression_engine, self.version)
                 }
                 compressed.books = None
                 compressed.accounts = None
@@ -259,7 +259,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         """
         try:
             if self.compressed:
-                decompressed = decompress(self.compressed, self.compression_engine)
+                decompressed = decompress(self.compressed, self.compression_engine, self.version)
                 self.compressed = None
                 self.books = decompressed['books']
                 self.accounts = decompressed['accounts']
