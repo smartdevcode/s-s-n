@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import os
 import bittensor as bt
+import time
 from pathlib import Path
 from abc import ABC, abstractmethod  # Importing the ABC class and abstractmethod decorator for creating abstract base classes
 from fastapi import APIRouter
@@ -31,9 +32,15 @@ class SimulationAgent(ABC):
         """
         Method to handle a new simulation state update.
         """
+        start=time.time()
         self.update(state)  # Update the agent's state based on the new simulation state
+        bt.logging.debug(f"Updated ({time.time() - start}s)")
+        start=time.time()
         response = self.respond(state)  # Generate a response based on the current state
+        bt.logging.debug(f"Responded ({time.time() - start}s)")
+        start=time.time()
         self.report(state, response)  # Report the state and response (for logging or other purposes)
+        bt.logging.debug(f"Reported ({time.time() - start}s)")
         return response  # Return the generated response
 
     def process(self, notification: EventNotification) -> EventNotification:
