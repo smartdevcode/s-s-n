@@ -147,15 +147,15 @@ struct pack<taosim::simulation::serialization::ValidatorRequest>
 
                 const auto& buyQueue = book->buyQueue();
                 o.pack("b"s);
-                o.pack_array(buyQueue.size());
-                for (const auto& level : buyQueue | views::reverse) {
+                o.pack_array(21);
+                for (const auto& level : buyQueue | views::reverse | views::take(21)) {
                     packLevel(o, level);
                 }
     
                 const auto& sellQueue = book->sellQueue();
                 o.pack("a"s);
-                o.pack_array(sellQueue.size());
-                for (const auto& level : sellQueue) {
+                o.pack_array(21);
+                for (const auto& level : sellQueue | views::take(21)) {
                     packLevel(o, level);
                 }
             }

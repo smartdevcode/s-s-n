@@ -717,9 +717,6 @@ if __name__ != "__mp_main__":
                     message, receive_start = receive(mq_req)
                     start = time.time()
                     state = MarketSimulationStateUpdate.model_validate(message)
-                    for book_id in state.books:
-                        state.books[book_id].b = state.books[book_id].bids[:21]
-                        state.books[book_id].a = state.books[book_id].asks[:21]
                     bt.logging.info(f"Parsed state update ({time.time() - start}s)")
                     response = await self.handle_state(message, state, receive_start)
                 except Exception as ex:
