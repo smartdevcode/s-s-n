@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
 
 #include "json_util.hpp"
 #include "util.hpp"
@@ -94,7 +94,7 @@ void PlaceOrderMarketPayload::jsonSerialize(
             } else if constexpr (std::same_as<T, OrderID>) {
                 json.AddMember("settleFlag", rapidjson::Value{flag}, allocator);
             } else {
-                static_assert(false, "Non-exchaustive visitor");
+                static_assert(false, "Non-exhaustive visitor");
             }
         }, settleFlag);
     };
@@ -572,7 +572,7 @@ void CancelOrdersPayload::jsonSerialize(
         json.SetObject();
         auto& allocator = json.GetAllocator();
         rapidjson::Value cancellationsJson{rapidjson::kArrayType};
-        for (const Cancellation& cancellation : cancellations) {
+        for (const taosim::event::Cancellation& cancellation : cancellations) {
             rapidjson::Document cancellationJson{rapidjson::kObjectType, &allocator};
             cancellation.jsonSerialize(cancellationJson);
             cancellationsJson.PushBack(cancellationJson, allocator);
@@ -592,9 +592,9 @@ void CancelOrdersPayload::checkpointSerialize(
         json.SetObject();
         auto& allocator = json.GetAllocator();
         rapidjson::Value cancellationsJson{rapidjson::kArrayType};
-        for (const Cancellation& cancellation : cancellations) {
+        for (const taosim::event::Cancellation& cancellation : cancellations) {
             rapidjson::Document cancellationJson{rapidjson::kObjectType, &allocator};
-            cancellation.checkpointSerialize(cancellationJson);
+            cancellation.jsonSerialize(cancellationJson);
             cancellationsJson.PushBack(cancellationJson, allocator);
         }
         json.AddMember("cancellations", cancellationsJson, allocator);
@@ -609,7 +609,7 @@ CancelOrdersPayload::Ptr CancelOrdersPayload::fromJson(const rapidjson::Value& j
 {
     return MessagePayload::create<CancelOrdersPayload>(
         [&json] {
-            std::vector<Cancellation> cancellations;
+            std::vector<taosim::event::Cancellation> cancellations;
             for (const auto& cancellationJson : json["cancellations"].GetArray()) {
                 cancellations.emplace_back(
                     cancellationJson["orderId"].GetUint(),

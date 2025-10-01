@@ -75,7 +75,6 @@ class FinanceSimulationAgent(SimulationAgent):
                         try:
                             if row['price']:
                                 ev = LimitOrderPlacementEvent(
-                                    type="o",
                                     timestamp=timestamp_from_duration(row["timestamp"]),
                                     agentId=self.uid,
                                     bookId=int(row["bookId"]),
@@ -91,7 +90,6 @@ class FinanceSimulationAgent(SimulationAgent):
                                 )
                             else:
                                 ev = MarketOrderPlacementEvent(
-                                    type="o",
                                     timestamp=timestamp_from_duration(row["timestamp"]),
                                     agentId=self.uid,
                                     bookId=int(row["bookId"]),
@@ -138,7 +136,6 @@ class FinanceSimulationAgent(SimulationAgent):
                     for row in reader:
                         try:
                             ev = TradeEvent(
-                                type="t",
                                 timestamp=timestamp_from_duration(row["timestamp"]),
                                 agentId=self.uid,
                                 b=int(row["bookId"]) if row["bookId"] else None,

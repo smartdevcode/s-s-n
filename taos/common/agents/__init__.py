@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
 import os
+import bittensor as bt
 from pathlib import Path
 from abc import ABC, abstractmethod  # Importing the ABC class and abstractmethod decorator for creating abstract base classes
 from fastapi import APIRouter
@@ -100,5 +101,6 @@ def launch(agent_class):
     args = parser.parse_args()
     app = FastAPI()
     agent = agent_class(args.agent_id, args.params)
-    app.include_router(agent.router)
+    app.include_router(agent.router)    
+    bt.logging.set_info()
     uvicorn.run(app, port=args.port)

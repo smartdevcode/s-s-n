@@ -24,15 +24,15 @@ class OrderOptionAgent(FinanceSimulationAgent):
         self.max_quantity = self.config.max_quantity
         # Process config flags indicating which tests are to be run
         self.tests = {
-            'PO' : bool(self.config.PO) if hasattr(self.config, 'PO') else False,
-            'GTT' : bool(self.config.GTT) if hasattr(self.config, 'GTT') else False,
-            'IOC' : bool(self.config.IOC) if hasattr(self.config, 'IOC') else False,
-            'FOK' : bool(self.config.FOK) if hasattr(self.config, 'FOK') else False,
-            'QUOTE' : bool(self.config.QUOTE) if hasattr(self.config, 'QUOTE') else False,
-            'MARGIN' : bool(self.config.MARGIN) if hasattr(self.config, 'MARGIN') else False,
+            'PO' : bool(self.config.PO) if hasattr(self.config, 'PO') else None,
+            'GTT' : bool(self.config.GTT) if hasattr(self.config, 'GTT') else None,
+            'IOC' : bool(self.config.IOC) if hasattr(self.config, 'IOC') else None,
+            'FOK' : bool(self.config.FOK) if hasattr(self.config, 'FOK') else None,
+            'QUOTE' : bool(self.config.QUOTE) if hasattr(self.config, 'QUOTE') else None,
+            'MARGIN' : bool(self.config.MARGIN) if hasattr(self.config, 'MARGIN') else None,
         }
         # If no tests explicitly specified in launch parameters, assume all tests should be run
-        if not any(self.tests.values()):
+        if all([t is None for t in self.tests.values()]):
             self.tests = {k : True for k in self.tests}
         self.round = 0
         self.response = None
@@ -66,6 +66,11 @@ class OrderOptionAgent(FinanceSimulationAgent):
             askvol = book.asks[0].quantity
             # Obtain a random quantity
             quantity = self.quantity()
+            
+            match self.round:
+                case 0:
+                    response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=quantity, price=bid-0.01, postOnly=True, clientOrderId=100 + book_id)
+                    response.limit_order(book_id=book_id, direction=OrderDirection.SELL, quantity=quantity, price=ask+0.01, postOnly=True, clientOrderId=200 + book_id)
 
             if self.tests['QUOTE']:
                 response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=round(ask * (askvol / 2),self.simulation_config.quoteDecimals), currency=OrderCurrency.QUOTE)
@@ -158,15 +163,23 @@ class OrderOptionAgent(FinanceSimulationAgent):
                     case 0:
                         response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, leverage=1.0)
                     case 1:
-                        loan = list(self.accounts[book_id].loans.values())[0]
-                        bt.logging.info(f"CLOSING POSITION FOR ORDER #{loan.order_id} | {loan}")
-                        response.close_position(book_id=book_id, order_id=loan.order_id)
+                        loans = list(self.accounts[book_id].loans.values())
+                        if len(loans) > 0:
+                            loan = list(self.accounts[book_id].loans.values())[0]
+                            bt.logging.info(f"CLOSING POSITION FOR ORDER #{loan.order_id} | {loan}")
+                            response.close_position(book_id=book_id, order_id=loan.order_id)
+                        else:
+                            bt.logging.warning(f"No loans for close position on book {book_id}!")
                     case 2:
                         response.market_order(book_id=book_id, direction=OrderDirection.SELL, quantity=0.01, leverage=1.0)
                     case 3:
-                        loan = list(self.accounts[book_id].loans.values())[0]
-                        bt.logging.info(f"CLOSING POSITION FOR ORDER #{loan.order_id} | {loan}")
-                        response.close_position(book_id=book_id, order_id=loan.order_id)
+                        loans = list(self.accounts[book_id].loans.values())
+                        if len(loans) > 0:
+                            loan = list(self.accounts[book_id].loans.values())[0]
+                            bt.logging.info(f"CLOSING POSITION FOR ORDER #{loan.order_id} | {loan}")
+                            response.close_position(book_id=book_id, order_id=loan.order_id)
+                        else:
+                            bt.logging.warning(f"No loans for close position on book {book_id}!")
                     case 4:
                         response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, leverage=1.0)
                         response.market_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, leverage=1.0)
@@ -185,12 +198,19 @@ class OrderOptionAgent(FinanceSimulationAgent):
                         response.limit_order(book_id=book_id, direction=OrderDirection.BUY, quantity=0.01, price=ask-0.01, leverage=1.0, clientOrderId=1000 + book_id)
         
         if self.response:
+            self.response.instructions.extend(response.instructions)
             response = self.response.model_copy()
             self.response = None
         self.round += 1
         # Return the response with instructions appended
         # The response will be serialized and sent back to the validator for processing
         return response
+    
+    def onOrderAccepted(self, event):
+        if event.clientOrderId in [100 + event.bookId, 200 + event.bookId]:
+            if not self.response:
+                self.response = FinanceAgentResponse(agent_id=self.uid)
+            self.response.cancel_order(event.bookId, event.orderId)
     
     def onTrade(self, event : TradeEvent) -> None:
         """
@@ -205,14 +225,16 @@ class OrderOptionAgent(FinanceSimulationAgent):
         if event.clientOrderId == 1000 + event.bookId:            
             for order_id, loan in self.accounts[event.bookId].loans.items():
                 if order_id == event.makerOrderId:
-                    self.response = FinanceAgentResponse(agent_id=self.uid)
+                    if not self.response:
+                        self.response = FinanceAgentResponse(agent_id=self.uid)
                     self.response.close_position(book_id=event.bookId, order_id=order_id)
                     self.response.limit_order(book_id=event.bookId, direction=OrderDirection.SELL, quantity=0.01, price=self.history[-1].books[event.bookId].bids[0].price+0.01, leverage=1.0, clientOrderId=2000 + event.bookId)
                     bt.logging.info(f"CLOSING POSITION FOR BUY LIMIT ORDER #{order_id} | {loan}")
         if event.clientOrderId == 2000 + event.bookId:            
             for order_id, loan in self.accounts[event.bookId].loans.items():
                 if order_id == event.makerOrderId:
-                    self.response = FinanceAgentResponse(agent_id=self.uid)
+                    if not self.response:
+                        self.response = FinanceAgentResponse(agent_id=self.uid)
                     self.response.close_position(book_id=event.bookId, order_id=order_id)
                     bt.logging.info(f"CLOSING POSITION FOR SELL LIMIT ORDER #{order_id} | {loan}")
             

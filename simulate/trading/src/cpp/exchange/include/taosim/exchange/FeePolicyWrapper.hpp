@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include "AccountRegistry.hpp"
+#include "taosim/accounting/AccountRegistry.hpp"
 #include "taosim/exchange/FeePolicy.hpp"
 
 //-------------------------------------------------------------------------

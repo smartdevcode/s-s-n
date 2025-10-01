@@ -10,7 +10,6 @@ target_include_directories(serialization
     PUBLIC
         include
         "${CMAKE_CURRENT_SOURCE_DIR}"
-        "${src_dir}/decimal"
         "${src_dir}/mp"
 )
 

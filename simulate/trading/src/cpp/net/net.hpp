@@ -7,7 +7,7 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
-#include <boost/asio/experimental/as_tuple.hpp>
+#include <boost/asio/as_tuple.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/core.hpp>
@@ -30,7 +30,7 @@ namespace http = beast::http;
 using namespace std::literals::chrono_literals;
 using std::chrono::steady_clock;
 
-inline constexpr auto use_nothrow_awaitable = net::experimental::as_tuple(use_awaitable);
+inline constexpr auto use_nothrow_awaitable = net::as_tuple(use_awaitable);
 
 //-------------------------------------------------------------------------
 

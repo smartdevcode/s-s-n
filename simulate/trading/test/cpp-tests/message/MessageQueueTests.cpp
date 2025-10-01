@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "MessageQueue.hpp"
+#include "taosim/message/MessageQueue.hpp"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>

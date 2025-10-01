@@ -5,6 +5,7 @@
 #pragma once
 
 #include <Simulation.hpp>
+#include "taosim/ipc/ipc.hpp"
 #include "net.hpp"
 
 #include <boost/asio.hpp>
@@ -45,17 +46,28 @@ public:
     void publishStartInfo();
     void publishEndInfo();
     void publishState();
+    void publishStateMessagePack();
+    
+    [[nodiscard]] SimulationBlockInfo blockInfo() const noexcept { return m_blockInfo; }
+    [[nodiscard]] std::span<const std::unique_ptr<Simulation>> simulations() const noexcept { return m_simulations; }
+    [[nodiscard]] const fs::path& logDir() const noexcept { return m_logDir; }
 
     [[nodiscard]] rapidjson::Document makeStateJson() const;
     [[nodiscard]] rapidjson::Document makeCollectiveBookStateJson() const;
 
     [[nodiscard]] bool online() const noexcept
     {
-        return !m_netInfo.host.empty() && !m_netInfo.port.empty() && !m_disallowPublish;
+        return !m_disallowPublish && !m_netInfo.host.empty() && !m_netInfo.port.empty();
     }
 
     static std::unique_ptr<SimulationManager> fromConfig(const fs::path& path);
     static std::unique_ptr<SimulationManager> fromReplay(const fs::path& replayDir);
+
+    // TODO: ENV?
+    static constexpr std::string_view s_validatorReqMessageQueueName{"taosim-req"};
+    static constexpr std::string_view s_validatorResMessageQueueName{"taosim-res"};
+    static constexpr std::string_view s_statePublishShmName{"state"};
+    static constexpr std::string_view s_remoteResponsesShmName{"responses"};
 
 private:
     SimulationBlockInfo m_blockInfo;
@@ -66,7 +78,10 @@ private:
     Timestamp m_gracePeriod;
     NetworkingInfo m_netInfo;
     UnsyncSignal<void()> m_stepSignal;
+    std::unique_ptr<ipc::PosixMessageQueue> m_validatorReqMessageQueue;
+    std::unique_ptr<ipc::PosixMessageQueue> m_validatorResMessageQueue;
     bool m_disallowPublish{};
+    bool m_useMessagePack{};
 
     void setupLogDir(pugi::xml_node node);
 

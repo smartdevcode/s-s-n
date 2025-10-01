@@ -3,7 +3,9 @@ add_subdirectory(agent)
 add_subdirectory(book)
 add_subdirectory(base)
 add_subdirectory(decimal)
+add_subdirectory(event)
 add_subdirectory(exchange)
+add_subdirectory(ipc)
 add_subdirectory(message)
 add_subdirectory(mp)
 add_subdirectory(net)
@@ -27,7 +29,6 @@ target_include_directories(simulator
         base
         decimal
         exchange
-        message
         mp
         net
         process
@@ -44,7 +45,9 @@ target_link_libraries(simulator
         taosim::book
         taosim::base
         taosim::decimal
+        taosim::event
         taosim::exchange
+        taosim::ipc
         taosim::message
         taosim::mp
         taosim::net

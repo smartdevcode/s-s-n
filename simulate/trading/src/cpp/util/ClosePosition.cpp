@@ -43,3 +43,4 @@ ClosePosition::Ptr ClosePosition::fromJson(const rapidjson::Value& json)
             : std::nullopt)};
 }
 
+//-------------------------------------------------------------------------

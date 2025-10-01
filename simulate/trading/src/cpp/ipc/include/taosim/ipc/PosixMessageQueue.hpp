@@ -1,0 +1,67 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
+ * SPDX-License-Identifier: MIT
+ */
+#pragma once
+
+extern "C" {
+#include <fcntl.h>
+#include <mqueue.h>
+#include <sys/stat.h>
+#include <time.h>
+}
+
+#include <cerrno>
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <span>
+#include <string>
+
+//-------------------------------------------------------------------------
+
+namespace taosim::ipc
+{
+
+//-------------------------------------------------------------------------
+
+struct PosixMessageQueueDesc
+{
+    std::string name;
+    int32_t oflag = O_CREAT | O_RDWR | O_NONBLOCK;
+    mode_t mode = 0666;
+    mq_attr attr = {
+        .mq_flags = 0,
+        .mq_maxmsg = 1,
+        .mq_msgsize = sizeof(size_t),
+        .mq_curmsgs = 0
+    };
+    size_t retries{6};
+    size_t timeout{10'000'000'000};
+};
+
+//-------------------------------------------------------------------------
+
+class PosixMessageQueue
+{
+public:
+    explicit PosixMessageQueue(const PosixMessageQueueDesc& desc);
+    ~PosixMessageQueue() noexcept;
+
+    [[nodiscard]] mqd_t handle() const noexcept { return m_handle; }
+
+    bool send(std::span<const char> msg, uint32_t priority = {}) noexcept;
+    ssize_t receive(std::span<char> msg, uint32_t* priority = {}) noexcept;
+
+    void flush() noexcept;
+
+private:
+    mqd_t m_handle;
+    PosixMessageQueueDesc m_desc;
+};
+
+//-------------------------------------------------------------------------
+
+}  // namespace taosim::ipc
+
+//-------------------------------------------------------------------------

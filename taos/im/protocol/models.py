@@ -508,9 +508,9 @@ class Order(BaseModel):
         """
         Method to extract model data from simulation account representation in the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Order.model_construct(order_type="limit", id=json['orderId'], client_id=json['clientOrderId'], timestamp=json['timestamp'],
-                     quantity=json['volume'], side=json['direction'], price=json['price'], 
-                     leverage=json['leverage'])
+        return Order.model_construct(order_type="limit", id=json['i'], client_id=json['c'], timestamp=json['t'],
+                     quantity=json['q'], side=json['s'], price=json['p'], 
+                     leverage=json['l'])
 
 class LevelInfo(BaseModel):
     """
@@ -543,11 +543,11 @@ class LevelInfo(BaseModel):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        if not 'orders' in json:
+        if not 'o' in json:
             orders = None
         else:
-            orders = [Order(id=order['orderId'], timestamp=order['timestamp'],quantity=order['volume'],side=order['direction'],order_type="limit",price=json['price']) for order in json['orders']]
-        return LevelInfo(price = json['price'], quantity=json['volume'], orders=orders)
+            orders = [Order.model_construct(id=order['i'], timestamp=order['t'],quantity=order['q'],side=order['s'],order_type="limit",price=json['p'],leverage=json['l'] if 'l' in json else 0.0) for order in json['o']]
+        return LevelInfo.model_construct(price = json['p'], quantity=json['q'], orders=orders)
 
 class TradeInfo(BaseModel):
     """
@@ -637,6 +637,15 @@ class TradeInfo(BaseModel):
                          taker_agent_id=event['aggressingAgentId'], taker_id=event['aggressingOrderId'], maker_agent_id=event['restingAgentId'], maker_id=event['restingOrderId'],
                          maker_fee=event['fees']['maker'], taker_fee=event['fees']['taker'])
 
+    @classmethod
+    def from_json(self, json : dict):
+        """
+        Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
+        """
+        return TradeInfo.model_construct(id=json['i'],timestamp=json['t'],quantity=json['q'],side=json['s'],price=json['p'],
+                         taker_agent_id=json['Ta'], taker_id=json['Ti'], maker_agent_id=json['Ma'], maker_id=json['Mi'],
+                         maker_fee=json['Mf'], taker_fee=json['Tf'])
+
 class Cancellation(BaseModel):
     """
     Represents an order cancellation.
@@ -680,6 +689,13 @@ class Cancellation(BaseModel):
         Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
         """
         return Cancellation(orderId=event['orderId'], timestamp=event['timestamp'], price=event['price'], quantity=event['volume'])
+
+    @classmethod
+    def from_json(self, json : dict):
+        """
+        Method to extract model data from simulation event in the format required by the MarketSimulationStateUpdate synapse.
+        """
+        return Cancellation.model_construct(orderId=json['i'], timestamp=json['t'], price=json['p'], quantity=json['q'])
 
 class L2Snapshot(BaseModel):
     """
@@ -1517,7 +1533,7 @@ class Book(BaseModel):
         return dict(zip(
             self.orders.keys(),
             accumulate(o.quantity if o.side == OrderDirection.BUY else -o.quantity for o in self.orders.values())
-        ))        
+        ))
         
     @classmethod
     def from_json(cls, json: dict, depth : int = 21) -> 'Book':
@@ -1531,28 +1547,26 @@ class Book(BaseModel):
         Returns:
             Book: A new Book instance populated with bids, asks, and events.
         """
-        id = json['bookId']
+        id = json['i']
         bids = []
         asks = []
-        if json['bid']:
-            # Parse bid levels (limit to top 21)
-            bids = [LevelInfo.from_json(bid) for bid in json['bid']][:depth]
-        if json['ask']:
-            # Parse ask levels (limit to top 21)
-            asks = [LevelInfo.from_json(ask) for ask in json['ask']][:depth]
+        if json['b']:
+            bids = [LevelInfo.from_json(bid) for bid in json['b']][:depth]
+        if json['a']:
+            asks = [LevelInfo.from_json(ask) for ask in json['a']][:depth]
 
         events = []
-        if json['record']:
+        if json['e']:
             # Parse events: orders, trades, cancellations
             events = [
-                Order.from_event(event) if event['event'] == 'place' else
-                TradeInfo.from_event(event) if event['event'] == 'trade' else
-                Cancellation.from_event(event) if event['event'] == 'cancel' else
+                Order.from_json(event) if event['y'] == 'o' else
+                TradeInfo.from_json(event) if event['y'] == 't' else
+                Cancellation.from_json(event) if event['y'] == 'c' else
                 None
-                for event in json['record']
+                for event in json['e']
             ]
 
-        return cls(id=id, bids=bids, asks=asks, events=events)
+        return cls.model_construct(id=id, bids=bids, asks=asks, events=events)
     
     @classmethod
     def from_ypy(cls, json: YpyObject, depth : int = 21) -> 'Book':
@@ -1898,7 +1912,7 @@ class Balance(BaseModel):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Balance.model_construct(currency=currency,total=json['total'],free=json['free'],reserved=json['reserved'], initial=json['initial'])
+        return Balance.model_construct(currency=currency,total=json['t'],free=json['f'],reserved=json['r'], initial=json['i'])
 
 class Fees(BaseModel):
     """
@@ -1930,7 +1944,7 @@ class Fees(BaseModel):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Fees.model_construct(volume_traded=json['volume'],maker_fee_rate=json['makerFeeRate'],taker_fee_rate=json['takerFeeRate'])
+        return Fees.model_construct(volume_traded=json['v'],maker_fee_rate=json['m'],taker_fee_rate=json['t'])
     
 class OrderCurrency(IntEnum):
     """
@@ -1984,7 +1998,7 @@ class Loan(BaseModel):
         """
         Method to transform simulator format model to the format required by the MarketSimulationStateUpdate synapse.
         """
-        return Loan.model_construct(order_id=json['id'],amount=json['amount'],currency=OrderCurrency(json['currency']),base_collateral=json['baseCollateral'],quote_collateral=json['quoteCollateral'])
+        return Loan.model_construct(order_id=json['i'],amount=json['a'],currency=OrderCurrency(json['c']),base_collateral=json['bc'],quote_collateral=json['qc'])
     
     def __str__(self):
         return f"{self.amount} {self.currency.name} [COLLAT : {self.base_collateral} BASE | {self.quote_collateral} QUOTE]"
@@ -2069,6 +2083,27 @@ class Account(BaseModel):
     @property
     def own_base(self) -> float:
         return self.base_balance.total - self.base_loan + self.base_collateral
+    
+    @classmethod
+    def from_json(cls, json: dict) -> "Account":
+        """
+        Construct an Account from simulator JSON into an Account model,
+        using model_construct and manually populating nested classes.
+        """
+        return cls.model_construct(
+            i=json["i"],
+            b=json["b"],
+            bb=Balance.model_construct(**json["bb"]),
+            qb=Balance.model_construct(**json["qb"]),
+            bl=json.get("bl", 0.0),
+            ql=json.get("ql", 0.0),
+            bc=json.get("bc", 0.0),
+            qc=json.get("qc", 0.0),
+            o=[Order.from_json(o) for o in json.get("o", [])],
+            l={int(k): Loan.from_json(v) for k, v in json.get("l", {}).items()},
+            f=Fees.model_construct(**json["f"]) if json.get("f") else None,
+            v=json.get("v"),
+        )
 
 class OrderDirection(IntEnum):
     """

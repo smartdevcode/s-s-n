@@ -30,6 +30,7 @@ from taos.im.protocol import FinanceAgentResponse, FinanceEventNotification, Mar
 from taos.im.protocol.instructions import *
 from taos.im.validator.reward import set_delays
 from taos.im.utils.compress import compress, batch_compress
+import multiprocessing
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -175,87 +176,42 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     start = time.time()
         
     await DendriteManager.configure_session(self)
+
+    synapse_start = time.time()
+    start = time.time()
+    compressed_books = compress(
+        {bookId: book.model_dump(mode='json') for bookId, book in synapse.books.items()},
+        level=self.config.compression.level,
+        engine=self.config.compression.engine,
+        version=synapse.version,
+    )
+    bt.logging.info(f"Compressed books ({time.time()-start:.4f}s).")
+    
+    def create_axon_synapse(uid):
+        return synapse.model_copy(update={
+            "accounts": {uid: synapse.accounts[uid]},
+            "notices": {uid: synapse.notices[uid]}            
+        })
+
+    start = time.time()
+    axon_synapses = {uid: create_axon_synapse(uid) for uid in range(len(self.metagraph.axons))}
+    bt.logging.info(f"Created axon synapses ({time.time()-start}s)")
     
     if self.config.compression.parallel_workers == 0:
-        compressed_books = compress(
-            {bookId: book.model_dump(mode='json') for bookId, book in synapse.books.items()},
-            level=self.config.compression.level,
-            engine=self.config.compression.engine,
-            version=synapse.version,
-        )
-
-        def create_axon_synapse(uid):
-            return synapse.model_copy(update={
-                "accounts": {uid: synapse.accounts[uid]},
-                "notices": {uid: synapse.notices[uid]},
-            }).compress(
+        def compress_axon_synapse(synapse):
+            return synapse.compress(
                 level=self.config.compression.level,
                 engine=self.config.compression.engine,
                 compressed_books=compressed_books
             )
 
-        axon_synapses = {uid: create_axon_synapse(uid) for uid in range(len(self.metagraph.axons))}
-        bt.logging.info(f"Compressed synapses ({time.time()-start:.4f}s).")
-
+        axon_synapses = {uid: compress_axon_synapse(axon_synapses[uid]) for uid in range(len(self.metagraph.axons))}
     else:
-        synapse_start = time.time()
-
-        def create_axon_synapse(uid):
-            return synapse.model_copy(update={
-                "accounts": {account_uid: account if account_uid == uid else {} for account_uid, account in synapse.accounts.items()},
-                "notices": {notice_uid: notices if notice_uid == uid else [] for notice_uid, notices in synapse.notices.items()},
-            })
-
-        axon_synapses = {uid: create_axon_synapse(uid) for uid in range(len(self.metagraph.axons))}
-        bt.logging.info(f"Created axon synapses ({time.time()-start}s)")
-        start = time.time()
-
-        num_processes = self.config.compression.parallel_workers
+        num_processes = self.config.compression.parallel_workers if self.config.compression.parallel_workers > 0 else multiprocessing.cpu_count() // 2
         batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0, 256, int(256/num_processes))]
-        payloads = {
-            uid: {
-                "accounts": {
-                    accountId: {bookId: account.model_dump(mode='json') for bookId, account in accounts.items()}
-                    for accountId, accounts in axon_synapse.accounts.items()
-                },
-                "notices": {
-                    agentId: [notice.model_dump(mode='json') for notice in notices]
-                    for agentId, notices in axon_synapse.notices.items()
-                },
-                "config": axon_synapse.config.model_dump(mode='json'),
-                "response": axon_synapse.response.model_dump(mode='json') if axon_synapse.response else None,
-            }
-            for uid, axon_synapse in axon_synapses.items()
-        }
-        bt.logging.info(f"Constructed payloads ({time.time()-start}s)")
-        start = time.time()
-
-        compressed_payloads = batch_compress(payloads, batches, level=self.config.compression.level, engine=self.config.compression.engine, version=synapse.version)
-        bt.logging.info(f"Compressed payloads ({time.time()-start}s)")
-        start = time.time()
-
-        compressed_books = compress(
-            {bookId: book.model_dump(mode='json') for bookId, book in synapse.books.items()},
-            level=self.config.compression.level,
-            engine=self.config.compression.engine,
-            version=synapse.version,
-        )
-        bt.logging.info(f"Compressed books ({time.time()-start:.4f}s).")
-        start = time.time()
-
-        for uid, axon_synapse in axon_synapses.items():
-            axon_synapse.books = None
-            axon_synapse.accounts = None
-            axon_synapse.notices = None
-            axon_synapse.config = None
-            axon_synapse.response = None
-            axon_synapse.compressed = {
-                "books": compressed_books,
-                "payload": compressed_payloads[uid],
-            }
-
-        bt.logging.info(f"Constructed synapses ({time.time()-start:.4f}s).")
-        bt.logging.info(f"Compressed synapses ({time.time()-synapse_start:.4f}s).")
+        
+        axon_synapses = batch_compress(axon_synapses, compressed_books, batches, level=self.config.compression.level, engine=self.config.compression.engine, version=synapse.version)        
+    bt.logging.info(f"Compressed synapses ({time.time()-synapse_start:.4f}s).")
 
     start = time.time()
     

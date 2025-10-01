@@ -8,10 +8,9 @@
 #include "Distribution.hpp"
 #include "Order.hpp"
 #include "Trade.hpp"
-#include "ExchangeAgentMessagePayloads.hpp"
-#include "decimal.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
+#include "taosim/decimal/decimal.hpp"
 
-#include <boost/math/distributions/rayleigh.hpp>
 
 #include <memory>
 #include <queue>
@@ -154,10 +153,8 @@ private:
     double m_opLatencyScaleRay;
     DelayBounds m_opl;
     std::normal_distribution<double> m_marketFeedLatencyDistribution;
-    boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
-    std::uniform_real_distribution<double> m_placementDraw;
-    boost::math::rayleigh_distribution<double> m_volumeDrawDistribution;
-    std::uniform_real_distribution<double> m_volumeDraw;
+    std::unique_ptr<stats::Distribution> m_orderPlacementLatencyDistribution;
+    std::unique_ptr<stats::Distribution> m_volumeDrawDistribution;
     std::vector<decimal_t> m_lastPrice;
     std::normal_distribution<double> m_departureThreshold;
     float m_wakeupProb;

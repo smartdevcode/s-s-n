@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: MIT
  */
 #include "HighFrequencyTraderAgent.hpp"
+#include "DistributionFactory.hpp"
+#include "RayleighDistribution.hpp"
 #include "Simulation.hpp"
 
 #include <boost/accumulators/accumulators.hpp>
@@ -142,16 +144,15 @@ void HighFrequencyTraderAgent::configure(const pugi::xml_node &node)
     
     attr = node.attribute("opLatencyScaleRay"); 
     const double scale = (attr.empty() || attr.as_double() == 0.0) ? 0.235 : attr.as_double();
-    m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
     const double percentile = 1-std::exp(-1/(2*scale*scale));
-    m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
+    m_orderPlacementLatencyDistribution =  std::make_unique<taosim::stats::RayleighDistribution>(scale, percentile); 
 
     m_orderMean = node.attribute("orderMean").as_double();
     attr = node.attribute("orderSTD");
     m_orderSTD = (attr.empty() || attr.as_double() < 0.0f)  ? 1 : attr.as_double();
     
     m_noiseRay = node.attribute("noiseRay").as_double();
-    m_rayleighSample = boost::math::rayleigh_distribution<double>{m_noiseRay};
+    m_priceShiftDistribution =  std::make_unique<taosim::stats::RayleighDistribution>(m_noiseRay);
     m_minMFLatency = node.attribute("minMFLatency").as_ullong();
     m_shiftPercentage = node.attribute("shiftPercentage").as_double();
 
@@ -319,7 +320,7 @@ void HighFrequencyTraderAgent::handleLimitOrderPlacementResponse(Message::Ptr ms
         m_exchange,
         "CANCEL_ORDERS",
         MessagePayload::create<CancelOrdersPayload>(
-            std::vector{Cancellation(payload->id)}, payload->requestPayload->bookId));
+            std::vector{taosim::event::Cancellation(payload->id)}, payload->requestPayload->bookId));
 }
 
 //-------------------------------------------------------------------------
@@ -458,10 +459,7 @@ void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
     // ----- Bid Placement -----
     double wealthBid = topLevel.ask * m_baseFree[bookId] + m_quoteFree[bookId];
     double orderVolumeBid = lognormalDist(*m_rng);
-    double noiseBid =  [&] { static std::uniform_real_distribution<double> s_unif{0.0, 1.0};
-                                const double rayleighDraw = boost::math::quantile(m_rayleighSample, s_unif(*m_rng)); 
-                                return rayleighDraw;
-                        }();
+    double noiseBid = m_priceShiftDistribution->sample(*m_rng);
     noiseBid -= rayleighShift;
     double priceOrderBid = m_pRes - (spread / 2.0) - noiseBid;
     double limitPriceBid = std::round(priceOrderBid / m_priceIncrement) * m_priceIncrement;
@@ -470,10 +468,7 @@ void HighFrequencyTraderAgent::placeOrder(BookId bookId, TopLevel& topLevel) {
     // ----- Ask Placement -----
     double wealthAsk = topLevel.bid * m_baseFree[bookId] + m_quoteFree[bookId];
     double orderVolumeAsk = lognormalDist(*m_rng);
-    double noiseAsk = [&] { static std::uniform_real_distribution<double> s_unif{0.0, 1.0};
-                                const double rayleighDraw = boost::math::quantile(m_rayleighSample, s_unif(*m_rng)); 
-                                return rayleighDraw;
-                        }();
+    double noiseAsk = m_priceShiftDistribution->sample(*m_rng);
     noiseAsk -= rayleighShift;
     double priceOrderAsk = m_pRes + (spread / 2.0) + noiseAsk;
     double limitPriceAsk = std::round(priceOrderAsk / m_priceIncrement) * m_priceIncrement;
@@ -541,7 +536,7 @@ void HighFrequencyTraderAgent::cancelClosestToBestPrice(BookId bookId, OrderDire
             m_exchange,
             "CANCEL_ORDERS",
             MessagePayload::create<CancelOrdersPayload>(
-                std::vector{Cancellation(closestId)}, bookId)
+                std::vector{taosim::event::Cancellation(closestId)}, bookId)
         );
     }
 }
@@ -549,8 +544,7 @@ void HighFrequencyTraderAgent::cancelClosestToBestPrice(BookId bookId, OrderDire
 //-------------------------------------------------------------------------
 
 Timestamp HighFrequencyTraderAgent::orderPlacementLatency()  {
-    const double rayleighDraw = boost::math::quantile(m_orderPlacementLatencyDistribution, m_placementDraw(*m_rng));
-    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, rayleighDraw));
+    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, m_orderPlacementLatencyDistribution->sample(*m_rng)));
 }
 
 

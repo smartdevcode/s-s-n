@@ -38,7 +38,7 @@ private:
     void handleSimulationStart();
     void handleSimulationStop();
     void handleTradeSubscriptionResponse();
-    void handleRetrieveL1Response(Message::Ptr msg);
+    void handleRetrieveResponse(Message::Ptr msg);
     void handleLimitOrderPlacementResponse(Message::Ptr msg);
     void handleLimitOrderPlacementErrorResponse(Message::Ptr msg);
     void handleCancelOrdersResponse(Message::Ptr msg);
@@ -54,6 +54,8 @@ private:
     uint32_t m_bookCount;
     std::string m_exchange;
     Timestamp m_tau;
+    double m_quantityMin;
+    double m_quantityMax;
 };
 
 //-------------------------------------------------------------------------

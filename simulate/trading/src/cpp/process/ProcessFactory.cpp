@@ -8,7 +8,6 @@
 #include "FundamentalPrice.hpp"
 #include "JumpDiffusion.hpp"
 #include "FuturesSignal.hpp"
-#include "ALGOTrigger.hpp"
 #include "Simulation.hpp"
 #include "taosim/exchange/ExchangeConfig.hpp"
 
@@ -44,11 +43,7 @@ std::unique_ptr<Process> ProcessFactory::createFromXML(pugi::xml_node node, uint
             node, 
             seedShift, 
             taosim::util::decimal2double(m_exchangeConfig->initialPrice));
-    }
-    else if (name == "ALGOTrigger") {
-        return ALGOTrigger::fromXML(m_simulation, node, 42);
-    }
-
+    } 
     throw std::invalid_argument(fmt::format(
         "{}: Unknown Process type {}", std::source_location::current().function_name(), name));
 }

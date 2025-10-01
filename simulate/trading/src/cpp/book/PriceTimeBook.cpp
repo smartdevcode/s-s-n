@@ -164,14 +164,15 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
 
 //-------------------------------------------------------------------------
 
-TickContainer* PriceTimeBook::preventSelfTrade(TickContainer* queue, LimitOrder::Ptr iop, Order::Ptr order, AgentId agentId)
+taosim::book::TickContainer* PriceTimeBook::preventSelfTrade(
+    taosim::book::TickContainer* queue, LimitOrder::Ptr iop, Order::Ptr order, AgentId agentId)
 {
     auto stpFlag = order->stpFlag();
     auto now = m_simulation->currentTimestamp();
 
     auto cancelAndLog = [&](OrderID orderId, std::optional<taosim::decimal_t> volume = {}) {
         if (cancelOrderOpt(orderId, volume)) {
-            Cancellation cancellation{orderId, volume};
+            taosim::event::Cancellation cancellation{orderId, volume};
             m_simulation->exchange()->signals(m_id)->cancelLog(CancellationWithLogContext(
                 cancellation,
                 std::make_shared<CancellationLogContext>(

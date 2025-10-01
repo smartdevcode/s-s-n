@@ -17,3 +17,4 @@ aiohttp>=3.11.18
 loky>=3.5.5
 ypyjson>=0.0.2
 scikit-learn
+posix-ipc

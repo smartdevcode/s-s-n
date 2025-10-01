@@ -4,8 +4,10 @@
  */
 #include "FuturesTraderAgent.hpp"
 
-#include "ExchangeAgentMessagePayloads.hpp"
-#include "MessagePayload.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/MessagePayload.hpp"
+#include "DistributionFactory.hpp"
+#include "RayleighDistribution.hpp"
 #include "Simulation.hpp"
 
 #include <boost/algorithm/string/regex.hpp>
@@ -139,24 +141,25 @@ void FuturesTraderAgent::configure(const pugi::xml_node& node)
     };
 
     m_tradePrice.resize(m_bookCount);
+    
     attr = node.attribute("opLatencyScaleRay"); 
     const double scale = (attr.empty() || attr.as_double() == 0.0) ? 0.235 : attr.as_double();
-        
-    m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
     const double percentile = 1-std::exp(-1/(2*scale*scale));
-    m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
+    m_orderPlacementLatencyDistribution =  std::make_unique<taosim::stats::RayleighDistribution>(scale, percentile); 
+    
 
-    m_rayleigh = boost::math::rayleigh_distribution{
-        [&] {
-            static constexpr const char* name = "scaleR";
-            if (auto sigma = node.attribute(name).as_double(); !(sigma >= 0)) {
-                throw std::invalid_argument{fmt::format(
-                    "{}: Attribute '{}' should be >= 0, was {}", ctx, name, sigma)};
-            } else {
-                return sigma;
-            }
-        }()
-    };
+    // m_rayleigh = std::make_unique<taosim::stats::RayleighDistribution>(
+    //     [&] {
+    //         static constexpr const char* name = "scaleR";
+    //         if (auto sigma = node.attribute(name).as_double(); !(sigma >= 0)) {
+    //             throw std::invalid_argument{fmt::format(
+    //                 "{}: Attribute '{}' should be >= 0, was {}", ctx, name, sigma)};
+    //         } else {
+    //             return sigma;
+    //         }
+    //     }()
+    // );
+
 
     m_baseName = [&] {
         std::string res = name();
@@ -359,7 +362,7 @@ void FuturesTraderAgent::handleLimitOrderPlacementResponse(Message::Ptr msg)
         m_exchange,
         "CANCEL_ORDERS",
         MessagePayload::create<CancelOrdersPayload>(
-            std::vector{Cancellation(payload->id)}, payload->requestPayload->bookId));
+            std::vector{taosim::event::Cancellation(payload->id)}, payload->requestPayload->bookId));
 
     m_orderFlag.at(payload->requestPayload->bookId) = false;
 }
@@ -504,9 +507,7 @@ void FuturesTraderAgent::placeSell(BookId bookId, double volume)
 //-------------------------------------------------------------------------
 
 Timestamp FuturesTraderAgent::orderPlacementLatency() {
-    const double rayleighDraw = boost::math::quantile(m_rayleigh, m_placementDraw(*m_rng));
-
-    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, rayleighDraw));
+    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, m_orderPlacementLatencyDistribution->sample(*m_rng)));
 }
 
 //-------------------------------------------------------------------------

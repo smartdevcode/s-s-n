@@ -15,16 +15,19 @@
 
 #include <memory>
 
+#include <msgpack.hpp>
+
 //-------------------------------------------------------------------------
 
 using TradeID = uint32_t;
 
 //-------------------------------------------------------------------------
 
-class Trade : public JsonSerializable, public CheckpointSerializable
+struct Trade : public JsonSerializable, public CheckpointSerializable
 {
-public:
     using Ptr = std::shared_ptr<Trade>;
+
+    Trade() noexcept = default;
 
     Trade(
         TradeID id,
@@ -61,7 +64,6 @@ public:
 
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
 
-private:
     TradeID m_id;
     OrderDirection m_direction;
     Timestamp m_timestamp;
@@ -69,6 +71,15 @@ private:
     OrderID m_restingOrderID;
     taosim::decimal_t m_volume;
     taosim::decimal_t m_price;
+
+    MSGPACK_DEFINE_MAP(
+        MSGPACK_NVP("tradeId", m_id),
+        MSGPACK_NVP("timestamp", m_timestamp),
+        MSGPACK_NVP("direction", m_direction),
+        MSGPACK_NVP("aggressingOrderId", m_aggressingOrderID),
+        MSGPACK_NVP("restingOrderId", m_restingOrderID),
+        MSGPACK_NVP("volume", m_volume),
+        MSGPACK_NVP("price", m_price));
 };
 
 //-------------------------------------------------------------------------
@@ -99,25 +110,8 @@ struct TradeContext : public JsonSerializable, public CheckpointSerializable
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static TradeContext fromJson(const rapidjson::Value& json);
-};
 
-//-------------------------------------------------------------------------
-
-struct TradeEvent : public JsonSerializable, public CheckpointSerializable
-{
-    using Ptr = std::shared_ptr<TradeEvent>;
-
-    Trade::Ptr trade;
-    TradeContext ctx;
-
-    TradeEvent(Trade::Ptr trade, TradeContext ctx) noexcept : trade{trade}, ctx{ctx} {}
-
-    virtual void jsonSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
-    virtual void checkpointSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
-
-    [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
+    MSGPACK_DEFINE_MAP(bookId, aggressingAgentId, restingAgentId, fees);
 };
 
 //-------------------------------------------------------------------------
@@ -130,6 +124,8 @@ struct TradeLogContext : public JsonSerializable, public CheckpointSerializable
     AgentId restingAgentId;
     BookId bookId;
     taosim::exchange::Fees fees;
+
+    TradeLogContext() noexcept = default;
 
     TradeLogContext(
         AgentId aggressingAgentId,
@@ -158,6 +154,8 @@ struct TradeLogContext : public JsonSerializable, public CheckpointSerializable
     }
 
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
+
+    MSGPACK_DEFINE_MAP(bookId, aggressingAgentId, restingAgentId, fees);
 };
 
 //-------------------------------------------------------------------------
@@ -168,6 +166,8 @@ struct TradeWithLogContext : public JsonSerializable, public CheckpointSerializa
 
     Trade::Ptr trade;
     TradeLogContext::Ptr logContext;
+
+    TradeWithLogContext() noexcept = default;
 
     TradeWithLogContext(Trade::Ptr trade, TradeLogContext::Ptr logContext) noexcept
         : trade{trade}, logContext{logContext}
@@ -189,6 +189,8 @@ struct TradeWithLogContext : public JsonSerializable, public CheckpointSerializa
     }
 
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
+
+    MSGPACK_DEFINE_MAP(trade, logContext);
 };
 
 //-------------------------------------------------------------------------

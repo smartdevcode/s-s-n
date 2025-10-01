@@ -2,8 +2,9 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "BalanceLogger.hpp"
+#include "taosim/accounting/BalanceLogger.hpp"
 
+#include <fmt/ranges.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
 //-------------------------------------------------------------------------

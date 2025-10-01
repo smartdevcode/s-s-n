@@ -6,16 +6,15 @@
 
 #include "Agent.hpp"
 #include "GBMValuationModel.hpp"
+#include "Distribution.hpp"
 #include "Order.hpp"
+#include "Trade.hpp"
 
 #include <boost/circular_buffer.hpp>
-#include <boost/random/beta_distribution.hpp>
-#include <boost/math/distributions/rayleigh.hpp>
 
 #include <cmath>
 #include <random>
 
-//-------------------------------------------------------------------------
 
 class StylizedTraderAgent : public Agent
 {
@@ -76,9 +75,10 @@ private:
     ForecastResult forecast(BookId bookId);
     void placeOrderChiarella(BookId bookId);
     OptimizationResult calculateIndifferencePrice(
-        const ForecastResult& forecastResult, double freeBase);
+        const ForecastResult& forecastResult, double freeBase, double freeQuote);
     OptimizationResult calculateMinimumPrice(
         const ForecastResult& forecastResult, double freeBase, double freeQuote);
+    double calcPositionPrice(const ForecastResult& forecastResult, double price, double freeBase, double freeQuote);
     void placeLimitBuy(
         BookId bookId,
         const ForecastResult& forecastResult,
@@ -89,7 +89,8 @@ private:
         BookId bookId,
         const ForecastResult& forecastResult,
         double sampledPrice,
-        double freeBase);
+        double freeBase,
+        double freeQuote);
     double getProcessValue(BookId bookId, const std::string& name);
     void updateRegime(BookId bookId);
     Timestamp orderPlacementLatency();
@@ -106,6 +107,7 @@ private:
     Timestamp m_tauHist;
     std::vector<double> m_tauF;
     double m_sigmaEps;
+    double m_hara;
     double m_riskAversion;
     double m_riskAversion0;
     double m_priceIncrement;
@@ -125,9 +127,7 @@ private:
     
     bool m_debug;
 
-    float m_sigmaFRegime;
-    float m_sigmaCRegime;
-    float m_sigmaNRegime;
+    Weight m_weightRegime;
     double m_tauFRegime;
     bool m_regimeChangeFlag;
     std::vector<Timestamp> m_regimeSwitchKickback;
@@ -142,9 +142,8 @@ private:
     std::normal_distribution<double> m_marketFeedLatencyDistribution;
     std::normal_distribution<double> m_decisionMakingDelayDistribution;
     std::vector<TimestampedTradePrice> m_tradePrice;
-    boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
-    std::uniform_real_distribution<double> m_placementDraw;
-    boost::math::rayleigh_distribution<double> m_rayleigh;
+    std::unique_ptr<taosim::stats::Distribution> m_orderPlacementLatencyDistribution;
+    std::unique_ptr<taosim::stats::Distribution> m_rayleigh;
     std::string m_baseName;
 };
 

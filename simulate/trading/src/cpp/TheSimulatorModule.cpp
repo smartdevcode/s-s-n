@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
 #include "MultiBookExchangeAgent.hpp"
 #include "Process.hpp"
 #include "Simulation.hpp"
@@ -182,15 +182,15 @@ PYBIND11_EMBEDDED_MODULE(thesimulator, m)
         .def_readwrite("bookId", &RetrieveOrdersResponsePayload::bookId)
         ;
 
-    py::class_<Cancellation>(m, "Cancellation")
+    py::class_<taosim::event::Cancellation>(m, "Cancellation")
         .def(py::init<OrderID, std::optional<decimal_t>>())
-        .def_readwrite("id", &Cancellation::id)
-        .def_readwrite("volume", &Cancellation::volume)
+        .def_readwrite("id", &taosim::event::Cancellation::id)
+        .def_readwrite("volume", &taosim::event::Cancellation::volume)
         ;
 
     py::class_<CancelOrdersPayload, MessagePayload, std::shared_ptr<CancelOrdersPayload>>(
         m, "CancelOrdersPayload")
-        .def(py::init<std::vector<Cancellation>, BookId>())
+        .def(py::init<std::vector<taosim::event::Cancellation>, BookId>())
         .def_readwrite("cancellations", &CancelOrdersPayload::cancellations)
         .def_readwrite("bookId", &CancelOrdersPayload::bookId)
         ;

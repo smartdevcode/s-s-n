@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include "decimal.hpp"
+#include "taosim/decimal/decimal.hpp"
 
 //-------------------------------------------------------------------------
 

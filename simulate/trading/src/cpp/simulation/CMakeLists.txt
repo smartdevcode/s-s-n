@@ -15,7 +15,6 @@ target_include_directories(simulation
         "${src_dir}/decimal"
         "${src_dir}/exchange"
         "${src_dir}/exchange/include"
-        "${src_dir}/message"
         "${src_dir}/mp"
         "${src_dir}/net"
         "${src_dir}/process"
@@ -24,8 +23,12 @@ target_include_directories(simulation
 
 target_link_libraries(simulation
     PRIVATE
-        Boost::boost
-        pybind11::embed
+        taosim::decimal
+        taosim::event
+        taosim::ipc
+        taosim::message
         taosim::net
         taosim::serialization
+        Boost::boost
+        pybind11::embed
 )

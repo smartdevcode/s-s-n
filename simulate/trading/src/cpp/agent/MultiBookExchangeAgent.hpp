@@ -4,25 +4,28 @@
  */
 #pragma once
 
-#include "AccountRegistry.hpp"
+#include "taosim/accounting/AccountRegistry.hpp"
 #include "Agent.hpp"
-#include "BalanceLogger.hpp"
-#include "Book.hpp"
+#include "taosim/accounting/BalanceLogger.hpp"
+#include "taosim/book/Book.hpp"
 #include "BookProcessManager.hpp"
 #include "CheckpointSerializable.hpp"
-#include "EventRecord.hpp"
 #include "ExchangeAgentConfig.hpp"
-#include "ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
 #include "ExchangeSignals.hpp"
 #include "JsonSerializable.hpp"
 #include "L2Logger.hpp"
 #include "L3EventLogger.hpp"
 #include "taosim/book/FeeLogger.hpp"
-#include "MessageQueue.hpp"
-#include "MultiBookMessagePayloads.hpp"
+#include "taosim/message/MessageQueue.hpp"
+#include "taosim/message/MultiBookMessagePayloads.hpp"
 #include "Order.hpp"
 #include "ClearingManager.hpp"
 #include "SubscriptionRegistry.hpp"
+#include "taosim/event/L3RecordContainer.hpp"
+#include "taosim/event/serialization/CancellationEvent.hpp"
+#include "taosim/event/serialization/OrderEvent.hpp"
+#include "taosim/event/serialization/TradeEvent.hpp"
 #include "taosim/exchange/ExchangeConfig.hpp"
 #include "taosim/exchange/ReplayEventLogger.hpp"
 
@@ -108,12 +111,12 @@ private:
     void tradeCallback(Trade::Ptr trade, BookId bookId);
     void unregisterLimitOrderCallback(LimitOrder::Ptr limitOrder, BookId bookId);
     void marketOrderProcessedCallback(MarketOrder::Ptr marketOrder, OrderContext ctx);
-    
+
     taosim::decimal_t m_eps;
     taosim::config::ExchangeAgentConfig m_config;
     std::vector<Book::Ptr> m_books;
     std::map<BookId, std::unique_ptr<ExchangeSignals>> m_signals;
-    L3RecordContainer m_L3Record;
+    taosim::event::L3RecordContainer m_L3Record;
     bool m_retainRecord = false;
     std::map<BookId, std::unique_ptr<L2Logger>> m_L2Loggers;
     std::map<BookId, std::unique_ptr<L3EventLogger>> m_L3EventLoggers;

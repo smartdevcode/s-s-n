@@ -12,6 +12,10 @@ import copy
 import bittensor as bt
 from pathlib import Path
 from threading import Thread
+import traceback
+import posix_ipc
+import mmap
+import msgpack
 
 from fastapi import FastAPI, APIRouter, Request
 
@@ -84,19 +88,16 @@ class Proxy(Validator):
         bt.logging.info(f"OUT DIR   : {self.simulation.logDir}")
         bt.logging.info("-"*40)
 
-    async def orderbook(self, request : Request):
+    async def handle_state(self, message : dict, state : MarketSimulationStateUpdate) -> dict:            
         start = time.time()
-        body = await request.body()
-        message = YpyObject(body, 1)
-        state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
         state.version = __spec_version__
         state.dendrite.hotkey = 'proxy'
         if not self.start_time:
             self.start_time = time.time()
             self.start_timestamp = state.timestamp
-        if self.simulation.logDir != message['payload']['logDir']:
-            bt.logging.info(f"Simulation log directory changed : {self.simulation.logDir} -> {message['payload']['logDir']}")
-            self.simulation.logDir = message['payload']['logDir']
+        if self.simulation.logDir != message['logDir']:
+            bt.logging.info(f"Simulation log directory changed : {self.simulation.logDir} -> {message['logDir']}")
+            self.simulation.logDir = message['logDir']
         self.simulation_timestamp = state.timestamp
         if self.simulation:
             state.config = self.simulation.model_copy()
@@ -140,6 +141,59 @@ class Proxy(Validator):
         simulator_response = SimulatorResponseBatch(agent_responses).serialize()
         return simulator_response
 
+    async def _listen(self):
+        def receive(mq_req) -> dict:
+            msg, priority = mq_req.receive()
+            start = time.time()
+            bt.logging.info(f"Received state update from simulator (msgpack)")
+            byte_size_req = int.from_bytes(msg, byteorder="little")
+            shm_req = posix_ipc.SharedMemory("/state", flags=posix_ipc.O_CREAT)
+            with mmap.mmap(shm_req.fd, byte_size_req, mmap.MAP_SHARED, mmap.PROT_READ) as mm:
+                shm_req.close_fd()
+                packed_data = mm.read(byte_size_req)
+            result = msgpack.unpackb(packed_data, raw=False, use_list=False, strict_map_key=False)
+            bt.logging.info(f"Unpacked state update ({time.time() - start}s)")
+            return result
+        
+        def respond(response) -> dict:
+            packed_res = msgpack.packb(response, use_bin_type=False)
+            byte_size_res = len(packed_res)
+            mq_res = posix_ipc.MessageQueue("/taosim-res", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
+            shm_res = posix_ipc.SharedMemory("/responses", flags=posix_ipc.O_CREAT, size=byte_size_res)
+            with mmap.mmap(shm_res.fd, byte_size_res, mmap.MAP_SHARED, mmap.PROT_WRITE | mmap.PROT_READ) as mm:
+                shm_res.close_fd()
+                mm.write(packed_res)
+            mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))            
+        
+        while True:
+            response = {"responses" : []}
+            try:
+                mq_req = posix_ipc.MessageQueue("/taosim-req", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
+                # This blocks until the queue can provide a message
+                message = receive(mq_req)
+                start = time.time()
+                state = MarketSimulationStateUpdate.model_validate(message)
+                bt.logging.info(f"Parsed state update ({time.time() - start}s)")
+                response = await self.handle_state(message, state)
+            except Exception as ex:
+                traceback.print_exc()
+            finally:
+                respond(response)
+            
+    def listen(self):
+        """Synchronous wrapper for the asynchronous _listen method."""
+        try:
+            asyncio.run(self._listen())
+        except KeyboardInterrupt:
+            print("Listening stopped by user.")
+
+    async def orderbook(self, request : Request):
+        start = time.time()
+        body = await request.body()
+        message = YpyObject(body, 1)
+        state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
+        return self.handle_state(message, state)
+
     async def account(self, request : Request):
         body = await request.body()
         batch = msgspec.json.decode(body)
@@ -159,5 +213,6 @@ if __name__ == "__main__":
     app.include_router(proxy.router)
     # Start simulator price seeding data process in new thread
     Thread(target=proxy.seed, daemon=True, name='Seed').start()
+    Thread(target=proxy.listen, daemon=True, name="Listen").start()
     # Run the proxy as a FastAPI client via uvicorn on the configured port
     uvicorn.run(app, port=config['proxy']['port'])

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "Order.hpp"
-#include "ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
 
 #include "util.hpp"
 
@@ -25,7 +25,7 @@ void BasicOrder::removeVolume(taosim::decimal_t decrease)
 
 void BasicOrder::removeLeveragedVolume(taosim::decimal_t decrease)
 {
-    taosim::decimal_t leveragedVolume = m_volume * (1_dec + m_leverage);
+    taosim::decimal_t leveragedVolume = m_volume * taosim::util::dec1p(m_leverage);
     if (decrease > leveragedVolume) {
         throw std::runtime_error(fmt::format(
             "{}: Volume to be removed ({}) is greater than standing volume ({})",
@@ -457,49 +457,6 @@ OrderContext OrderContext::fromJson(const rapidjson::Value& json)
         !json["clientOrderId"].IsNull()
             ? std::make_optional(json["clientOrderId"].GetUint64()) 
             : std::nullopt);
-}
-
-//-------------------------------------------------------------------------
-
-void OrderEvent::jsonSerialize(rapidjson::Document& json, const std::string& key) const
-{
-    auto serialize = [this](rapidjson::Document& json) {
-        json.SetObject();
-        auto& allocator = json.GetAllocator();
-        json.AddMember("orderId", rapidjson::Value{id}, allocator);
-        json.AddMember("timestamp", rapidjson::Value{timestamp}, allocator);
-        json.AddMember(
-            "volume", rapidjson::Value{taosim::util::decimal2double(volume)}, allocator);
-        json.AddMember(
-            "leverage", rapidjson::Value{taosim::util::decimal2double(leverage)}, allocator);
-        json.AddMember(
-            "direction", rapidjson::Value{std::to_underlying(direction)}, allocator);
-        json.AddMember(
-            "stpFlag",
-            rapidjson::Value{magic_enum::enum_name(stpFlag).data(), allocator},
-            allocator);
-        if (price) {
-            json.AddMember("price", taosim::util::decimal2double(*price), allocator);
-        } else {
-            json.AddMember("price", rapidjson::Value{}.SetNull(), allocator);
-        }
-        if (postOnly) {
-            json.AddMember("postOnly", rapidjson::Value{*postOnly}, allocator);
-        }
-        if (timeInForce) {
-            json.AddMember(
-                "timeInForce",
-                rapidjson::Value{magic_enum::enum_name(*timeInForce).data(), allocator},
-                allocator);
-        }
-        if (expiryPeriod) {
-            taosim::json::setOptionalMember(json, "expiryPeriod", *expiryPeriod);
-        }
-        json.AddMember("event", rapidjson::Value{"place", allocator}, allocator);
-        json.AddMember("agentId", rapidjson::Value{ctx.agentId}, allocator);
-        taosim::json::setOptionalMember(json, "clientOrderId", ctx.clientOrderId);
-    };
-    taosim::json::serializeHelper(json, key, serialize);
 }
 
 //-------------------------------------------------------------------------

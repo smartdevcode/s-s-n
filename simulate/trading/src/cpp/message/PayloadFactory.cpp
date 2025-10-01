@@ -2,12 +2,12 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "PayloadFactory.hpp"
+#include "taosim/message/PayloadFactory.hpp"
 
-#include "Balance.hpp"
+#include "taosim/accounting/Balance.hpp"
 #include "Cancellation.hpp"
 #include "ClosePosition.hpp"
-#include "MultiBookMessagePayloads.hpp"
+#include "taosim/message/MultiBookMessagePayloads.hpp"
 #include "Order.hpp"
 
 #include <fmt/core.h>
@@ -18,6 +18,8 @@
 
 MessagePayload::Ptr PayloadFactory::createFromJsonMessage(const rapidjson::Value& json)
 {
+    static constexpr auto ctx = std::source_location::current().function_name();
+
     const auto& payloadJson = json["payload"];
     std::string_view type = json["type"].GetString();
 
@@ -87,8 +89,98 @@ MessagePayload::Ptr PayloadFactory::createFromJsonMessage(const rapidjson::Value
     else if (type == "EVENT_SIMULATION_START" || type == "EVENT_SIMULATION_END") {
         return MessagePayload::create<EmptyPayload>();
     }
-    
-    throw std::runtime_error(fmt::format("Unrecognized message type '{}'", type));
+
+    throw std::runtime_error{fmt::format("{}: Unrecognized message type '{}'", ctx, type)};
+}
+
+//-------------------------------------------------------------------------
+
+MessagePayload::Ptr PayloadFactory::createFromMessagePack(const msgpack::object& o, std::string_view type)
+{
+    using namespace std::literals::string_view_literals;
+
+    static constexpr auto ctx = std::source_location::current().function_name();
+
+    auto makePayload = [&]<std::derived_from<MessagePayload> T> {
+        try {
+            auto pld = std::make_shared<T>();
+            o.convert(*pld);
+            return pld;
+        }
+        catch (const std::exception& e) {
+            throw std::runtime_error{fmt::format(
+                "{}: Error creating payload of type '{}': {}", ctx, type, e.what())};
+        }
+    };
+
+    if (type == "PLACE_ORDER_MARKET") {
+        return makePayload.operator()<PlaceOrderMarketPayload>();
+    }
+    else if (type == "RESPONSE_PLACE_ORDER_MARKET") {
+        return makePayload.operator()<PlaceOrderMarketResponsePayload>();
+    }
+    else if (type == "ERROR_RESPONSE_PLACE_ORDER_MARKET") {
+        return makePayload.operator()<PlaceOrderMarketErrorResponsePayload>();
+    }
+    else if (type == "PLACE_ORDER_LIMIT") {
+        return makePayload.operator()<PlaceOrderLimitPayload>();
+    }
+    else if (type == "RESPONSE_PLACE_ORDER_LIMIT") {
+        return makePayload.operator()<PlaceOrderLimitResponsePayload>();
+    }
+    else if (type == "ERROR_RESPONSE_PLACE_ORDER_LIMIT") {
+        return makePayload.operator()<PlaceOrderLimitErrorResponsePayload>();
+    }
+    else if (type == "RETRIEVE_ORDERS") {
+        return makePayload.operator()<RetrieveOrdersPayload>();
+    }
+    else if (type == "CANCEL_ORDERS") {
+        return makePayload.operator()<CancelOrdersPayload>();
+    }
+    else if (type == "CLOSE_POSITIONS") {
+        return makePayload.operator()<ClosePositionsPayload>();
+    }
+    else if (type == "RESPONSE_CANCEL_ORDERS") {
+        return makePayload.operator()<CancelOrdersResponsePayload>();
+    }
+    else if (type == "ERROR_RESPONSE_CANCEL_ORDERS") {
+        return makePayload.operator()<CancelOrdersErrorResponsePayload>();
+    }
+    else if (type == "RETRIEVE_L1") {
+        return makePayload.operator()<RetrieveL1Payload>();
+    }
+    else if (type == "RESPONSE_RETRIEVE_L1") {
+        return makePayload.operator()<RetrieveL1ResponsePayload>();
+    }
+    else if (type == "RETRIEVE_BOOK") {
+        return makePayload.operator()<RetrieveL2Payload>();
+    }
+    else if (type == "SUBSCRIBE_EVENT_ORDER_MARKET") {
+        return MessagePayload::create<EmptyPayload>();
+    }
+    else if (type == "SUBSCRIBE_EVENT_ORDER_LIMIT") {
+        return MessagePayload::create<EmptyPayload>();
+    }
+    else if (type == "SUBSCRIBE_EVENT_TRADE") {
+        return MessagePayload::create<EmptyPayload>();
+    }
+    else if (type == "SUBSCRIBE_EVENT_ORDER_TRADE") {
+        return makePayload.operator()<SubscribeEventTradeByOrderPayload>();
+    }
+    else if (type == "RESET_AGENT") {
+        return makePayload.operator()<ResetAgentsPayload>();
+    }
+    else if (type == "RESPONSE_RESET_AGENT") {
+        return makePayload.operator()<ResetAgentsResponsePayload>();
+    }
+    else if (type == "ERROR_RESPONSE_RESET_AGENT") {
+        return makePayload.operator()<ResetAgentsErrorResponsePayload>();
+    }
+    else if (type == "EVENT_SIMULATION_START" || type == "EVENT_SIMULATION_END") {
+        return MessagePayload::create<EmptyPayload>();
+    }
+
+    throw std::runtime_error{fmt::format("{}: Unrecognized message type '{}'", ctx, type)};
 }
 
 //-------------------------------------------------------------------------

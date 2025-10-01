@@ -27,7 +27,6 @@ target_include_directories(agent
         "${src_dir}/book"
         "${src_dir}/decimal"
         "${src_dir}/exchange"
-        "${src_dir}/message"
         "${src_dir}/mp"
         "${src_dir}/net"
         "${src_dir}/process"
@@ -41,7 +40,9 @@ target_link_libraries(agent
         pugixml::static pugixml::pugixml
     PRIVATE
         taosim::accounting
+        taosim::event
         taosim::exchange
+        taosim::message
         taosim::stats
         Eigen3::Eigen
         date::date

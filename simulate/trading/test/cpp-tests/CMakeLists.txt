@@ -28,7 +28,7 @@ target_include_directories(taosim-tests
 )
 
 target_link_libraries(taosim-tests
-    PRIVATE 
+    PRIVATE
         GTest::gtest
         GTest::gtest_main
         GTest::gmock

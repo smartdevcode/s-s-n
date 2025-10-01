@@ -2,8 +2,8 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "Balances.hpp"
-#include "margin_utils.hpp"
+#include "taosim/accounting/Balances.hpp"
+#include "taosim/accounting/margin_utils.hpp"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>

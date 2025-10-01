@@ -5,6 +5,7 @@
 #include "ALGOTraderAgent.hpp"
 
 #include "DistributionFactory.hpp"
+#include "RayleighDistribution.hpp"
 #include "Simulation.hpp"
 
 #include <boost/accumulators/accumulators.hpp>
@@ -280,9 +281,9 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
     }
     attr = node.attribute("opLatencyScaleRay"); 
     const double scale = (attr.empty() || attr.as_double() == 0.0) ? 0.235 : attr.as_double();
-    m_orderPlacementLatencyDistribution = boost::math::rayleigh_distribution<double>{scale};
     const double percentile = 1-std::exp(-1/(2*scale*scale));
-    m_placementDraw = std::uniform_real_distribution<double>{0.0, percentile};
+    m_orderPlacementLatencyDistribution =  std::make_unique<taosim::stats::RayleighDistribution>(scale, percentile); 
+
     m_lastPrice =  std::vector<decimal_t>(m_bookCount, simulation()->exchange()->config2().initialPrice);
 
     attr = node.attribute("updateInterval");
@@ -292,9 +293,9 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
     m_delay = std::normal_distribution<double>{delayMean, delaySTD};
 
     attr = node.attribute("volumeDrawRayleighScale");
-    const double scale2 = (attr.empty() || attr.as_double() == 0.0) ? 500.0 : attr.as_double();
-    m_volumeDrawDistribution = boost::math::rayleigh_distribution<double>{scale2};
-    m_volumeDraw = std::uniform_real_distribution<double>{0.0, 1.0};
+    // Consider to change base to quote => simpler default
+    const double scale2 = (attr.empty() || attr.as_double() == 0.0) ? 1'000'000'000.0/util::decimal2double(simulation()->exchange()->config2().initialPrice) : attr.as_double();
+    m_volumeDrawDistribution =  std::make_unique<taosim::stats::RayleighDistribution>(scale2, 1.0); 
 
     attr = node.attribute("departure");
     const double deptSTD = (attr.empty() || attr.as_double() == 0.0) ? 0.025 : attr.as_double();
@@ -482,7 +483,7 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
     const auto& baseBalance = balances.base;
     double levelVolume = state.direction == OrderDirection::BUY ? state.volumeStats.askVolume() : state.volumeStats.bidVolume();
     const decimal_t drawnQty = util::double2decimal(
-                                        m_volumeDistribution->sample(*m_rng) * std::log(levelVolume * m_volumeProb),
+                                        m_volumeDistribution->sample(*m_rng) * (1 + std::log(levelVolume * m_volumeProb)),
                                         balances.m_baseDecimals);
     const decimal_t volume = std::min(drawnQty,
                                          state.volumeToBeExecuted);
@@ -514,14 +515,13 @@ double ALGOTraderAgent::wakeupProb(ALGOTraderState& state) {
 
 //-------------------------------------------------------------------------
 decimal_t ALGOTraderAgent::drawNewVolume(uint32_t baseDecimals) {
-        const double rayleighDraw = boost::math::quantile(m_volumeDrawDistribution, m_volumeDraw(*m_rng));
+        const double rayleighDraw = m_volumeDrawDistribution->sample(*m_rng);
         return  util::double2decimal(rayleighDraw,baseDecimals);
 }
 //-------------------------------------------------------------------------
 
 Timestamp ALGOTraderAgent::orderPlacementLatency() {
-    const double rayleighDraw = boost::math::quantile(m_orderPlacementLatencyDistribution, m_placementDraw(*m_rng));
-    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, rayleighDraw));
+    return static_cast<Timestamp>(std::lerp(m_opl.min, m_opl.max, m_orderPlacementLatencyDistribution->sample(*m_rng)));
 }
 
 //-------------------------------------------------------------------------

@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include "Book.hpp"
+#include "taosim/book/Book.hpp"
 #include "JsonSerializable.hpp"
 #include "PriceTimeBook.hpp"
 #include "common.hpp"

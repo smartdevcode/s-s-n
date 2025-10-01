@@ -2,7 +2,6 @@ add_library(process STATIC
     GBM.cpp
     JumpDiffusion.cpp
     FundamentalPrice.cpp
-    ALGOTrigger.cpp
     FuturesSignal.cpp
     Process.hpp
     ProcessFactory.cpp
@@ -20,7 +19,6 @@ target_include_directories(process
         "${src_dir}/book"
         "${src_dir}/decimal"
         "${src_dir}/exchange"
-        "${src_dir}/message"
         "${src_dir}/mp"
         "${src_dir}/net"
         "${src_dir}/serialization"
@@ -30,6 +28,7 @@ target_include_directories(process
 target_link_libraries(process
     PRIVATE
         taosim::exchange
+        taosim::message
         taosim::simulation
         pybind11::embed
 )

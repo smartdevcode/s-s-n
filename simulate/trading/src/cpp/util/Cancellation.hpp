@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include "taosim/event/Cancellation.hpp"
+#include "taosim/event/serialization/Cancellation.hpp"
 #include "CheckpointSerializable.hpp"
 #include "JsonSerializable.hpp"
 #include "Order.hpp"
@@ -13,30 +15,7 @@
 #include <memory>
 #include <optional>
 
-//-------------------------------------------------------------------------
-
-struct Cancellation : public JsonSerializable, public CheckpointSerializable
-{
-    using Ptr = std::shared_ptr<Cancellation>;
-
-    OrderID id;
-    std::optional<taosim::decimal_t> volume;
-
-    Cancellation() = default;
-
-    Cancellation(OrderID id, std::optional<taosim::decimal_t> volume = {}) noexcept
-        : id{id}, volume{volume}
-    {}
-
-    void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
-
-    virtual void jsonSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
-    virtual void checkpointSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
-
-    [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
-};
+#include <msgpack.hpp>
 
 //-------------------------------------------------------------------------
 
@@ -48,6 +27,8 @@ struct CancellationLogContext : public JsonSerializable
     BookId bookId;
     Timestamp timestamp;
 
+    CancellationLogContext() noexcept = default;
+
     CancellationLogContext(AgentId agentId, BookId bookId, Timestamp timestamp)
         : agentId{agentId}, bookId{bookId}, timestamp{timestamp}
     {}
@@ -56,6 +37,8 @@ struct CancellationLogContext : public JsonSerializable
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
+
+    MSGPACK_DEFINE_MAP(agentId, bookId, timestamp);
 };
 
 //-------------------------------------------------------------------------
@@ -64,11 +47,13 @@ struct CancellationWithLogContext : public JsonSerializable
 {
     using Ptr = std::shared_ptr<CancellationWithLogContext>;
 
-    Cancellation cancellation;
+    taosim::event::Cancellation cancellation;
     CancellationLogContext::Ptr logContext;
 
+    CancellationWithLogContext() noexcept = default;
+
     CancellationWithLogContext(
-        Cancellation cancellation,
+        taosim::event::Cancellation cancellation,
         CancellationLogContext::Ptr logContext) noexcept
         : cancellation{cancellation}, logContext{logContext}
     {}
@@ -77,25 +62,8 @@ struct CancellationWithLogContext : public JsonSerializable
 
     virtual void jsonSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
-};
 
-//-------------------------------------------------------------------------
-
-struct CancellationEvent : public JsonSerializable
-{
-    using Ptr = std::shared_ptr<CancellationEvent>;
-
-    Cancellation cancellation;
-    Timestamp timestamp;
-    taosim::decimal_t price;
-
-    CancellationEvent(
-        Cancellation cancellation, Timestamp timestamp, taosim::decimal_t price) noexcept
-        : cancellation{cancellation}, timestamp{timestamp}, price{price}
-    {}
-
-    virtual void jsonSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
+    MSGPACK_DEFINE_MAP(cancellation, logContext);
 };
 
 //-------------------------------------------------------------------------

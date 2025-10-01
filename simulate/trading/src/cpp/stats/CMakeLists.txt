@@ -4,6 +4,7 @@ add_library(stats STATIC
     DistributionFactory.cpp
     GammaDistribution.cpp
     LognormalDistribution.cpp
+    RayleighDistribution.cpp
 )
 add_library(taosim::stats ALIAS stats)
 

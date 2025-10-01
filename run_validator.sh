@@ -55,6 +55,23 @@ if [ $PRESERVE_SIMULATOR = 0 ]; then
     echo "Updating Simulator"
     export LD_LIBRARY_PATH="/usr/local/gcc-14.1.0/lib/../lib64:$LD_LIBRARY_PATH"
     cd simulate/trading
+    cd vcpkg
+    CURRENT_VCPKG_HASH=$(git rev-parse HEAD)
+    EXPECTED_VCPKG_HASH="e140b1fde236eb682b0d47f905e65008a191800f"
+    echo "Current vcpkg commit:  $CURRENT_VCPKG_HASH"
+    echo "Expected vcpkg commit: $EXPECTED_VCPKG_HASH"
+    if [ "$CURRENT_VCPKG_HASH" != "$EXPECTED_VCPKG_HASH" ]; then
+        echo "Updating vcpkg..."
+        git fetch --all --quiet
+        git reset --hard "$EXPECTED_VCPKG_HASH"
+        echo "Repo successfully reset to $EXPECTED_VCPKG_HASH."
+        rm -r ../build
+        mkdir ../build
+        ./bootstrap-vcpkg.sh -disableMetrics
+    else
+        echo "Commit hash matches. No reset needed."
+    fi
+    cd ..
     if ! g++ -dumpversion | grep -q "14"; then
         cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "$(nproc)"
     else

@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "decimal.hpp"
+#include "taosim/decimal/decimal.hpp"
 
 #include <gtest/gtest.h>
 

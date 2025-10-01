@@ -21,7 +21,6 @@ target_include_directories(exchange
         "${src_dir}/base"
         "${src_dir}/decimal"
         "${src_dir}/exchange"
-        "${src_dir}/message"
         "${src_dir}/mp"
         "${src_dir}/net"
         "${src_dir}/process"
@@ -33,6 +32,8 @@ target_link_libraries(exchange
     PUBLIC
         taosim::accounting
         taosim::book
+        taosim::event
+        taosim::message
         taosim::simulation
         bdl
         pybind11::embed

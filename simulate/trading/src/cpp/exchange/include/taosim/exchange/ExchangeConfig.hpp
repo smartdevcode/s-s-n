@@ -7,7 +7,7 @@
 #include <pugixml.hpp>
 
 #include <taosim/accounting/common.hpp>
-#include <decimal.hpp>
+#include <taosim/decimal/decimal.hpp>
 
 #include <source_location>
 

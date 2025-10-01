@@ -4,17 +4,20 @@
  */
 #pragma once
 
+#include "taosim/decimal/serialization/decimal.hpp"
 #include "CheckpointSerializable.hpp"
 #include "JsonSerializable.hpp"
 #include "common.hpp"
 #include "Flags.hpp"
 
+#include <msgpack.hpp>
+
 //-------------------------------------------------------------------------
 
 using ClientOrderID = std::decay_t<OrderID>;
-using STPFlag = taosim::STPFlag;
-using SettleFlag = taosim::SettleFlag;
-using SettleType = taosim::SettleType;
+using taosim::STPFlag;
+using taosim::SettleFlag;
+using taosim::SettleType;
 
 enum class OrderDirection : uint32_t
 {
@@ -22,12 +25,15 @@ enum class OrderDirection : uint32_t
     SELL
 };
 
+MSGPACK_ADD_ENUM(OrderDirection);
+
 enum class Currency : uint32_t
 {
     BASE,
     QUOTE    
 };
 
+MSGPACK_ADD_ENUM(Currency);
 
 [[nodiscard]] constexpr std::string_view OrderDirection2StrView(OrderDirection dir) noexcept
 {
@@ -40,7 +46,7 @@ struct fmt::formatter<OrderDirection>
     constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(OrderDirection dir, FormatContext& ctx)
+    auto format(OrderDirection dir, FormatContext& ctx) const
     {
         return fmt::format_to(ctx.out(), "{}", OrderDirection2StrView(dir));
     }
@@ -76,7 +82,7 @@ struct fmt::formatter<OrderErrorCode>
     constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(OrderErrorCode ec, FormatContext& ctx)
+    auto format(OrderErrorCode ec, FormatContext& ctx) const
     {
         return fmt::format_to(ctx.out(), "{}", OrderErrorCode2StrView(ec));
     }
@@ -84,9 +90,16 @@ struct fmt::formatter<OrderErrorCode>
 
 //-------------------------------------------------------------------------
 
-class BasicOrder : public JsonSerializable, public CheckpointSerializable
+struct BasicOrder : public JsonSerializable, public CheckpointSerializable
 {
-public:
+    BasicOrder() noexcept = default;
+
+    BasicOrder(
+        OrderID id,
+        Timestamp timestamp,
+        taosim::decimal_t volume,
+        taosim::decimal_t leverage = 0_dec) noexcept;
+
     virtual ~BasicOrder() noexcept = default;
 
     [[nodiscard]] OrderID id() const noexcept { return m_id; }
@@ -105,26 +118,35 @@ public:
     virtual void checkpointSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
 
-protected:
-    BasicOrder(
-        OrderID id,
-        Timestamp timestamp,
-        taosim::decimal_t volume,
-        taosim::decimal_t leverage = 0_dec) noexcept;
-
-private:
     OrderID m_id;
     Timestamp m_timestamp;
     taosim::decimal_t m_volume;
     taosim::decimal_t m_leverage;
+
+    MSGPACK_DEFINE_MAP(
+        MSGPACK_NVP("orderId", m_id),
+        MSGPACK_NVP("timestamp", m_timestamp),
+        MSGPACK_NVP("volume", m_volume),
+        MSGPACK_NVP("leverage", m_leverage));
 };
 
 //-------------------------------------------------------------------------
 
-class Order : public BasicOrder
+struct Order : public BasicOrder
 {
-public:
     using Ptr = std::shared_ptr<Order>;
+
+    Order() noexcept = default;
+
+    Order(
+        OrderID orderId,
+        Timestamp timestamp,
+        taosim::decimal_t volume,
+        OrderDirection direction,
+        taosim::decimal_t leverage = 0_dec,
+        STPFlag stpFlag = STPFlag::CO,
+        SettleFlag settleFlag = SettleType::FIFO,
+        Currency currency = Currency::BASE) noexcept;
 
     [[nodiscard]] OrderDirection direction() const noexcept { return m_direction; }
     [[nodiscard]] STPFlag stpFlag() const noexcept { return m_stpFlag; }
@@ -136,30 +158,28 @@ public:
     virtual void checkpointSerialize(
         rapidjson::Document& json, const std::string& key = {}) const override;
 
-protected:
-    Order(
-        OrderID orderId,
-        Timestamp timestamp,
-        taosim::decimal_t volume,
-        OrderDirection direction,
-        taosim::decimal_t leverage = 0_dec,
-        STPFlag stpFlag = STPFlag::CO,
-        SettleFlag settleFlag = SettleType::FIFO,
-        Currency currency = Currency::BASE) noexcept;
-
-private:
     OrderDirection m_direction;
     STPFlag m_stpFlag;
     SettleFlag m_settleFlag;
     Currency m_currency;
+
+    MSGPACK_DEFINE_MAP(
+        MSGPACK_NVP("orderId", m_id),
+        MSGPACK_NVP("timestamp", m_timestamp),
+        MSGPACK_NVP("volume", m_volume),
+        MSGPACK_NVP("leverage", m_leverage),
+        MSGPACK_NVP("direction", m_direction),
+        MSGPACK_NVP("stpFlag", m_stpFlag),
+        MSGPACK_NVP("currency", m_currency));
 };
 
 //-------------------------------------------------------------------------
 
-class MarketOrder : public Order
+struct MarketOrder : public Order
 {
-public:
     using Ptr = std::shared_ptr<MarketOrder>;
+
+    MarketOrder() noexcept = default;
 
     MarketOrder(
         OrderID orderId,
@@ -179,14 +199,24 @@ public:
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json);
+
+    MSGPACK_DEFINE_MAP(
+        MSGPACK_NVP("orderId", m_id),
+        MSGPACK_NVP("timestamp", m_timestamp),
+        MSGPACK_NVP("volume", m_volume),
+        MSGPACK_NVP("leverage", m_leverage),
+        MSGPACK_NVP("direction", m_direction),
+        MSGPACK_NVP("stpFlag", m_stpFlag),
+        MSGPACK_NVP("currency", m_currency));
 };
 
 //-------------------------------------------------------------------------
 
-class LimitOrder : public Order
+struct LimitOrder : public Order
 {
-public:
     using Ptr = std::shared_ptr<LimitOrder>;
+
+    LimitOrder() noexcept = default;
 
     LimitOrder(
         OrderID orderId,
@@ -218,11 +248,20 @@ public:
 
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json, int priceDecimals, int volumeDecimals);
 
-private:
     taosim::decimal_t m_price;
     bool m_postOnly;
     taosim::TimeInForce m_timeInForce;
     std::optional<Timestamp> m_expiryPeriod;
+
+    MSGPACK_DEFINE_MAP(
+        MSGPACK_NVP("orderId", m_id),
+        MSGPACK_NVP("timestamp", m_timestamp),
+        MSGPACK_NVP("volume", m_volume),
+        MSGPACK_NVP("leverage", m_leverage),
+        MSGPACK_NVP("direction", m_direction),
+        MSGPACK_NVP("stpFlag", m_stpFlag),
+        MSGPACK_NVP("currency", m_currency),
+        MSGPACK_NVP("price", m_price));
 };
 
 //-------------------------------------------------------------------------
@@ -242,6 +281,8 @@ struct OrderClientContext : public CheckpointSerializable
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static OrderClientContext fromJson(const rapidjson::Value& json);
+
+    MSGPACK_DEFINE_MAP(agentId, clientOrderId);
 };
 
 //-------------------------------------------------------------------------
@@ -262,46 +303,8 @@ struct OrderContext : public JsonSerializable
     void jsonSerialize(rapidjson::Document& json, const std::string& key = {}) const override;
 
     [[nodiscard]] static OrderContext fromJson(const rapidjson::Value& json);
-};
 
-//-------------------------------------------------------------------------
-
-struct OrderEvent : public JsonSerializable
-{
-    using Ptr = std::shared_ptr<OrderEvent>;
-
-    OrderID id;
-    Timestamp timestamp;
-    taosim::decimal_t volume;
-    taosim::decimal_t leverage;
-    OrderDirection direction;
-    STPFlag stpFlag;
-    std::optional<taosim::decimal_t> price{};
-    OrderContext ctx;
-    std::optional<bool> postOnly{};
-    std::optional<taosim::TimeInForce> timeInForce{};
-    std::optional<std::optional<Timestamp>> expiryPeriod{};
-    Currency currency{Currency::BASE};
-
-    OrderEvent(Order::Ptr order, OrderContext ctx) noexcept
-        : id{order->id()},
-          timestamp{order->timestamp()},
-          volume{order->volume()},
-          leverage{order->leverage()},
-          direction{order->direction()},
-          stpFlag{order->stpFlag()},
-          ctx{ctx}
-    {
-        if (auto limitOrder = std::dynamic_pointer_cast<LimitOrder>(order)) {
-            price = limitOrder->price();
-            postOnly = std::make_optional(limitOrder->postOnly());
-            timeInForce = std::make_optional(limitOrder->timeInForce());
-            expiryPeriod = std::make_optional(limitOrder->expiryPeriod());
-        }
-    }
-
-    virtual void jsonSerialize(
-        rapidjson::Document& json, const std::string& key = {}) const override;
+    MSGPACK_DEFINE_MAP(agentId, bookId, clientOrderId);
 };
 
 //-------------------------------------------------------------------------
@@ -313,6 +316,8 @@ struct OrderLogContext : public JsonSerializable
     AgentId agentId;
     BookId bookId;
 
+    OrderLogContext() noexcept = default;
+
     OrderLogContext(AgentId agentId, BookId bookId) noexcept
         : agentId{agentId}, bookId{bookId}
     {}
@@ -320,6 +325,8 @@ struct OrderLogContext : public JsonSerializable
     void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     void jsonSerialize(rapidjson::Document& json, const std::string& key = {}) const override;
+
+    MSGPACK_DEFINE_MAP(agentId, bookId);
 };
 
 //-------------------------------------------------------------------------
@@ -338,6 +345,8 @@ struct OrderWithLogContext : public JsonSerializable
     void L3Serialize(rapidjson::Document& json, const std::string& key = {}) const;
 
     void jsonSerialize(rapidjson::Document& json, const std::string& key = {}) const override;
+
+    MSGPACK_DEFINE_MAP(order, logContext);
 };
 
 //-------------------------------------------------------------------------

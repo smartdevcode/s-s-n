@@ -7,6 +7,7 @@
 #include "DiracDeltaDistribution.hpp"
 #include "GammaDistribution.hpp"
 #include "LognormalDistribution.hpp"
+#include "RayleighDistribution.hpp"
 
 #include <fmt/format.h>
 
@@ -31,6 +32,9 @@ std::unique_ptr<Distribution> DistributionFactory::createFromXML(pugi::xml_node 
     }
     else if (type == "lognormal") {
         return LognormalDistribution::fromXML(node);
+    }
+    else if (type == "rayleigh") {
+        return RayleighDistribution::fromXML(node);
     }
 
     throw std::invalid_argument{fmt::format(

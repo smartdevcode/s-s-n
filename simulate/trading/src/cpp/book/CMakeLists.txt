@@ -9,6 +9,7 @@ add_library(book STATIC
     PriceTimeBook.cpp
     UpdateCounter.cpp
     FeeLogger.cpp
+    TickContainer.cpp
 )
 add_library(taosim::book ALIAS book)
 
@@ -19,7 +20,6 @@ target_include_directories(book
         "${src_dir}"
         "${src_dir}/agent"
         "${src_dir}/base"
-        "${src_dir}/message"
         "${src_dir}/mp"
         "${src_dir}/net"
         "${src_dir}/process"
@@ -30,6 +30,7 @@ target_include_directories(book
 target_link_libraries(book
     PRIVATE
         taosim::exchange
+        taosim::message
         taosim::process
         fmt::fmt
         pybind11::embed

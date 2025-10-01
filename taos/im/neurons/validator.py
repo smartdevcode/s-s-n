@@ -25,12 +25,14 @@ if __name__ != "__mp_main__":
     import traceback
     import xml.etree.ElementTree as ET
     import pandas as pd
-    import msgpack
     import msgspec
     import math
     import shutil
     import zipfile
     import asyncio
+    import posix_ipc
+    import mmap
+    import msgpack
     from datetime import datetime, timedelta
     from ypyjson import YpyObject
 
@@ -610,44 +612,26 @@ if __name__ != "__mp_main__":
             """
             if not self.rewarding:
                 Thread(target=self._reward, args=(state,), daemon=True, name=f'reward_{self.step}').start()
-
-        async def orderbook(self, request : Request) -> dict:
-            """
-            The route method which receives and processes simulation state updates received from the simulator.
-            """
+                
+        async def handle_state(self, message : dict, state : MarketSimulationStateUpdate, receive_start : int) -> dict:
             # Every 1H of simulation time, check if there are any changes to the validator - if updates exist, pull them and restart.
             if self.simulation_timestamp % 3600_000_000_000 == 0 and self.simulation_timestamp != 0:
                 bt.logging.info("Checking for validator updates...")
                 self.update_repo()
-            bt.logging.info("Received state update from simulator.")
-            global_start = time.time()
-            start = time.time()
-            body = bytearray()
-            async for chunk in request.stream():
-                body.extend(chunk)
-            bt.logging.info(f"Retrieved request body ({time.time()-start:.4f}s).")
-            if body[-3:].decode() != "]}}":
-                raise Exception(f"Incomplete JSON!")
-            start = time.time()
-            message = YpyObject(body, 1)
-            bt.logging.info(f"Constructed YpyObject ({time.time()-start:.4f}s).")
-            state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
             state.version = __spec_version__
             start = time.time()
             for uid, accounts in state.accounts.items():
                 for book_id in accounts:
                     state.accounts[uid][book_id].v = round(sum([volume for volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals)
-            bt.logging.info(f"Volumes added ({time.time()-start:.4f}s).")
-            bt.logging.info(f"Synapse populated ({time.time()-global_start:.4f}s).")
-            del body
+            bt.logging.info(f"Volumes added to state ({time.time()-start:.4f}s).")
 
             # Update variables
             if not self.start_time:
                 self.start_time = time.time()
                 self.start_timestamp = state.timestamp
-            if self.simulation.logDir != message['payload']['logDir']:
-                bt.logging.info(f"Simulation log directory changed : {self.simulation.logDir} -> {message['payload']['logDir']}")
-                self.simulation.logDir = message['payload']['logDir']
+            if self.simulation.logDir != message['logDir']:
+                bt.logging.info(f"Simulation log directory changed : {self.simulation.logDir} -> {message['logDir']}")
+                self.simulation.logDir = message['logDir']
             self.simulation_timestamp = state.timestamp
             self.step_rates.append((state.timestamp - (self.last_state.timestamp if self.last_state else self.start_timestamp)) / (time.time() - (self.last_state_time if self.last_state_time else self.start_time)))
             self.last_state = state
@@ -656,7 +640,6 @@ if __name__ != "__mp_main__":
                 state.config.simulation_id = os.path.basename(state.config.logDir)[:13]
                 state.config.logDir = None
             self.step += 1
-            del message
 
             if self.simulation_timestamp % self.simulation.log_window == self.simulation.publish_interval:
                 self.compress_outputs()
@@ -696,7 +679,81 @@ if __name__ != "__mp_main__":
             self.last_state_time = time.time()
             self.save_state()
             self.report()
-            bt.logging.info(f"State update processed ({time.time()-global_start}s)")
+            bt.logging.info(f"State update handled ({time.time()-receive_start}s)")
+            
+            return response
+            
+        async def _listen(self):
+            def receive(mq_req) -> dict:
+                msg, priority = mq_req.receive()
+                receive_start = time.time()
+                bt.logging.info(f"Received state update from simulator (msgpack)")
+                byte_size_req = int.from_bytes(msg, byteorder="little")
+                shm_req = posix_ipc.SharedMemory("/state", flags=posix_ipc.O_CREAT)
+                with mmap.mmap(shm_req.fd, byte_size_req, mmap.MAP_SHARED, mmap.PROT_READ) as mm:
+                    shm_req.close_fd()
+                    packed_data = mm.read(byte_size_req)
+                bt.logging.info(f"Retrieved State Update ({time.time() - receive_start}s)")
+                start = time.time()
+                result = msgpack.unpackb(packed_data, raw=False, use_list=False, strict_map_key=False)
+                bt.logging.info(f"Unpacked state update ({time.time() - start}s)")
+                return result, receive_start
+            
+            def respond(response) -> dict:
+                packed_res = msgpack.packb(response, use_bin_type=False)
+                byte_size_res = len(packed_res)
+                mq_res = posix_ipc.MessageQueue("/taosim-res", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
+                shm_res = posix_ipc.SharedMemory("/responses", flags=posix_ipc.O_CREAT, size=byte_size_res)
+                with mmap.mmap(shm_res.fd, byte_size_res, mmap.MAP_SHARED, mmap.PROT_WRITE | mmap.PROT_READ) as mm:
+                    shm_res.close_fd()
+                    mm.write(packed_res)
+                mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))            
+            
+            while True:
+                response = {"responses" : []}
+                try:
+                    mq_req = posix_ipc.MessageQueue("/taosim-req", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
+                    # This blocks until the queue can provide a message
+                    message, receive_start = receive(mq_req)
+                    start = time.time()
+                    state = MarketSimulationStateUpdate.model_validate(message)
+                    bt.logging.info(f"Parsed state update ({time.time() - start}s)")
+                    response = await self.handle_state(message, state, receive_start)
+                except Exception as ex:
+                    traceback.print_exc()
+                    self.pagerduty_alert(f"Exception in posix listener loop : {ex}", details={"trace" : traceback.format_exc()})
+                finally:
+                    respond(response)
+            
+        def listen(self):
+            """Synchronous wrapper for the asynchronous _listen method."""
+            try:
+                asyncio.run(self._listen())
+            except KeyboardInterrupt:
+                print("Listening stopped by user.")
+
+        async def orderbook(self, request : Request) -> dict:
+            """
+            The route method which receives and processes simulation state updates received from the simulator.
+            """
+            bt.logging.info("Received state update from simulator.")
+            global_start = time.time()
+            start = time.time()
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+            bt.logging.info(f"Retrieved request body ({time.time()-start:.4f}s).")
+            if body[-3:].decode() != "]}}":
+                raise Exception(f"Incomplete JSON!")
+            message = YpyObject(body, 1)
+            bt.logging.info(f"Constructed YpyObject ({time.time()-start:.4f}s).")
+            state = MarketSimulationStateUpdate.from_ypy(message) # Populate synapse class from request data
+            bt.logging.info(f"Synapse populated ({time.time()-start:.4f}s).")
+            del body
+
+            response = await self.handle_state(message, state)
+            
+            bt.logging.info(f"State update processed ({time.time()-global_start}s)")            
             return response
 
         async def account(self, request : Request) -> None:
@@ -743,5 +800,7 @@ if __name__ == "__main__":
     Thread(target=validator.seed, daemon=True, name='Seed').start()
     # Start simulator price seeding data process in new thread
     Thread(target=validator.monitor, daemon=True, name='Monitor').start()
+    # Run the process which waits for state updates to be put to shared memory
+    Thread(target=validator.listen, daemon=True, name='Listen').start()
     # Run the validator as a FastAPI client via uvicorn on the configured port
     uvicorn.run(app, port=validator.config.port)

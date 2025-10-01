@@ -4,10 +4,10 @@
  */
 #pragma once
 
-#include "ExchangeAgentMessagePayloads.hpp"
-#include "Message.hpp"
-#include "MessagePayload.hpp"
-#include "MultiBookMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/Message.hpp"
+#include "taosim/message/MessagePayload.hpp"
+#include "taosim/message/MultiBookMessagePayloads.hpp"
 
 //-------------------------------------------------------------------------
 

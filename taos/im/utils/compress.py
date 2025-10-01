@@ -84,23 +84,41 @@ def decompress(
         return None
 
 
-def compress_batch(payloads: dict, level: int = 1, engine: str = "lz4", version: int = 45) -> dict:
-    return {uid: compress(payload, level=level, engine=engine, version=version) for uid, payload in payloads.items()}
-
+def compress_batch(axon_synapses: dict, compressed_books : str, level: int = 1, engine: str = "lz4", version: int = 45) -> dict:    
+    for uid, axon_synapse in axon_synapses.items():
+        axon_synapse.books = None
+        dumped = axon_synapse.model_dump(mode='json')
+        payload = {
+            "accounts": dumped['accounts'],
+            "notices": dumped['notices'],
+            "config": dumped['config'],
+            "response": dumped['response'],
+        }
+        axon_synapse.accounts = None
+        axon_synapse.notices = None
+        axon_synapse.config = None
+        axon_synapse.response = None
+        axon_synapse.compressed = {
+            "books": compressed_books,
+            "payload": compress(payload, level=level, engine=engine, version=version),
+        }
+    return axon_synapses
 
 def batch_compress(
-    payloads: dict,
+    axon_synapses: dict,
+    compressed_books: str,
     batches: list[list[int]],
     level: int = 1,
     engine: str = "lz4",
     version: int = 45,
 ) -> dict:
-    payload_batches = []
+    compressed_batches = []
     with ThreadPoolExecutor(max_workers=len(batches)) as pool:
         tasks = [
-            pool.submit(compress_batch, {uid: payloads[uid] for uid in batch}, level, engine, version)
+            pool.submit(compress_batch, {uid: axon_synapses[uid] for uid in batch}, compressed_books,  level, engine, version)
             for batch in batches
         ]
         for task in tasks:
-            payload_batches.append(task.result())
-    return {k: v for d in payload_batches for k, v in d.items()}
+            compressed_batches.append(task.result())
+    compressed_synapses = {k: v for d in compressed_batches for k, v in d.items()}
+    return compressed_synapses

@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include "Book.hpp"
+#include "taosim/book/Book.hpp"
 
 //-------------------------------------------------------------------------
 
@@ -25,7 +25,8 @@ protected:
     virtual taosim::decimal_t processAgainstTheBuyQueue(Order::Ptr order, taosim::decimal_t minPrice) override;
     virtual taosim::decimal_t processAgainstTheSellQueue(Order::Ptr order, taosim::decimal_t maxPrice) override;
     
-    virtual TickContainer* preventSelfTrade(TickContainer* queue, LimitOrder::Ptr iop, Order::Ptr order, AgentId agentId);
+    virtual taosim::book::TickContainer* preventSelfTrade(
+        taosim::book::TickContainer* queue, LimitOrder::Ptr iop, Order::Ptr order, AgentId agentId);
 };
 
 //-------------------------------------------------------------------------

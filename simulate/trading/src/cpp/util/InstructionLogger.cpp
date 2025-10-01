@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "InstructionLogger.hpp"
-#include "ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
 
 //-------------------------------------------------------------------------
 

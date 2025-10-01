@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "taosim/decimal/decimal.hpp"
 #include "taosim/exchange/FeePolicy.hpp"
 #include "taosim/exchange/FeePolicyWrapper.hpp"
-#include "decimal.hpp"
+#include "taosim/message/PayloadFactory.hpp"
 #include "formatting.hpp"
 
 #include <gmock/gmock.h>
@@ -15,7 +16,6 @@
 #include "DistributedProxyAgent.hpp"
 #include "MultiBookExchangeAgent.hpp"
 #include "Order.hpp"
-#include "PayloadFactory.hpp"
 #include "Simulation.hpp"
 #include "server.hpp"
 #include "util.hpp"

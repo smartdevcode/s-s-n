@@ -4,9 +4,9 @@
  */
 #include "taosim/simulation/util.hpp"
 
-#include "ExchangeAgentMessagePayloads.hpp"
-#include "MessagePayload.hpp"
-#include "MultiBookMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/MessagePayload.hpp"
+#include "taosim/message/MultiBookMessagePayloads.hpp"
 
 //-------------------------------------------------------------------------
 

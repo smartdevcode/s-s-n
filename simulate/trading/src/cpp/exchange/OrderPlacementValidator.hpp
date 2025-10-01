@@ -4,9 +4,9 @@
  */
 #pragma once
 
-#include "Account.hpp"
-#include "Book.hpp"
-#include "ExchangeAgentMessagePayloads.hpp"
+#include "taosim/accounting/Account.hpp"
+#include "taosim/book/Book.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
 #include "Order.hpp"
 #include "taosim/exchange/FeePolicyWrapper.hpp"
 

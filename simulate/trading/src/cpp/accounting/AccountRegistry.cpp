@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "AccountRegistry.hpp"
+#include "taosim/accounting/AccountRegistry.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string_regex.hpp>

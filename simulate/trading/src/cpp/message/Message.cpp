@@ -2,10 +2,10 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "Message.hpp"
+#include "taosim/message/Message.hpp"
 
-#include "MultiBookMessagePayloads.hpp"
-#include "PayloadFactory.hpp"
+#include "taosim/message/MultiBookMessagePayloads.hpp"
+#include "taosim/message/PayloadFactory.hpp"
 
 //-------------------------------------------------------------------------
 

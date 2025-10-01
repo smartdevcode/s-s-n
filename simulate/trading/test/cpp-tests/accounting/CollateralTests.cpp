@@ -2,8 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "Collateral.hpp"
-#include "decimal.hpp"
+#include "taosim/accounting/Collateral.hpp"
 #include "formatting.hpp"
 
 #include <gmock/gmock.h>

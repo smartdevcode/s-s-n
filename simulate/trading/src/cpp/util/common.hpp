@@ -5,12 +5,13 @@
 #pragma once
 
 #include "Timestamp.hpp"
-#include "decimal.hpp"
+#include "taosim/decimal/decimal.hpp"
 
 #include <boost/signals2.hpp>
 #include <fmt/core.h>
 #include <fmt/format.h>
-#include <magic_enum.hpp>
+#include <fmt/ranges.h>
+#include <magic_enum/magic_enum.hpp>
 #include <pugixml.hpp>
 #include <range/v3/all.hpp>
 

@@ -4,8 +4,9 @@
  */
 #include "RandomTraderAgent.hpp"
 
-#include "ExchangeAgentMessagePayloads.hpp"
-#include "MessagePayload.hpp"
+#include "taosim/event/Cancellation.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/MessagePayload.hpp"
 #include "Simulation.hpp"
 
 #include <boost/accumulators/accumulators.hpp>
@@ -55,11 +56,13 @@ void RandomTraderAgent::configure(const pugi::xml_node& node)
     m_topLevel = std::vector<TopLevel>(m_bookCount, TopLevel{});
     m_orderFlag = std::vector<bool>(m_bookCount, false);
 
-    if (attr = node.attribute("tau"); attr.empty() || attr.as_ullong() == 0) {
+    if (attr = node.attribute("tau"); attr.empty() || attr.as_ullong(120'000'000'000) == 0) {
         throw std::invalid_argument(fmt::format(
             "{}: attribute 'tau' should have a value greater than 0", ctx));
     }
-    m_tau = attr.as_double();
+    m_tau = attr.as_ullong(120'000'000'000);
+    m_quantityMin = node.attribute("minQuantity").as_double(0.01); 
+    m_quantityMax = node.attribute("maxQuantity").as_double(2.0); 
 }
 
 //-------------------------------------------------------------------------
@@ -76,7 +79,7 @@ void RandomTraderAgent::receiveMessage(Message::Ptr msg)
         handleTradeSubscriptionResponse();
     }
     else if (msg->type == "RESPONSE_RETRIEVE_L1") {
-        handleRetrieveL1Response(msg);
+        handleRetrieveResponse(msg);
     }
     else if (msg->type == "RESPONSE_PLACE_ORDER_LIMIT") {
         handleLimitOrderPlacementResponse(msg);
@@ -101,7 +104,7 @@ void RandomTraderAgent::handleSimulationStart()
 {
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        static_cast<Timestamp>(m_tau/3),
+        1,
         name(),
         m_exchange,
         "SUBSCRIBE_EVENT_TRADE");
@@ -119,7 +122,8 @@ void RandomTraderAgent::handleTradeSubscriptionResponse()
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
         simulation()->dispatchMessage(
             simulation()->currentTimestamp(),
-            1,
+            //Should take from gracePeriod
+            600'000'000'000,
             name(),
             m_exchange,
             "RETRIEVE_L1",
@@ -129,55 +133,52 @@ void RandomTraderAgent::handleTradeSubscriptionResponse()
 
 //-------------------------------------------------------------------------
 
-void RandomTraderAgent::handleRetrieveL1Response(Message::Ptr msg)
+void RandomTraderAgent::handleRetrieveResponse(Message::Ptr msg)
 {
+    // const auto payload = std::dynamic_pointer_cast<RetrieveL2ResponsePayload>(msg->payload);
+    const auto payload = std::dynamic_pointer_cast<RetrieveL1ResponsePayload>(msg->payload);
+    BookId bookId = payload->bookId;
+    // std::vector<BookLevel> bids = payload->bids;
+    // std::vector<BookLevel> asks = payload->asks;
 
-    // Seed the random number generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::lognormal_distribution<> lognormal_dist(0, 1); // Default mean=0, stddev=1
-    std::normal_distribution<> normal_dist(0, 1); // Default mean=0, stddev=1
+    double quantityBid = std::uniform_real_distribution<double>{m_quantityMin,m_quantityMax} (gen);
+    double quantityAsk = std::uniform_real_distribution<double>{m_quantityMin,m_quantityMax} (gen);
+    // std::vector<double> weights = {0.4, 0.25, 0.15, 0.1, 0.1};
+    // std::vector<int> indices = {0, 1, 2, 3, 4};
 
-    const auto payload = std::dynamic_pointer_cast<RetrieveL1ResponsePayload>(msg->payload);
+    // Discrete distribution with given weights
+    // std::discrete_distribution<> dist(weights.begin(), weights.end());
+    // Draw one index
+    // int draw = dist(gen);
+    OrderDirection direction; 
+    double bestAsk = util::decimal2double(payload->bestAskPrice);
+    double bestBid = util::decimal2double(payload->bestBidPrice);
+    double limitBidPrice = std::uniform_real_distribution<double>{bestBid,bestAsk} (gen);
+    double limitAskPrice = std::uniform_real_distribution<double>{limitBidPrice, bestAsk} (gen);
+    // if (std::bernoulli_distribution{0.5} (gen)) {
+        //  direction = OrderDirection::SELL;
+        //  limitPrice = asks.at(draw).price;
+    // } else {
+        // direction = OrderDirection::BUY;
+        // limitPrice = bids.at(draw).price;
+    // }
 
-    const BookId bookId = payload->bookId;
+    // add later for testing
+    double leverage = 0.0;
 
+    sendOrder(bookId, OrderDirection::BUY, quantityBid, limitBidPrice, leverage);    
+    sendOrder(bookId, OrderDirection::SELL, quantityAsk, limitAskPrice, leverage);    
+    
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        1,
+        // Should take from step
+        1'000'000'000,
         name(),
         m_exchange,
         "RETRIEVE_L1",
         MessagePayload::create<RetrieveL1Payload>(bookId));
-
-    auto& topLevel = m_topLevel.at(bookId);
-    topLevel.bid = taosim::util::decimal2double(payload->bestBidPrice);
-    topLevel.ask = taosim::util::decimal2double(payload->bestAskPrice);
-
-    if (m_orderFlag.at(bookId) || topLevel.bid == 0.0 || topLevel.ask == 0.0) return;
-
-    const double midPrice = (topLevel.bid + topLevel.ask) / 2;
-    double noisePrice = normal_dist(gen);
-    if (noisePrice < -10.)
-        noisePrice = -9.2343;
-    if (noisePrice > 10.)
-        noisePrice = 9.2353;
-    const double limitPrice = midPrice + noisePrice;
-
-    double limitVolume = lognormal_dist(gen) / 3;
-    if (limitVolume > .2)
-        limitVolume = 0.19876543;
-    if (limitVolume < 0.)
-        limitVolume = 0.13343;
-
-    const OrderDirection direction = (noisePrice > 0.) ? OrderDirection::SELL : OrderDirection::BUY;
-
-    double leverage = lognormal_dist(gen) / 11;
-    if (leverage > 1.)
-        leverage = 0.98;
-    leverage += 3.;
-
-    sendOrder(bookId, direction, limitVolume, limitPrice, leverage);
 }
 
 //-------------------------------------------------------------------------
@@ -186,14 +187,14 @@ void RandomTraderAgent::handleLimitOrderPlacementResponse(Message::Ptr msg)
 {
     const auto payload = std::dynamic_pointer_cast<PlaceOrderLimitResponsePayload>(msg->payload);
 
-    // simulation()->dispatchMessage(
-    //     simulation()->currentTimestamp(),
-    //     m_tau,
-    //     name(),
-    //     m_exchange,
-    //     "CANCEL_ORDERS",
-    //     MessagePayload::create<CancelOrdersPayload>(
-    //         std::vector{Cancellation(payload->id)}, payload->requestPayload->bookId));
+    simulation()->dispatchMessage(
+        simulation()->currentTimestamp(),
+        m_tau,
+        name(),
+        m_exchange,
+        "CANCEL_ORDERS",
+        MessagePayload::create<CancelOrdersPayload>(
+            std::vector{taosim::event::Cancellation(payload->id)}, payload->requestPayload->bookId));
 
     m_orderFlag.at(payload->requestPayload->bookId) = false;
 }
@@ -231,10 +232,20 @@ void RandomTraderAgent::sendOrder(BookId bookId, OrderDirection direction,
     double volume, double price, double leverage) {
 
     m_orderFlag.at(bookId) = true;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<float> delayDist{1'500.0f,500.0f};
+
+    float min_delay = 10.0f; 
+    float max_delay = 1'000.0f; 
+    float t = std::clamp(std::abs(delayDist(gen))/3'000.0f,0.0f,1.0f);
+    float exp_scale = 5.0f;
+    float delay_frac = (std::exp(exp_scale * t) - 1) / (std::exp(exp_scale)-1);
+    Timestamp delay = min_delay + delay_frac * (max_delay - min_delay);
 
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
-        1,
+        delay,
         name(),
         m_exchange,
         "PLACE_ORDER_LIMIT",

@@ -2,10 +2,13 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
+#include "taosim/serialization/msgpack_util.hpp"
 #include "taosim/simulation/SimulationManager.hpp"
+#include "taosim/simulation/serialization/ValidatorRequest.hpp"
+#include "taosim/simulation/serialization/ValidatorResponse.hpp"
 #include "taosim/simulation/replay_helpers.hpp"
 #include "taosim/simulation/util.hpp"
-#include "MultiBookMessagePayloads.hpp"
+#include "taosim/message/MultiBookMessagePayloads.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/uuid/random_generator.hpp>
@@ -14,13 +17,20 @@
 #include <date/date.h>
 #include <date/tz.h>
 #include <fmt/format.h>
+#include <msgpack.hpp>
 
 #include <barrier>
-#include <generator>
 #include <latch>
 #include <ranges>
 #include <source_location>
 #include <thread>
+
+#include <rapidjson/document.h>
+#include <rapidjson/reader.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/error/en.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 //-------------------------------------------------------------------------
 
@@ -34,7 +44,11 @@ void SimulationManager::runSimulations()
     std::barrier barrier{
         m_blockInfo.count,
         [&] {
-            publishState();
+            if (m_useMessagePack) {
+                publishStateMessagePack();
+            } else {
+                publishState();
+            }
             m_stepSignal();
         }};
     std::latch latch{m_blockInfo.count};
@@ -174,6 +188,7 @@ void SimulationManager::runReplayAdvanced(const fs::path& replayDir)
                 return lhsKey < rhsKey;
             });
         return replayLogPaths
+            // TODO: Requires group-by.
             | views::chunk_by([&](auto&& lhs, auto&& rhs) {
                 return parseBookId(lhs) == parseBookId(rhs);
             })
@@ -370,7 +385,7 @@ void SimulationManager::publishState()
     const auto& representativeSimulation = m_simulations.front();
 
     if (representativeSimulation->currentTimestamp() < m_gracePeriod || !online()) return;
-    
+
     rapidjson::Document stateJson = makeStateJson();
     rapidjson::Document resJson;
 
@@ -385,6 +400,124 @@ void SimulationManager::publishState()
         const auto [msg, blockIdx] = decanonize(
             Message::fromJsonResponse(response, now, representativeSimulation->proxy()->name()),
             m_blockInfo.dimension);
+        if (!blockIdx) {
+            for (const auto& simulation : m_simulations) {
+                simulation->queueMessage(msg);
+            }
+            continue;
+        }
+        m_simulations.at(*blockIdx)->queueMessage(msg);
+    }
+}
+
+//-------------------------------------------------------------------------
+
+void SimulationManager::publishStateMessagePack()
+{
+    static constexpr auto ctx = std::source_location::current().function_name();
+
+    const auto& representativeSimulation = m_simulations.front();
+    const auto now = representativeSimulation->currentTimestamp();
+
+    if (now < m_gracePeriod || !online()) return;
+
+    taosim::serialization::HumanReadableStream stream{1uz << 28};
+    const serialization::ValidatorRequest req{.mngr = this};
+    msgpack::pack(stream, req);
+
+    bipc::shared_memory_object shmReq{
+        bipc::open_or_create,
+        s_statePublishShmName.data(),
+        bipc::read_write
+    };
+    shmReq.truncate(stream.size());
+    bipc::mapped_region reqRegion{shmReq, bipc::read_write};
+    std::memcpy(reqRegion.get_address(), stream.data(), stream.size());
+
+    const size_t packedSize = stream.size();
+    const bool mqSendSuccess = m_validatorReqMessageQueue->send(
+        std::span<const char>{std::bit_cast<const char*>(&packedSize), sizeof(packedSize)});
+    if (!mqSendSuccess) return m_validatorReqMessageQueue->flush();
+
+    size_t resByteSize;
+    const bool mqRecvSuccess = m_validatorResMessageQueue->receive(
+        std::span<char>{std::bit_cast<char*>(&resByteSize), sizeof(resByteSize)}) != -1;
+    if (!mqRecvSuccess) return m_validatorResMessageQueue->flush();
+
+    bipc::shared_memory_object shmRes{
+        bipc::open_only,
+        s_remoteResponsesShmName.data(),
+        bipc::read_write
+    };
+    bipc::mapped_region resRegion{shmRes, bipc::read_write};
+
+    msgpack::object_handle oh =
+        msgpack::unpack(std::bit_cast<const char*>(resRegion.get_address()), resByteSize);
+    msgpack::object obj = oh.get();
+
+    auto unpackResponse = [&](const msgpack::object& o) {
+        if (o.type != msgpack::type::MAP) {
+            throw taosim::serialization::MsgPackError{};
+        }
+        struct Response
+        {
+            std::optional<AgentId> agentId{};
+            std::optional<Timestamp> delay{};
+            std::string type{};
+            MessagePayload::Ptr payload{};
+        };
+        Response res;
+        for (const auto& [k, val] : o.via.map) {
+            auto key = k.as<std::string_view>();
+            if (key == "agentId") {
+                res.agentId = std::make_optional(val.as<AgentId>());
+            }
+            else if (key == "delay") {
+                res.delay = std::make_optional(val.as<Timestamp>());
+            }
+            else if (key == "type") {
+                res.type = val.as<std::string>();
+            }
+        }
+        if (!res.agentId) {
+            throw taosim::serialization::MsgPackError{};
+        }
+        if (!res.delay) {
+            throw taosim::serialization::MsgPackError{};
+        }
+        if (res.type.empty()) {
+            throw taosim::serialization::MsgPackError{};
+        }
+        for (const auto& [k, val] : o.via.map) {
+            auto key = k.as<std::string_view>();
+            if (key == "payload") {
+                res.payload = PayloadFactory::createFromMessagePack(val, res.type);
+                break;
+            }
+        }
+        if (res.payload == nullptr) {
+            throw taosim::serialization::MsgPackError{};
+        }
+        auto msg = std::make_shared<Message>();
+        msg->occurrence = now;
+        msg->arrival = now + *res.delay;
+        msg->source = representativeSimulation->proxy()->name();
+        msg->targets = {representativeSimulation->exchange()->name()};
+        msg->type = fmt::format("{}_{}", "DISTRIBUTED", res.type);
+        msg->payload =
+            MessagePayload::create<DistributedAgentResponsePayload>(*res.agentId, res.payload);
+        return msg;
+    };
+
+    if (obj.type != msgpack::type::MAP || obj.via.map.size != 1) {
+        return;
+    }
+    const auto& val = obj.via.map.ptr[0].val;
+    if (val.type != msgpack::type::ARRAY || val.via.array.size == 0) {
+        return;
+    }
+    for (const auto& response : val.via.array) {
+        const auto [msg, blockIdx] = decanonize(unpackResponse(response), m_blockInfo.dimension);
         if (!blockIdx) {
             for (const auto& simulation : m_simulations) {
                 simulation->queueMessage(msg);
@@ -498,13 +631,6 @@ rapidjson::Document SimulationManager::makeCollectiveBookStateJson() const
                     rapidjson::Document{rapidjson::kObjectType, &allocator}.Move(),
                     allocator);
                 json[agentIdCStr].AddMember("agentId", rapidjson::Value{agentId}, allocator);
-                json[agentIdCStr].AddMember(
-                    "agentName",
-                    agentId < 0
-                        ? rapidjson::Value{
-                            representativeSimulation->exchange()->accounts().idBimap().right.at(agentId).c_str(), allocator}.Move()
-                        : rapidjson::Value{}.SetNull(),
-                    allocator);
                 json[agentIdCStr].AddMember("holdings", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
                 json[agentIdCStr].AddMember("orders", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
                 json[agentIdCStr].AddMember("loans", rapidjson::Document{rapidjson::kArrayType, &allocator}, allocator);
@@ -694,6 +820,13 @@ std::unique_ptr<SimulationManager> SimulationManager::fromConfig(const fs::path&
         });
     }
 
+    mngr->m_validatorReqMessageQueue = std::make_unique<ipc::PosixMessageQueue>(
+        ipc::PosixMessageQueueDesc{.name = s_validatorReqMessageQueueName.data()});
+    mngr->m_validatorResMessageQueue = std::make_unique<ipc::PosixMessageQueue>(
+        ipc::PosixMessageQueueDesc{.name = s_validatorResMessageQueueName.data()});
+
+    mngr->m_useMessagePack = node.attribute("useMessagePack").as_bool();
+
     return mngr;
 }
 
@@ -785,6 +918,8 @@ std::unique_ptr<SimulationManager> SimulationManager::fromReplay(const fs::path&
     }
 
     mngr->m_disallowPublish = true;
+
+    mngr->m_useMessagePack = node.attribute("useMessagePack").as_bool();
 
     return mngr;
 }
@@ -1017,6 +1152,7 @@ retry:
 
     http::response<http::string_body> res = parser.release();
     resJson.Parse(res.body().c_str());
+    fmt::println("SIMULATOR RECEIVED RESPONSE: {}", res.body().c_str());
 }
 
 //-------------------------------------------------------------------------

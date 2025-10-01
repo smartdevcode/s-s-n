@@ -2,7 +2,7 @@
     logWindow="3600000000000" timescale="ns"
     enableCheckpointing="0" traceTime="1" debug="0" blockCount="8"
     host="localhost" port="8000" batchSize="10" bookStateEndpoint="/orderbook"
-    generalMsgEndpoint="/account">
+    generalMsgEndpoint="/account" useMessagePack="1">
     <Agents>
         <MultiBookExchangeAgent name="EXCHANGE" remoteAgentCount="256" gracePeriod="600000000000"
             priceDecimals="2" volumeDecimals="4" baseDecimals="4" quoteDecimals="10"
@@ -15,7 +15,7 @@
                     <Processes>
                     <FundamentalPrice name="fundamental" seedInterval="30000000000" mu="0.0" sigma="0.068"
                         lambda="0.00206" muJump="0.0" sigmaJump="0.025" updatePeriod="30000000000"
-                        Hurst="0.65" epsilon="0.07"/>
+                        Hurst="0.80" epsilon="0.07"/>
                     <FuturesSignal name="external" seedInterval="10000000000" updatePeriod="10000000000"/>
                 </Processes>
             </Books>
@@ -56,6 +56,7 @@
             updateInterval="120000000000"
             minOPLatency="1000000"
             maxOPLatency="50000000"
+            volumeProb="0.33"
             volumeDrawRayleighScale="5500.0"
             alpha="0.3"
             beta="0.45"
@@ -105,14 +106,14 @@
             instanceCount="100"
             exchange="EXCHANGE"
             debug="0"
-            MFLmean="2000000000"
+            MFLmean="5000000000"
             MFLstd="50000000"
             minOPLatency="90000000"
             maxOPLatency="300000000"
             scaleR="0.2"
             sigmaN="0.7"
-            volume="9.0"
-            orderTypeProb="0.75"
+            volume="8.0"
+            orderTypeProb="0.85"
             lambda="0.001155"
             sigmaEps="0.5">
             <Balances>
@@ -135,29 +136,27 @@
             opLatencyScaleRay="0.235"
             delayMean="5000000000"
             delaySTD="1000000000"
-            scaleR="0.2"
+            scaleR="0.35"
             sigmaN="0.7"
-            sigmaC="1.2"
-            sigmaF="0.1"
-            tau="175000000000"
-            tauHist="100"
+            sigmaC="1.6"
+            sigmaF="0.025"
+            tau="100"
+            tauHist="50"
             tauF="1"
             volGuard="0.000001"
-            sigmaEps="0.001"
-            r_aversion="0.005"
+            sigmaEps="0.002"
+            r_aversion="10000000000"
+            HARA="1.0"
+            GBMSigma="0.01"
             regimeChangeFlag="0"
-            regimeProb="0.75"
-            sigmaFRegime="4"
-            sigmaCRegime="3.8"
-            sigmaNRegime="0.7"
-            tauFRegime="15"
             pO_alpha="0.0">
             <Balances
                 type="pareto-50"
-                scale="1.0"
-                shape="1.66"
+                scale="0.8"
+                shape="1.16"
                 seed="1337"
-                wealth="75000.0"
+                wealth="17000.0"
+                cap="3000000.0"
                 price="300.0"
             />
             <FeePolicy type="tiered" historySlots="24" slotPeriod="3600000000000">

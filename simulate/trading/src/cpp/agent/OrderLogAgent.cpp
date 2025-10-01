@@ -4,7 +4,7 @@
  */
 #include "OrderLogAgent.hpp"
 
-#include "ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
 #include "Simulation.hpp"
 
 

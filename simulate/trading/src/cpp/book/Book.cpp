@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
  * SPDX-License-Identifier: MIT
  */
-#include "Book.hpp"
+#include "taosim/book/Book.hpp"
 
 #include "Simulation.hpp"
 #include "taosim/simulation/SimulationException.hpp"
@@ -234,7 +234,7 @@ void Book::placeLimitBuy(LimitOrder::Ptr order)
             firstLessThan->push_back(order);
         }
         else {
-            TickContainer tov{&m_buyQueue, order->price()};
+            taosim::book::TickContainer tov{&m_buyQueue, order->price()};
             registerLimitOrder(order);
             tov.push_back(order);
             m_buyQueue.insert(firstLessThan.base(), std::move(tov));
@@ -268,7 +268,7 @@ void Book::placeLimitSell(LimitOrder::Ptr order)
             firstGreaterThan->push_back(order);
         }
         else {
-            TickContainer tov{&m_sellQueue, order->price()};
+            taosim::book::TickContainer tov{&m_sellQueue, order->price()};
             registerLimitOrder(order);
             tov.push_back(order);
             m_sellQueue.insert(firstGreaterThan, std::move(tov));
@@ -340,7 +340,7 @@ void Book::jsonSerialize(rapidjson::Document& json, const std::string& key) cons
         json.SetObject();
         auto& allocator = json.GetAllocator();
 
-        auto serializeLevelBroad = [](rapidjson::Document& json, const TickContainer& level) {
+        auto serializeLevelBroad = [](rapidjson::Document& json, const taosim::book::TickContainer& level) {
             json.SetObject();
             auto& allocator = json.GetAllocator();
             json.AddMember(

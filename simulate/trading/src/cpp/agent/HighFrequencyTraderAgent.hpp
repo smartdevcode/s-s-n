@@ -4,8 +4,9 @@
  */
 #pragma once
 
-#include "ExchangeAgentMessagePayloads.hpp"
-#include "MessagePayload.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
+#include "taosim/message/MessagePayload.hpp"
+#include "Distribution.hpp"
 #include "Agent.hpp"
 #include "GBMValuationModel.hpp"
 #include "Order.hpp"
@@ -125,9 +126,8 @@ private:
     std::vector<boost::circular_buffer<double>> m_priceHist;
     std::vector<boost::circular_buffer<double>> m_logReturns;
     std::vector<TimestampedTradePrice> m_tradePrice;
-    boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
-    boost::math::rayleigh_distribution<double> m_rayleighSample;
-    std::uniform_real_distribution<double> m_placementDraw;
+    std::unique_ptr<taosim::stats::Distribution> m_orderPlacementLatencyDistribution;
+    std::unique_ptr<taosim::stats::Distribution> m_priceShiftDistribution;
 };
 
 //-------------------------------------------------------------------------

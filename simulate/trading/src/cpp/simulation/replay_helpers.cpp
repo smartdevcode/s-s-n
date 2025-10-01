@@ -108,7 +108,7 @@ MessagePayload::Ptr makePayload(const rapidjson::Value& json)
     else if (msgType.ends_with("CANCEL_ORDERS")) {
         return MessagePayload::create<CancelOrdersPayload>(
             [&] {
-                std::vector<Cancellation> cancellations;
+                std::vector<event::Cancellation> cancellations;
                 for (const auto& cancellationJson : payloadJson["cs"].GetArray()) {
                     cancellations.emplace_back(
                         cancellationJson["i"].GetUint(),

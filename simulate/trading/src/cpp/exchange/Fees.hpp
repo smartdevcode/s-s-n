@@ -4,7 +4,9 @@
  */
 #pragma once
 
-#include "decimal.hpp"
+#include "taosim/decimal/decimal.hpp"
+
+#include <msgpack.hpp>
 
 //-------------------------------------------------------------------------
 
@@ -17,6 +19,8 @@ struct Fees
 {
     decimal_t maker{};
     decimal_t taker{};
+
+    MSGPACK_DEFINE_MAP(maker, taker);
 };
 
 //-------------------------------------------------------------------------

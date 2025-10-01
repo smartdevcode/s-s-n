@@ -7,7 +7,7 @@
 #include "Timestamp.hpp"
 
 #include <fmt/format.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <pugixml.hpp>
 
 #include <array>
@@ -126,7 +126,7 @@ struct fmt::formatter<taosim::simulation::Timescale>
     constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(taosim::simulation::Timescale ts, FormatContext& ctx)
+    auto format(taosim::simulation::Timescale ts, FormatContext& ctx) const
     {
         return fmt::format_to(ctx.out(), "{}", magic_enum::enum_name(ts));
     }

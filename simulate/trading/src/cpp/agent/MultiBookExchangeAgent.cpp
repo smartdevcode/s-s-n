@@ -352,7 +352,7 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
             replayNode = loggingNode.child("Replay");
         }
 
-        m_L3Record = L3RecordContainer{bookCount};
+        m_L3Record = taosim::event::L3RecordContainer{bookCount};
 
         for (BookId bookId{}; bookId < bookCount; ++bookId) {
             auto book = BookFactory::createBook(
@@ -378,8 +378,8 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
                         .order = order,
                         .volumeToCancel = volumeToCancel
                     });
-                    m_L3Record[bookId].push(CancellationEvent(
-                        Cancellation(order->id(), volumeToCancel),
+                    m_L3Record.at(bookId).push(taosim::event::CancellationEvent(
+                        taosim::event::Cancellation(order->id(), volumeToCancel),
                         simulation()->currentTimestamp(),
                         order->price()
                     ));
@@ -553,7 +553,7 @@ void MultiBookExchangeAgent::checkpointSerialize(
                     rapidjson::Document{rapidjson::kArrayType, &allocator},
                     allocator);
             }
-            for (const TickContainer& bidLevel : book->buyQueue()) {
+            for (const taosim::book::TickContainer& bidLevel : book->buyQueue()) {
                 for (const auto& bid : bidLevel) {
                     const auto [agentId, clientOrderId] = m_books[bookId]->orderClientContext(bid->id());
                     const auto agentIdStr = std::to_string(agentId);
@@ -564,7 +564,7 @@ void MultiBookExchangeAgent::checkpointSerialize(
                     json[agentIdCStr]["orders"][bookId].PushBack(orderJson, allocator);
                 }
             }
-            for (const TickContainer& askLevel : book->sellQueue()) {
+            for (const taosim::book::TickContainer& askLevel : book->sellQueue()) {
                 for (const auto& ask : askLevel) {
                     const auto [agentId, clientOrderId] = m_books[bookId]->orderClientContext(ask->id());
                     const auto agentIdStr = std::to_string(agentId);
@@ -650,7 +650,7 @@ void MultiBookExchangeAgent::jsonSerialize(
                         rapidjson::Document{rapidjson::kArrayType, &allocator},
                         allocator);
                 }
-                for (const TickContainer& bidLevel : book->buyQueue()) {
+                for (const taosim::book::TickContainer& bidLevel : book->buyQueue()) {
                     for (const auto& bid : bidLevel) {
                         const auto [agentId, clientOrderId] = m_books[bookId]->orderClientContext(bid->id());
                         const auto agentIdStr = std::to_string(agentId);
@@ -661,7 +661,7 @@ void MultiBookExchangeAgent::jsonSerialize(
                         json[agentIdCStr]["orders"][bookId].PushBack(orderJson, allocator);
                     }
                 }
-                for (const TickContainer& askLevel : book->sellQueue()) {
+                for (const taosim::book::TickContainer& askLevel : book->sellQueue()) {
                     for (const auto& ask : askLevel) {
                         const auto [agentId, clientOrderId] = m_books[bookId]->orderClientContext(ask->id());
                         const auto agentIdStr = std::to_string(agentId);
@@ -745,19 +745,19 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
         return;
     }
 
-    std::vector<std::vector<Cancellation>> cancellations;
+    std::vector<std::vector<taosim::event::Cancellation>> cancellations;
     for (AgentId agentId : valid) {
         simulation()->logDebug("{} | AGENT #{} : RESET-CANCELS", simulation()->currentTimestamp(), agentId);
         for (BookId bookId = 0; bookId < m_books.size(); ++bookId) {
             simulation()->logDebug("{} | AGENT #{} BOOK {} : RESET-CANCELS", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(bookId));
-            std::vector<Cancellation> bookCancellations;
+            std::vector<taosim::event::Cancellation> bookCancellations;
             const auto orders = accounts()[agentId].activeOrders()[bookId];
             const auto book = m_books.at(bookId);
             for (Order::Ptr order : orders) {
                 if (auto limitOrder = std::dynamic_pointer_cast<LimitOrder>(order)) {
                     simulation()->logDebug("{} | AGENT #{} BOOK {} : START RESET-CANCEL OF ORDER {}", simulation()->currentTimestamp(), agentId, simulation()->bookIdCanon(bookId), limitOrder->id());
                     if (book->cancelOrderOpt(limitOrder->id())) {
-                        const Cancellation cancellation{limitOrder->id()};
+                        const taosim::event::Cancellation cancellation{limitOrder->id()};
                         bookCancellations.push_back(cancellation);
                         m_signals.at(bookId)->cancelLog(CancellationWithLogContext(
                             cancellation,
@@ -952,7 +952,7 @@ void MultiBookExchangeAgent::handleDistributedPlaceLimitOrder(Message::Ptr msg)
             MessagePayload::create<DistributedAgentResponsePayload>(
                 payload->agentId,
                 MessagePayload::create<CancelOrdersPayload>(
-                    std::vector{Cancellation{order->id()}}, subPayload->bookId)));
+                    std::vector{taosim::event::Cancellation{order->id()}}, subPayload->bookId)));
     }
 }
 
@@ -992,8 +992,8 @@ void MultiBookExchangeAgent::handleDistributedCancelOrders(Message::Ptr msg)
     const auto bookId = subPayload->bookId;
     const auto book = m_books[bookId];
 
-    std::vector<Cancellation> cancellations;
-    std::vector<Cancellation> failures;
+    std::vector<taosim::event::Cancellation> cancellations;
+    std::vector<taosim::event::Cancellation> failures;
     for (const auto& cancellation : subPayload->cancellations) {        
         if (book->cancelOrderOpt(cancellation.id, cancellation.volume)) {
             cancellations.push_back(cancellation);
@@ -1011,7 +1011,7 @@ void MultiBookExchangeAgent::handleDistributedCancelOrders(Message::Ptr msg)
 
     if (!cancellations.empty()) {        
         std::vector<OrderID> orderIds;
-        for (const Cancellation& canc : cancellations) {
+        for (const auto& canc : cancellations) {
             orderIds.push_back(canc.id);
         }
         respondToMessage(
@@ -1027,7 +1027,7 @@ void MultiBookExchangeAgent::handleDistributedCancelOrders(Message::Ptr msg)
 
     if (!failures.empty()) {
         std::vector<OrderID> orderIds = failures
-            | views::transform([](const Cancellation& c) { return c.id; })
+            | views::transform([](const auto& c) { return c.id; })
             | ranges::to<std::vector>();
         auto errorMsg = fmt::format("Order IDs {} do not exist.", fmt::join(orderIds, ", "));
         auto retSubPayload = MessagePayload::create<CancelOrdersErrorResponsePayload>(
@@ -1312,7 +1312,7 @@ void MultiBookExchangeAgent::handleLocalPlaceLimitOrder(Message::Ptr msg)
             name(),
             "CANCEL_ORDERS",
             MessagePayload::create<CancelOrdersPayload>(
-                std::vector{Cancellation{order->id()}}, payload->bookId));
+                std::vector{taosim::event::Cancellation{order->id()}}, payload->bookId));
     }
 }
 
@@ -1348,8 +1348,8 @@ void MultiBookExchangeAgent::handleLocalCancelOrders(Message::Ptr msg)
     const auto bookId = payload->bookId;
     const auto book = m_books[bookId];
 
-    std::vector<Cancellation> cancellations;
-    std::vector<Cancellation> failures;
+    std::vector<taosim::event::Cancellation> cancellations;
+    std::vector<taosim::event::Cancellation> failures;
     for (auto& cancellation : payload->cancellations) {
         if (cancellation.volume) {
             cancellation.volume = taosim::util::round(
@@ -1376,7 +1376,7 @@ void MultiBookExchangeAgent::handleLocalCancelOrders(Message::Ptr msg)
             msg,
             MessagePayload::create<CancelOrdersResponsePayload>(
                 cancellations
-                    | views::transform([](const Cancellation& c) { return c.id; })
+                    | views::transform([](const auto& c) { return c.id; })
                     | ranges::to<std::vector>(),
                 MessagePayload::create<CancelOrdersPayload>(
                     std::move(cancellations), payload->bookId)),
@@ -1385,7 +1385,7 @@ void MultiBookExchangeAgent::handleLocalCancelOrders(Message::Ptr msg)
 
     if (!failures.empty()) {
         std::vector<OrderID> orderIds = failures
-            | views::transform([](const Cancellation& c) { return c.id; })
+            | views::transform([](const auto& c) { return c.id; })
             | ranges::to<std::vector>();
         auto errorMsg = fmt::format("Order IDs {} do not exist.", fmt::join(orderIds, ", "));
         auto retSubPayload = MessagePayload::create<CancelOrdersErrorResponsePayload>(
@@ -1727,8 +1727,8 @@ void MultiBookExchangeAgent::orderCallback(Order::Ptr order, OrderContext ctx)
 void MultiBookExchangeAgent::orderLogCallback(Order::Ptr order, OrderContext ctx)
 {
     if (order->totalVolume() == 0_dec) return;
-    m_L3Record[ctx.bookId].push(OrderEvent(order, ctx));
-    m_signals[ctx.bookId]->orderLog(OrderWithLogContext(
+    m_L3Record.at(ctx.bookId).push(taosim::event::OrderEvent(order, ctx));
+    m_signals.at(ctx.bookId)->orderLog(OrderWithLogContext(
         order, std::make_shared<OrderLogContext>(ctx.agentId, ctx.bookId)));
 }
 
@@ -1774,7 +1774,7 @@ void MultiBookExchangeAgent::tradeCallback(Trade::Ptr trade, BookId bookId)
         .trade = trade
     });
 
-    m_L3Record[bookId].push(TradeEvent(
+    m_L3Record.at(bookId).push(taosim::event::TradeEvent(
         trade, TradeContext(bookId, aggressingAgentId, restingAgentId, fees)));
 
     auto tradeWithCtx = std::make_shared<TradeWithLogContext>(

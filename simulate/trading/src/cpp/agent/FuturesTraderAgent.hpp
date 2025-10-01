@@ -6,6 +6,7 @@
 
 #include "Agent.hpp"
 #include "GBMValuationModel.hpp"
+#include "Distribution.hpp"
 #include "Order.hpp"
 
 #include <boost/circular_buffer.hpp>
@@ -85,9 +86,8 @@ private:
     Timestamp m_historySize;
     std::normal_distribution<double> m_marketFeedLatencyDistribution;
     std::vector<TimestampedTradePrice> m_tradePrice;
-    boost::math::rayleigh_distribution<double> m_orderPlacementLatencyDistribution;
-    std::uniform_real_distribution<double> m_placementDraw;
-    boost::math::rayleigh_distribution<double> m_rayleigh;
+    std::unique_ptr<taosim::stats::Distribution> m_orderPlacementLatencyDistribution;
+    // std::unique_ptr<toasim::stats::Distribution> m_rayleigh;
     std::string m_baseName;
 };
 

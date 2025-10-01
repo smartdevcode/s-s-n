@@ -71,7 +71,7 @@ def maintain_coinbase(client: CoinbaseClient, reconnect: Callable[[], None], che
     except WSClientException as e:
         bt.logging.warning(f"Error in Coinbase websocket : {e}")
     except WSClientConnectionClosedException as e:
-        bt.logging.error("Coinbase connection closed! Sleeping for 10 seconds before reconnecting...")
+        bt.logging.error(f"Coinbase connection closed! Sleeping for {interval} seconds before reconnecting...")
         time.sleep(interval)
     if not client._is_websocket_open() or not check():
         reconnect()
@@ -199,7 +199,7 @@ def connect_binance(symbols, on_trade: Callable[[dict], None]) -> Tuple[BinanceC
         bt.logging.warning(f"Unable to connect to Binance Trades Stream! {ex}.")
         return None, ex
 
-def maintain_binance(client: BinanceClient, reconnect: Callable[[], None], check: Callable[[], bool]):
+def maintain_binance(client: BinanceClient, reconnect: Callable[[], None], check: Callable[[], bool], interval=10):
     """
     Monitors the Binance client for inactivity and reconnects if necessary.
 
@@ -208,6 +208,6 @@ def maintain_binance(client: BinanceClient, reconnect: Callable[[], None], check
         reconnect (Callable[[], None]): Function to call for reconnecting the client.
         check (Callable[[], bool]): Health check function that returns False if stream is inactive.
     """
-    time.sleep(10)
+    time.sleep(interval)
     if not check():
         reconnect()

@@ -4,8 +4,8 @@
  */
 #include "InitializationAgent.hpp"
 
-#include "ExchangeAgentMessagePayloads.hpp"
-#include "Account.hpp"
+#include "taosim/message/ExchangeAgentMessagePayloads.hpp"
+#include "taosim/accounting/Account.hpp"
 #include "Simulation.hpp"
 
 #include <cmath>
@@ -155,7 +155,7 @@ void InitializationAgent::handleLimitOrderPlacementResponse(Message::Ptr msg)
         m_exchange,
         "CANCEL_ORDERS",
         MessagePayload::create<CancelOrdersPayload>(
-            std::vector{Cancellation(payload->id)}, payload->requestPayload->bookId));
+            std::vector{taosim::event::Cancellation(payload->id)}, payload->requestPayload->bookId));
 }
 
 //-------------------------------------------------------------------------

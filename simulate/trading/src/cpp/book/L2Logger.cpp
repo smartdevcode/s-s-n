@@ -4,7 +4,7 @@
  */
 #include "L2Logger.hpp"
 
-#include "Book.hpp"
+#include "taosim/book/Book.hpp"
 #include "Simulation.hpp"
 #include "common.hpp"
 
