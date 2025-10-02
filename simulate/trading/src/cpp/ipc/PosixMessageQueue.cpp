@@ -4,12 +4,12 @@
  */
 #include "taosim/ipc/PosixMessageQueue.hpp"
 
+#include "taosim/ipc/util.hpp"
+
 #include <fmt/format.h>
 
-#include <chrono>
 #include <source_location>
 #include <stdexcept>
-#include <thread>
 #include <vector>
 
 //-------------------------------------------------------------------------
@@ -51,27 +51,16 @@ PosixMessageQueue::~PosixMessageQueue() noexcept
 
 bool PosixMessageQueue::send(std::span<const char> msg, uint32_t priority) noexcept
 {
-    for (size_t r{}; r < m_desc.retries; ++r) {
-        if (mq_send(m_handle, msg.data(), msg.size(), priority) == 0) {
-            return true;
-        }
-        std::this_thread::sleep_for(std::chrono::nanoseconds{m_desc.timeout});
-    }
-    return false;
+    const timespec ts = makeTimespec(m_desc.timeout.value_or(0));
+    return mq_timedsend(m_handle, msg.data(), msg.size(), priority, &ts) == 0;
 }
 
 //-------------------------------------------------------------------------
 
 ssize_t PosixMessageQueue::receive(std::span<char> msg, uint32_t* priority) noexcept
 {
-    for (size_t r{}; r < m_desc.retries; ++r) {
-        const auto ret = mq_receive(m_handle, msg.data(), msg.size(), priority);
-        if (ret != -1) {
-            return ret;
-        }
-        std::this_thread::sleep_for(std::chrono::nanoseconds{m_desc.timeout});
-    }
-    return -1;
+    const timespec ts = makeTimespec(m_desc.timeout.value_or(0));
+    return mq_timedreceive(m_handle, msg.data(), msg.size(), priority, &ts);
 }
 
 //-------------------------------------------------------------------------

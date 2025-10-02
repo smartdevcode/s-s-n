@@ -20,23 +20,26 @@ def check_repo(self : Validator) -> Tuple[bool, bool, bool, bool]:
         bt.logging.info("Checking repo for updates...")
         remote = self.repo.remotes[self.config.repo.remote]
         fetch = remote.fetch(self.repo.active_branch.name)
-        diff = self.repo.head.commit.diff(remote.refs[self.repo.active_branch.name].object.hexsha)
+        local_commit = self.repo.head.commit
+        remote_commit = remote.refs[self.repo.active_branch.name].commit
         validator_py_files_changed = False
         simulator_config_changed = False
         simulator_py_files_changed = False
         simulator_cpp_files_changed = False
-        for cht in diff.change_type:
-            changes = list(diff.iter_change_type(cht))
-            for c in changes:
-                if str(self.repo_path / c.b_path) == self.simulator_config_file:
-                    simulator_config_changed = True
-                if c.b_path.endswith('.cpp'):
-                    simulator_cpp_files_changed = True
-                if c.b_path.endswith('.py'):
-                    if 'simulate/trading' in c.b_path:
-                        simulator_py_files_changed = True
-                    else:
-                        validator_py_files_changed = True
+        if local_commit != remote_commit:
+            diff = remote_commit.diff(local_commit)
+            for cht in diff.change_type:
+                changes = list(diff.iter_change_type(cht))
+                for c in changes:
+                    if str(self.repo_path / c.b_path) == self.simulator_config_file:
+                        simulator_config_changed = True
+                    if c.b_path.endswith('.cpp'):
+                        simulator_cpp_files_changed = True
+                    if c.b_path.endswith('.py'):
+                        if 'simulate/trading' in c.b_path:
+                            simulator_py_files_changed = True
+                        else:
+                            validator_py_files_changed = True
         if not any([validator_py_files_changed, simulator_config_changed, simulator_py_files_changed, simulator_cpp_files_changed]):
             bt.logging.info("Nothing to update.")
         else:

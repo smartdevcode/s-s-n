@@ -260,6 +260,7 @@ struct PlaceOrderLimitPayload : public MessagePayload
         direction,
         volume,
         price,
+        leverage,
         bookId,
         currency,
         clientOrderId,

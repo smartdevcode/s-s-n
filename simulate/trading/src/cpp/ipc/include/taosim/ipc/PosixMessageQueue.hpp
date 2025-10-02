@@ -8,7 +8,6 @@ extern "C" {
 #include <fcntl.h>
 #include <mqueue.h>
 #include <sys/stat.h>
-#include <time.h>
 }
 
 #include <cerrno>
@@ -28,7 +27,7 @@ namespace taosim::ipc
 struct PosixMessageQueueDesc
 {
     std::string name;
-    int32_t oflag = O_CREAT | O_RDWR | O_NONBLOCK;
+    int32_t oflag = O_CREAT | O_RDWR;
     mode_t mode = 0666;
     mq_attr attr = {
         .mq_flags = 0,
@@ -36,8 +35,7 @@ struct PosixMessageQueueDesc
         .mq_msgsize = sizeof(size_t),
         .mq_curmsgs = 0
     };
-    size_t retries{6};
-    size_t timeout{10'000'000'000};
+    std::optional<size_t> timeout{60'000'000'000};
 };
 
 //-------------------------------------------------------------------------

@@ -95,7 +95,7 @@ Miner agents are otherwise treated in the simulator on the same footing as the b
 <div style="page-break-after: always;"></div>
 
 ## Requirements <span id="requirements"><span>
-Requirements are subject to change as the subnet matures and evolves; this section describes the recommended resources to be available for the initial simulation conditions.  We begin with only 10 orderbooks, each having around 1000 background agents, while the aim in the near- to mid-term is to reach 1,000+ simulated orderbooks in order to achieve a meaningful level of statistical significance in the evaluation of results.
+Requirements are subject to change as the subnet matures and evolves; this section describes the recommended resources to be available for the initial simulation conditions.  We currently manage 40 orderbooks in a simulation, each having around 1000 background agents, while the aim in the near- to mid-term is to reach 1,000+ simulated orderbooks in order to achieve a meaningful level of statistical significance in the evaluation of results.
 
 ### Validator <span id="requirements-validator"><span>
 Validators need to host the C++ simulator as well as the Python validator.  In the early days of the subnet, the number of orderbooks simulated as well as the count and type of background agents will be reduced so as to limit the requirements before the subnet matures and sufficient emissions are gained to justify the expense of hosting more powerful machinery.  Basic requirements:
@@ -115,7 +115,7 @@ There are no set requirements for miners except that the basic Bittensor package
 ## Agents <span id="agents"><span>
 In order to separate the basic network logic from the actual trading logic and allow to easily switch between different strategies, miners in this subnet define a separate class containing the agent logic which is referenced in the configuration of the miner and loaded for handling of simulation state updates.  Some simple example agents are provided in the `agents` directory of this repository, and are copied to a directory `~/.taos/agents` if using the miner install script to prepare your environment.  The objective in agent development is to produce logic which maximizes performance over all realizations in terms of the evaluation metrics applied by the validators.  Currently assessment is based on an intraday Sharpe ratio of the changes in estimated total inventory value in conjunction with a requirement to maintain a certain level of cumulative trading volume; this will be continuously monitored and reviewed, and other relevant risk-adjusted performance measures incorporated if a need is observed.
 
-Only very basic agents which randomly place orders are immediately included as examples, designed only to illustrate the basics of reading the state updates and creating instructions.  We expect miners to develop their own custom logic in order to compete in the subnet, but plan to release additional examples, tools and templates to facilitate implementation of certain common classes of trading strategies.
+Only some basic agents are immediately included as examples, designed to illustrate the fundamentals of reading the state updates and creating instructions.  We expect miners to develop their own custom logic in order to compete in the subnet, but plan to release additional examples, tools and templates to facilitate implementation of certain common classes of trading strategies.  An overview of the information needed to begin developing strategies is provided [here](agents/README.md).  It is also possible to test agents offline against the background model on your local machine by following [these instructions](agents/proxy/README.md).
 
 ---
 <div style="page-break-after: always;"></div>
@@ -130,10 +130,10 @@ cd sn-79
 ```
 
 ### Docker <span id="install-docker"><span>
-DOCKER DEPLOYMENT COMING SOON
+DOCKER DEPLOYMENT IMPLEMENTATION WILL BE COMPLETED IF REQUESTED BY VALIDATORS
 
 ### Validator <span id="install-validator"><span>
-To prepare your environment for running a validator (including the C++ simulator), simply run the included script:
+To prepare your environment for running a validator (including the C++ simulator), simply run the included script **as root user** (if unable to execute as root, please reach out to us for assistance, but may need to await Docker-based deploy in this case):
 ```console
 ./install_validator.sh
 ```
@@ -151,7 +151,7 @@ This will install the following tools:
 - **cmake-3.29.7** : Required to build and run the simulator
 - **τaos.im simulator** : The C++/Pybind simulator application.
 
-You can of course modify the install script if you wish to make changes to the installation, or use this as a guide to execute the steps by hand if you prefer.  Note that the installation process takes quite a long time, often 2+ hours on Ubuntu 22.04, due to the need to compile specific cmake and g++ versions from source, so recommended to run in a multiplexer (e.g. screen) to prevent interruptions.  We will soon have Dockerized deployment available to simplify and expedite this process.
+You can of course modify the install script if you wish to make changes to the installation, or use this as a guide to execute the steps by hand if you prefer.  Note that the installation process takes quite a long time, often 2+ hours on Ubuntu 22.04, due to the need to compile specific cmake and g++ versions from source, so recommended to run in a multiplexer (e.g. screen/tmux) to prevent interruptions.
 
 <div style="page-break-after: always;"></div>
 
@@ -173,7 +173,7 @@ This will install the following tools:
 <div style="page-break-after: always;"></div>
 
 ## Run <span id="run"><span>
-We include simple shell scripts to facilitate running of a validator or miner; it is also possible to run the applications directly yourself.
+We include simple shell scripts to facilitate running of a validator or miner; it is also possible to run the applications directly yourself in the case of miner processes, though validators are strongly recommended to use the provided script in order to ensure that all components are updated properly.
 If you wish to use the run scripts, first enter the directory where you have cloned this repo.  You will of course also need to register the hotkey with which you wish to mine/validate on the subnet.
 
 ### Validator <span id="run-validator"><span>
@@ -182,41 +182,29 @@ To run a validator, you can use the provided `run_validator.sh` which accepts th
 - `-p` : The path where your wallets are stored (default=`~/.bittensor/wallets/`)
 - `-w` : The name of your coldkey (default=`taos`)
 - `-h` : The name of your hotkey (default=`validator`)
-- `-l` : Logging level for the validator, must be one of `error`, `warning`, `info`, `debug`, `trace` (default=`info`).
+- `-l` : Logging level for the validator, must be one of `error`, `warning`, `info`, `debug`, `trace` (default=`info`)
+- `-d` : Pagerduty integration key; if you have a Pagerduty subscription, this allows to trigger alerts for critical failure scenarios (default=`""`)
+- `-o` : Port on which Prometheus metrics will be published.  If you use a different port than the default, please let us know so that your data will still appear at [taos.simulate.trading](https://taos.simulate.trading/?orgId=1) (default=`9001`).
+- `-t` : Timeout for miner queries; this allows validators to tune the time allowed for miners to respond to account for differences in server geolocation or networking capability (default=`3.0`).
+- `-s` : Flag to indicate that the simulator should not be restarted when performing the update; this allows to easily execute updates which only affect the Python validator operation (default=`0`; append `-s 1` to command to preserve running simulator during update).
+- `-x` : Flag to indicate if wanting to launch tmux session for monitoring (default=`1`; append `-x 0` to command to disable tmux session creation).
 <!-- - `-c` : If the simulator has been stopped for whatever reason, and you wish to resume the previous simulation rather than starting a new one, you can set this argument to the location of the `ckpt.json` found 
 in the output directory of the simulation.(default=`0` => start a new simulation) -->
+
 The script will:
 1. Pull and install the latest changes from the taos repository
-2. Launch a validator under pm2 management as `validator` with the specified parameters
-3. Build the latest version of the simulator
+2. Build the latest version of the simulator
+3. Launch a validator under pm2 management as `validator` with the specified parameters
 4. Start the simulator under pm2 management as `simulator`
 5. Save the pm2 process list and configure for resurrection on restart
-6. Open a `tmux` session with the logs for validator and simulator displayed in separate panes.
+6. Open a `tmux` session with the logs for validator and simulator displayed in separate panes (if not disabled).
 
 Example run command:
 ```
 ./run_validator.sh -e finney -p ~/.bittensor/wallets -w taos -h validator -u 79
 ```
 
-Note that the validator includes auto-update and restart functionality by which the latest changes in configuration and any updates to simulator or validator logic will be pulled and compiled before the next simulation is started, and which will also restart the simulator automatically if found not to be running.  This is necessary to ensure that validators utilize the latest configuration in order to maintain consensus. The Dockerized version of the deployment will implement similar mechanisms through a management agent which monitors and maintains containers.
-
-To run manually without pm2, you can use the following commands from inside the repo directory:
-
-- Validator
-  ```console
-  cd taos/im/neurons
-  python validator.py --netuid 79 \
-  --subtensor.chain_endpoint $ENDPOINT \
-  --wallet.path $WALLET_PATH \
-  --wallet.name $WALLET_NAME \
-  --wallet.hotkey $HOTKEY_NAME \
-  --logging.$LOG_LEVEL
-  ```
-- Simulator
-  ```console
-  cd simulate/trading/run
-  ../build/src/cpp/taosim -f config/simulation_0.xml
-  ```
+**We recommend running as root to avoid any permissions issues.**
 
 <div style="page-break-after: always;"></div>
 
@@ -232,12 +220,13 @@ To run a miner, you can use the provided `run_miner.sh` which accepts the follow
 - `-e` : The subtensor endpoint to which you will connect (default=`wss://entrypoint-finney.opentensor.ai:443`)
 - `-p` : The path where your wallets are stored (default=`~/.bittensor/wallets/`)
 - `-w` : The name of your coldkey (default=`taos`)
-- `-h` : The name of your hotkey (default=`validator`)
+- `-h` : The name of your hotkey (default=`miner`)
+- `-u` : Netuid on which to serve the miner, for testing with localnet or testnet (default=`79`)
 - `-a` : The port on which to serve the miner axon (default=`8091`)
 - `-g` : The path at which your agent definition files are stored (default=`~/.taos/agents`)
-- `-n` : The name of the file (and class) in the directory specified by `-g` of the agent logic which this miner will use (default=`RandomMakerAgent`)
-- `-m` : Parameters for the active agent in the format `param_1=x param_2=y ..` (default=`min_quantity=0.1 max_quantity=1.0 expiry_period=200`)
-- `-l` : Logging level for the validator, must be one of `error`, `warning`, `info`, `debug`, `trace` (default=`info`) 
+- `-n` : The name of the file (and class) in the directory specified by `-g` of the agent logic which this miner will use (default=`SimpleRegressorAgent`)
+- `-m` : Parameters for the active agent in the format `param_1=x param_2=y ..` (default=`min_quantity=0.1 max_quantity=1.0 expiry_period=200 model=PassiveAggressiveRegressor signal_threshold=0.0025`)
+- `-l` : Logging level for the miner, must be one of `error`, `warning`, `info`, `debug`, `trace` (default=`info`) 
 The script will:
 1. Pull and install the latest changes from the taos repository
 2. Launch a miner under pm2 management as `miner` with the specified parameters

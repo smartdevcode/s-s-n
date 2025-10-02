@@ -67,6 +67,8 @@ class Proxy(Validator):
         self.router.add_api_route("/orderbook", self.orderbook, methods=["GET"])
         self.router.add_api_route("/account", self.account, methods=["GET"])
 
+        #self.sem = posix_ipc.Semaphore("/send-recv", posix_ipc.O_CREAT, mode=0o666, initial_value=0)
+
     def load_simulation_config(self):
         self.xml_config = ET.parse(self.simulator_config_file).getroot()
         self.simulation = MarketSimulationConfig.from_xml(self.xml_config)
@@ -88,7 +90,7 @@ class Proxy(Validator):
         bt.logging.info(f"OUT DIR   : {self.simulation.logDir}")
         bt.logging.info("-"*40)
 
-    async def handle_state(self, message : dict, state : MarketSimulationStateUpdate) -> dict:            
+    async def handle_state(self, message : dict, state : MarketSimulationStateUpdate, receive_start : int) -> dict:            
         start = time.time()
         state.version = __spec_version__
         state.dendrite.hotkey = 'proxy'
@@ -138,31 +140,35 @@ class Proxy(Validator):
                 except Exception as e:
                     bt.logging.error(f"{agent} | Failed to validate response : {e}")
         agent_responses = set_delays(self, synapse_responses)
-        simulator_response = SimulatorResponseBatch(agent_responses).serialize()
+        simulator_response = SimulatorResponseBatch(agent_responses).serialize()        
+        bt.logging.info(f"State update handled ({time.time()-receive_start}s)")
         return simulator_response
 
     async def _listen(self):
         def receive(mq_req) -> dict:
             msg, priority = mq_req.receive()
-            start = time.time()
+            receive_start = time.time()
             bt.logging.info(f"Received state update from simulator (msgpack)")
             byte_size_req = int.from_bytes(msg, byteorder="little")
             shm_req = posix_ipc.SharedMemory("/state", flags=posix_ipc.O_CREAT)
             with mmap.mmap(shm_req.fd, byte_size_req, mmap.MAP_SHARED, mmap.PROT_READ) as mm:
                 shm_req.close_fd()
                 packed_data = mm.read(byte_size_req)
+            bt.logging.info(f"Retrieved State Update ({time.time() - receive_start}s)")
+            start = time.time()
             result = msgpack.unpackb(packed_data, raw=False, use_list=False, strict_map_key=False)
             bt.logging.info(f"Unpacked state update ({time.time() - start}s)")
-            return result
+            return result, receive_start
         
         def respond(response) -> dict:
-            packed_res = msgpack.packb(response, use_bin_type=False)
+            packed_res = msgpack.packb(response, use_bin_type=True)
             byte_size_res = len(packed_res)
             mq_res = posix_ipc.MessageQueue("/taosim-res", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
             shm_res = posix_ipc.SharedMemory("/responses", flags=posix_ipc.O_CREAT, size=byte_size_res)
             with mmap.mmap(shm_res.fd, byte_size_res, mmap.MAP_SHARED, mmap.PROT_WRITE | mmap.PROT_READ) as mm:
                 shm_res.close_fd()
                 mm.write(packed_res)
+            #self.sem.release()
             mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))            
         
         while True:
@@ -170,11 +176,11 @@ class Proxy(Validator):
             try:
                 mq_req = posix_ipc.MessageQueue("/taosim-req", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
                 # This blocks until the queue can provide a message
-                message = receive(mq_req)
+                message, receive_start = receive(mq_req)
                 start = time.time()
-                state = MarketSimulationStateUpdate.model_validate(message)
+                state = MarketSimulationStateUpdate.model_validate(message, strict=False)
                 bt.logging.info(f"Parsed state update ({time.time() - start}s)")
-                response = await self.handle_state(message, state)
+                response = await self.handle_state(message, state, receive_start)
             except Exception as ex:
                 traceback.print_exc()
             finally:

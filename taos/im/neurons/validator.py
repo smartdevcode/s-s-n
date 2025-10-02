@@ -341,7 +341,8 @@ if __name__ != "__mp_main__":
                             self.sharpe_values[uid]['books_weighted'][bookId] = 0.0
                     if self.sharpe_values[uid] and len(self.sharpe_values[uid]['books']) > self.simulation.book_count:
                         self.sharpe_values[uid]['books'] = {k : v for k, v in self.sharpe_values[uid]['books'].items() if k < self.simulation.book_count}
-                        self.sharpe_values[uid]['books_weighted'] = {k : v for k, v in self.sharpe_values[uid]['books_weighted'].items() if k < self.simulation.book_count}
+                        if 'books_weighted' in self.sharpe_values[uid]:
+                            self.sharpe_values[uid]['books_weighted'] = {k : v for k, v in self.sharpe_values[uid]['books_weighted'].items() if k < self.simulation.book_count}
                 self.unnormalized_scores = validator_state["unnormalized_scores"]
                 self.trade_volumes = validator_state["trade_volumes"] if "trade_volumes" in validator_state else {uid : {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
                 reorg = False
@@ -451,7 +452,9 @@ if __name__ != "__mp_main__":
 
             self.miner_stats = {uid : {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []} for uid in range(self.subnet_info.max_uids)}
             init_metrics(self)
-            publish_info(self)
+            publish_info(self)            
+
+            # self.sem = posix_ipc.Semaphore("/send-recv", posix_ipc.O_CREAT, mode=0o666, initial_value=0)
 
         def load_fundamental(self):
             if self.simulation.logDir:
@@ -700,13 +703,14 @@ if __name__ != "__mp_main__":
                 return result, receive_start
             
             def respond(response) -> dict:
-                packed_res = msgpack.packb(response, use_bin_type=False)
+                packed_res = msgpack.packb(response, use_bin_type=True)
                 byte_size_res = len(packed_res)
                 mq_res = posix_ipc.MessageQueue("/taosim-res", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
                 shm_res = posix_ipc.SharedMemory("/responses", flags=posix_ipc.O_CREAT, size=byte_size_res)
                 with mmap.mmap(shm_res.fd, byte_size_res, mmap.MAP_SHARED, mmap.PROT_WRITE | mmap.PROT_READ) as mm:
                     shm_res.close_fd()
                     mm.write(packed_res)
+                # self.sem.release()
                 mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))            
             
             while True:
@@ -716,7 +720,7 @@ if __name__ != "__mp_main__":
                     # This blocks until the queue can provide a message
                     message, receive_start = receive(mq_req)
                     start = time.time()
-                    state = MarketSimulationStateUpdate.model_validate(message)
+                    state = MarketSimulationStateUpdate.model_validate(message, strict=False)
                     bt.logging.info(f"Parsed state update ({time.time() - start}s)")
                     response = await self.handle_state(message, state, receive_start)
                 except Exception as ex:

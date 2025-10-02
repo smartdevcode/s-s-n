@@ -121,7 +121,7 @@ struct BasicOrder : public JsonSerializable, public CheckpointSerializable
     OrderID m_id;
     Timestamp m_timestamp;
     taosim::decimal_t m_volume;
-    taosim::decimal_t m_leverage;
+    taosim::decimal_t m_leverage{};
 
     MSGPACK_DEFINE_MAP(
         MSGPACK_NVP("orderId", m_id),
@@ -159,9 +159,9 @@ struct Order : public BasicOrder
         rapidjson::Document& json, const std::string& key = {}) const override;
 
     OrderDirection m_direction;
-    STPFlag m_stpFlag;
-    SettleFlag m_settleFlag;
-    Currency m_currency;
+    STPFlag m_stpFlag{STPFlag::CO};
+    SettleFlag m_settleFlag{SettleType::FIFO};
+    Currency m_currency{Currency::BASE};
 
     MSGPACK_DEFINE_MAP(
         MSGPACK_NVP("orderId", m_id),
@@ -170,6 +170,7 @@ struct Order : public BasicOrder
         MSGPACK_NVP("leverage", m_leverage),
         MSGPACK_NVP("direction", m_direction),
         MSGPACK_NVP("stpFlag", m_stpFlag),
+        MSGPACK_NVP("settleFlag", m_settleFlag),
         MSGPACK_NVP("currency", m_currency));
 };
 
@@ -207,6 +208,7 @@ struct MarketOrder : public Order
         MSGPACK_NVP("leverage", m_leverage),
         MSGPACK_NVP("direction", m_direction),
         MSGPACK_NVP("stpFlag", m_stpFlag),
+        MSGPACK_NVP("settleFlag", m_settleFlag),
         MSGPACK_NVP("currency", m_currency));
 };
 
@@ -249,9 +251,9 @@ struct LimitOrder : public Order
     [[nodiscard]] static Ptr fromJson(const rapidjson::Value& json, int priceDecimals, int volumeDecimals);
 
     taosim::decimal_t m_price;
-    bool m_postOnly;
-    taosim::TimeInForce m_timeInForce;
-    std::optional<Timestamp> m_expiryPeriod;
+    bool m_postOnly{};
+    taosim::TimeInForce m_timeInForce{taosim::TimeInForce::GTC};
+    std::optional<Timestamp> m_expiryPeriod{};
 
     MSGPACK_DEFINE_MAP(
         MSGPACK_NVP("orderId", m_id),
@@ -260,8 +262,12 @@ struct LimitOrder : public Order
         MSGPACK_NVP("leverage", m_leverage),
         MSGPACK_NVP("direction", m_direction),
         MSGPACK_NVP("stpFlag", m_stpFlag),
+        MSGPACK_NVP("settleFlag", m_settleFlag),
         MSGPACK_NVP("currency", m_currency),
-        MSGPACK_NVP("price", m_price));
+        MSGPACK_NVP("price", m_price),
+        MSGPACK_NVP("postOnly", m_postOnly),
+        MSGPACK_NVP("timeInForce", m_timeInForce),
+        MSGPACK_NVP("expiryPeriod", m_expiryPeriod));
 };
 
 //-------------------------------------------------------------------------

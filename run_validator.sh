@@ -11,7 +11,8 @@ PROM_PORT=9001
 TIMEOUT=3.0
 SIMULATION_CONFIG=simulation_0
 PRESERVE_SIMULATOR=0
-while getopts e:p:w:h:u:l:d:o:t:c:s: flag
+USE_TMUX=1
+while getopts e:p:w:h:u:l:d:o:t:c:s:x: flag
 do
     case "${flag}" in
         e) ENDPOINT=${OPTARG};;
@@ -25,6 +26,7 @@ do
         t) TIMEOUT=${OPTARG};;
         c) SIMULATION_CONFIG=${OPTARG};;
         s) PRESERVE_SIMULATOR=${OPTARG};;
+        x) USE_TMUX=${OPTARG};;
         # c) CHECKPOINT=${OPTARG};;
     esac
 done
@@ -39,10 +41,13 @@ echo "PROMETHEUS PORT: $PROM_PORT"
 echo "TIMEOUT: $TIMEOUT"
 echo "SIMULATION_CONFIG: $SIMULATION_CONFIG"
 echo "PRESERVE_SIMULATOR: $PRESERVE_SIMULATOR"
+echo "USE_TMUX: $USE_TMUX"
 
 if [ $PRESERVE_SIMULATOR = 0 ]; then
     pm2 delete simulator validator
-    tmux kill-session -t taos
+    if [ $USE_TMUX = 1 ]; then
+        tmux kill-session -t taos
+    fi
 else
     pm2 delete validator
 fi
@@ -73,9 +78,9 @@ if [ $PRESERVE_SIMULATOR = 0 ]; then
     fi
     cd ..
     if ! g++ -dumpversion | grep -q "14"; then
-        cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "$(nproc)"
+        cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D CMAKE_CXX_COMPILER=g++-14 .. && cmake --build . -j "4"
     else
-        cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D .. && cmake --build . -j "$(nproc)"
+        cd build && cmake -DENABLE_TRACES=1 -DCMAKE_BUILD_TYPE=Release -D .. && cmake --build . -j "4"
     fi
     cd ../../../taos/im/neurons
 else
@@ -95,20 +100,24 @@ if [ $PRESERVE_SIMULATOR = 0 ]; then
     # fi
     pm2 save
     pm2 startup
-
-    echo "Setting Up Tmux Session"
-    # Start a new tmux session and open htop for validator process monitoring in the first pane
-    tmux new-session -d -s taos -n 'validator' 'htop -F validator.py'    
-    # Split the window horizontally and open htop for simulator resource usage monitoring
-    tmux split-window -h -t taos:validator 'htop -F taosim'
-    # Focus the first pane
-    tmux select-pane -t 0
-    # Split vertically and open the validator logs in the third pane
-    tmux split-window -v -t taos:validator 'pm2 logs validator'
-    # Focus the second pane
-    tmux select-pane -t 2
-    # Split the window and open the simulator logs in the new pane
-    tmux split-window -v -t taos:validator 'pm2 logs simulator'
+    
+    if [ $USE_TMUX = 1 ]; then
+        echo "Setting Up Tmux Session"
+        # Start a new tmux session and open htop for validator process monitoring in the first pane
+        tmux new-session -d -s taos -n 'validator' 'htop -F validator.py'    
+        # Split the window horizontally and open htop for simulator resource usage monitoring
+        tmux split-window -h -t taos:validator 'htop -F taosim'
+        # Focus the first pane
+        tmux select-pane -t 0
+        # Split vertically and open the validator logs in the third pane
+        tmux split-window -v -t taos:validator 'pm2 logs validator'
+        # Focus the second pane
+        tmux select-pane -t 2
+        # Split the window and open the simulator logs in the new pane
+        tmux split-window -v -t taos:validator 'pm2 logs simulator'
+    fi
 fi
-# Attach to the new tmux session
-tmux attach-session -t taos
+if [ $USE_TMUX = 1 ]; then
+    # Attach to the new tmux session
+    tmux attach-session -t taos
+fi
