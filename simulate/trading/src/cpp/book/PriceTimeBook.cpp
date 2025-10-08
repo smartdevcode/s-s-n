@@ -24,6 +24,12 @@ taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, tao
     taosim::decimal_t processedQuote = {};
     const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
     const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
+    const auto maxDecimals = std::max({
+        volumeDecimals,
+        priceDecimals,
+        m_simulation->exchange()->config().parameters().quoteIncrementDecimals,
+        m_simulation->exchange()->config().parameters().baseIncrementDecimals
+    });
     const auto agentId = m_order2clientCtx[order->id()].agentId;
 
     auto bestBuyDeque = &m_buyQueue.back();
@@ -55,15 +61,18 @@ taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, tao
         if (usedVolume > 0_dec) {
             processedQuote += usedVolume * bestBuyDeque->price();
             logTrade(OrderDirection::SELL, order->id(), iop->id(), usedVolume, bestBuyDeque->price());
+            m_simulation->logDebug("{} | logTrade AgainstBuy | AGENT #{} BOOK {} :   processedQute: {}  usedVoume:{}  bestBuyDeqPrice: {}", 
+                m_simulation->currentTimestamp(), restCtx.agentId, m_id, processedQuote, usedVolume, bestBuyDeque->price());
         }
 
         order->removeLeveragedVolume(usedVolume);
         iop->removeLeveragedVolume(usedVolume);
 
-        order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
-        iop->setVolume(taosim::util::round(iop->volume(), volumeDecimals));
+        order->setVolume(taosim::util::round(order->volume(), maxDecimals));
+        iop->setVolume(taosim::util::round(iop->volume(), maxDecimals));
 
-        bestBuyDeque->updateVolume(-taosim::util::round(usedVolume, volumeDecimals));
+
+        bestBuyDeque->updateVolume(-taosim::util::round(usedVolume, maxDecimals));
 
         if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
             bestBuyDeque->pop_front();
@@ -96,6 +105,12 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
     taosim::decimal_t processedQuote = {};
     const auto volumeDecimals = m_simulation->exchange()->config().parameters().volumeIncrementDecimals;
     const auto priceDecimals = m_simulation->exchange()->config().parameters().priceIncrementDecimals;
+    const auto maxDecimals = std::max({
+        volumeDecimals,
+        priceDecimals,
+        m_simulation->exchange()->config().parameters().quoteIncrementDecimals,
+        m_simulation->exchange()->config().parameters().baseIncrementDecimals
+    });
     const auto agentId = m_order2clientCtx[order->id()].agentId;
 
     auto bestSellDeque = &m_sellQueue.front();
@@ -127,15 +142,18 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
         if (usedVolume > 0_dec) {
             processedQuote += usedVolume * bestSellDeque->price();
             logTrade(OrderDirection::BUY, order->id(), iop->id(), usedVolume, bestSellDeque->price());
+            m_simulation->logDebug("{} | logTrade AgainstSell | AGENT #{} BOOK {} :   processedQute: {}  usedVoume:{}  bestSellDeqPrice: {}", 
+                m_simulation->currentTimestamp(), restCtx.agentId, m_id, processedQuote, usedVolume, bestSellDeque->price());
         }
-
+        
         order->removeLeveragedVolume(usedVolume);
         iop->removeLeveragedVolume(usedVolume);
 
-        order->setVolume(taosim::util::round(order->volume(), volumeDecimals));
-        iop->setVolume(taosim::util::round(iop->volume(), volumeDecimals));
+        order->setVolume(taosim::util::round(order->volume(), maxDecimals));
+        iop->setVolume(taosim::util::round(iop->volume(), maxDecimals));
 
-        bestSellDeque->updateVolume(-taosim::util::round(usedVolume, volumeDecimals));
+
+        bestSellDeque->updateVolume(-taosim::util::round(usedVolume, maxDecimals));
 
         if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
             bestSellDeque->pop_front();

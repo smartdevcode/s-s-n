@@ -45,7 +45,7 @@ class Proxy(Validator):
             raise Exception(f"Simulator config does not exist at {config_file}!")
         self.simulator_config_file = os.path.realpath(Path(config_file))
         self.simulation_config = self.load_simulation_config()
-        
+
         self.agent_urls = {}
         port = config['agents']['start_port']
         for agent, agent_configs in config['agents'].items():
@@ -55,24 +55,22 @@ class Proxy(Validator):
                 for i in range(agent_config['count']):
                     agent_name = f"{base_agent_name}_{i}"
                     self.agent_urls[agent_name] = f"http://127.0.0.1:{port}/handle"
-                    port += 1                    
-        
+                    port += 1
+
         self.compressing = False
         self.start_time = None
         self.start_timestamp = None
         self.step = 0
-        
+
         # Add routes for methods receiving input from simulator
         self.router = APIRouter()
         self.router.add_api_route("/orderbook", self.orderbook, methods=["GET"])
         self.router.add_api_route("/account", self.account, methods=["GET"])
 
-        #self.sem = posix_ipc.Semaphore("/send-recv", posix_ipc.O_CREAT, mode=0o666, initial_value=0)
-
     def load_simulation_config(self):
         self.xml_config = ET.parse(self.simulator_config_file).getroot()
         self.simulation = MarketSimulationConfig.from_xml(self.xml_config)
-    
+
     def onStart(self, timestamp, event : SimulationStartEvent) -> None:
         """
         Triggered when start of simulation event is published by simulator.
@@ -90,7 +88,7 @@ class Proxy(Validator):
         bt.logging.info(f"OUT DIR   : {self.simulation.logDir}")
         bt.logging.info("-"*40)
 
-    async def handle_state(self, message : dict, state : MarketSimulationStateUpdate, receive_start : int) -> dict:            
+    async def handle_state(self, message : dict, state : MarketSimulationStateUpdate, receive_start : int) -> dict:
         start = time.time()
         state.version = __spec_version__
         state.dendrite.hotkey = 'proxy'
@@ -140,7 +138,7 @@ class Proxy(Validator):
                 except Exception as e:
                     bt.logging.error(f"{agent} | Failed to validate response : {e}")
         agent_responses = set_delays(self, synapse_responses)
-        simulator_response = SimulatorResponseBatch(agent_responses).serialize()        
+        simulator_response = SimulatorResponseBatch(agent_responses).serialize()
         bt.logging.info(f"State update handled ({time.time()-receive_start}s)")
         return simulator_response
 
@@ -159,7 +157,7 @@ class Proxy(Validator):
             result = msgpack.unpackb(packed_data, raw=False, use_list=False, strict_map_key=False)
             bt.logging.info(f"Unpacked state update ({time.time() - start}s)")
             return result, receive_start
-        
+
         def respond(response) -> dict:
             packed_res = msgpack.packb(response, use_bin_type=True)
             byte_size_res = len(packed_res)
@@ -168,8 +166,8 @@ class Proxy(Validator):
             with mmap.mmap(shm_res.fd, byte_size_res, mmap.MAP_SHARED, mmap.PROT_WRITE | mmap.PROT_READ) as mm:
                 shm_res.close_fd()
                 mm.write(packed_res)
-            #self.sem.release()
-            mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))            
+            mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))
+            mq_res.close()
         
         while True:
             response = {"responses" : []}
@@ -185,6 +183,7 @@ class Proxy(Validator):
                 traceback.print_exc()
             finally:
                 respond(response)
+                mq_req.close()
             
     def listen(self):
         """Synchronous wrapper for the asynchronous _listen method."""

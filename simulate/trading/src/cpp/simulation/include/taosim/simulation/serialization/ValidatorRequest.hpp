@@ -145,18 +145,44 @@ struct pack<taosim::simulation::serialization::ValidatorRequest>
                     }
                 };
 
+                auto packLevelBroad = [&](auto& o, const taosim::book::TickContainer& v) {
+                    o.pack_map(2);
+
+                    o.pack("p"s);
+                    o.pack(v.price());
+
+                    o.pack("q"s);
+                    o.pack(v.volume());
+                };
+
+                const auto maxDepth = book->maxDepth();
+                const auto detailedDepth = book->detailedDepth();
+
                 const auto& buyQueue = book->buyQueue();
                 o.pack("b"s);
-                o.pack_array(21);
-                for (const auto& level : buyQueue | views::reverse | views::take(21)) {
+                o.pack_array(maxDepth);
+                for (const auto& level : buyQueue | views::reverse | views::take(detailedDepth)) {
                     packLevel(o, level);
+                }
+                auto broadBuyView = buyQueue
+                    | views::reverse
+                    | views::drop(detailedDepth)
+                    | views::take(maxDepth - detailedDepth);
+                for (const auto& level : broadBuyView) {
+                    packLevelBroad(o, level);
                 }
     
                 const auto& sellQueue = book->sellQueue();
                 o.pack("a"s);
-                o.pack_array(21);
-                for (const auto& level : sellQueue | views::take(21)) {
+                o.pack_array(maxDepth);
+                for (const auto& level : sellQueue | views::take(detailedDepth)) {
                     packLevel(o, level);
+                }
+                auto broadSellView = sellQueue
+                    | views::drop(detailedDepth)
+                    | views::take(maxDepth - detailedDepth);
+                for (const auto& level : broadSellView) {
+                    packLevelBroad(o, level);
                 }
             }
         }

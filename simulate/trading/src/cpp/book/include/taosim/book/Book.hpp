@@ -53,6 +53,7 @@ public:
     [[nodiscard]] taosim::decimal_t midPrice() const noexcept;
     [[nodiscard]] taosim::decimal_t bestBid() const noexcept;
     [[nodiscard]] taosim::decimal_t bestAsk() const noexcept;
+    [[nodiscard]] size_t maxDepth() const noexcept { return m_maxDepth; }
     [[nodiscard]] size_t detailedDepth() const noexcept { return m_detailedDepth; }
 
     [[nodiscard]] const OrderClientContext& orderClientContext(OrderID orderId) const

@@ -68,7 +68,6 @@ public:
     static constexpr std::string_view s_validatorResMessageQueueName{"taosim-res"};
     static constexpr std::string_view s_statePublishShmName{"state"};
     static constexpr std::string_view s_remoteResponsesShmName{"responses"};
-    static constexpr std::string_view s_sendRecvSemaphoreName{"send-recv"};
 
 private:
     SimulationBlockInfo m_blockInfo;
@@ -83,7 +82,6 @@ private:
     std::unique_ptr<ipc::PosixMessageQueue> m_validatorResMessageQueue;
     bool m_disallowPublish{};
     bool m_useMessagePack{};
-    std::unique_ptr<ipc::PosixSemaphore> m_sendRecvSemaphore;
 
     void setupLogDir(pugi::xml_node node);
 

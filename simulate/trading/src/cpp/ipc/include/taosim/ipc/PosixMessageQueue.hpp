@@ -47,6 +47,7 @@ public:
     ~PosixMessageQueue() noexcept;
 
     [[nodiscard]] mqd_t handle() const noexcept { return m_handle; }
+    [[nodiscard]] std::optional<size_t> size() const noexcept;
 
     bool send(std::span<const char> msg, uint32_t priority = {}) noexcept;
     ssize_t receive(std::span<char> msg, uint32_t* priority = {}) noexcept;

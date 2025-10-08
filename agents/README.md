@@ -463,7 +463,7 @@ Good luck!
 
         - **`orders`**
       
-          A list of orders at this bid level (only present for top `config.maxDepth` levels).
+          A list of orders at this bid level (only present for top `config.detailedDepth` levels).
 
           **Type:** `list[Order] | None`
 

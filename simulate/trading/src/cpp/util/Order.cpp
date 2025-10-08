@@ -25,15 +25,19 @@ void BasicOrder::removeVolume(taosim::decimal_t decrease)
 
 void BasicOrder::removeLeveragedVolume(taosim::decimal_t decrease)
 {
-    taosim::decimal_t leveragedVolume = m_volume * taosim::util::dec1p(m_leverage);
-    if (decrease > leveragedVolume) {
-        throw std::runtime_error(fmt::format(
-            "{}: Volume to be removed ({}) is greater than standing volume ({})",
-            std::source_location::current().function_name(),
-            decrease,
-            leveragedVolume));
+    if (m_leverage == 0_dec){
+        removeVolume(decrease);
+    } else{
+        taosim::decimal_t leveragedVolume = m_volume * (1_dec + m_leverage);
+        if (decrease > leveragedVolume) {
+            throw std::runtime_error(fmt::format(
+                "{}: Volume to be removed ({}) is greater than standing volume ({})",
+                std::source_location::current().function_name(),
+                decrease,
+                leveragedVolume));
+        }
+        m_volume -= decrease / (1_dec + m_leverage);
     }
-    m_volume -= decrease / (1_dec + m_leverage);
 }
 
 //-------------------------------------------------------------------------

@@ -97,8 +97,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         accounts = {uid : {agentId : Account.from_json(account) for agentId, account in uid_accounts.items()} for uid, uid_accounts in json['accounts'].items()}        
         bt.logging.debug(f"Accounts populated ({time.time()-start:.4f}s).")
         start = time.time()
-        notices = {int(uid) : [FinanceEventNotification.from_json(notice) for notice in uid_notices] for uid, uid_notices in json['notices'].items() if int(uid) >= 0}        
-        notices = {agentId : sorted(agent_notices, key=lambda x: x.timestamp) for agentId, agent_notices in notices.items()}
+        notices = {int(uid) : [FinanceEvent.from_json(notice) for notice in uid_notices] for uid, uid_notices in json['notices'].items() if int(uid) >= 0}        
         bt.logging.debug(f"Notices populated ({time.time()-start:.4f}s).")
         return MarketSimulationStateUpdate(timestamp=json['timestamp'],model="im",books=books,accounts=accounts,notices=notices)
     

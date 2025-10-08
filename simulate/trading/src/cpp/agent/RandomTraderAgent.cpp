@@ -236,13 +236,12 @@ void RandomTraderAgent::sendOrder(BookId bookId, OrderDirection direction,
     std::mt19937 gen(rd());
     std::normal_distribution<float> delayDist{1'500.0f,500.0f};
 
-    float min_delay = 10.0f; 
-    float max_delay = 1'000.0f; 
+    float min_delay = 10'000'000.0f; 
+    float max_delay = 1'000'000'000.0f; 
     float t = std::clamp(std::abs(delayDist(gen))/3'000.0f,0.0f,1.0f);
     float exp_scale = 5.0f;
     float delay_frac = (std::exp(exp_scale * t) - 1) / (std::exp(exp_scale)-1);
-    Timestamp delay = min_delay + delay_frac * (max_delay - min_delay);
-
+    Timestamp delay = (min_delay + delay_frac * (max_delay - min_delay));
     simulation()->dispatchMessage(
         simulation()->currentTimestamp(),
         delay,

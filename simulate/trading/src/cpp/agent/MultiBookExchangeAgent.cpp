@@ -294,8 +294,8 @@ void MultiBookExchangeAgent::configure(const pugi::xml_node& node)
         const auto booksNode = node.child("Books");
         const uint32_t bookCount = booksNode.attribute("instanceCount").as_uint();
         const std::string bookAlgorithm = booksNode.attribute("algorithm").as_string();
-        const size_t maxDepth = booksNode.attribute("maxDepth").as_ullong(1024);
-        const size_t detailedDepth = booksNode.attribute("detailedDepth").as_ullong(maxDepth);
+        const size_t maxDepth = booksNode.attribute("maxDepth").as_ullong(21);
+        const size_t detailedDepth = booksNode.attribute("detailedDepth").as_ullong(5);
 
         m_bookProcessManager = BookProcessManager::fromXML(
             booksNode, const_cast<Simulation*>(simulation()), &m_config2);
@@ -783,6 +783,45 @@ void MultiBookExchangeAgent::handleDistributedAgentReset(Message::Ptr msg)
     m_clearingManager->feePolicy()->resetHistory(resetAgentIds);
 
     if (m_replayMode) return;
+
+    if (m_replayLog) {
+        rapidjson::Document json{rapidjson::kObjectType};
+        auto& allocator = json.GetAllocator();
+        for (auto agentId : valid) {
+            const auto& acct = accounts().at(agentId);
+            json.AddMember(
+                rapidjson::Value{std::to_string(agentId).c_str(), allocator},
+                [&] {
+                    rapidjson::Value balancesJson{rapidjson::kObjectType};
+                    for (const auto& [bookId, bals] : views::enumerate(acct)) {
+                        rapidjson::Value balanceJson{rapidjson::kObjectType};
+                        balanceJson.AddMember(
+                            "base",
+                            rapidjson::Value{taosim::util::packDecimal(bals.base.getTotal())},
+                            allocator);
+                        balanceJson.AddMember(
+                            "quote",
+                            rapidjson::Value{taosim::util::packDecimal(bals.quote.getTotal())},
+                            allocator);
+                        balancesJson.AddMember(
+                            rapidjson::Value{
+                                std::to_string(simulation()->bookIdCanon(bookId)).c_str(), allocator},
+                            balanceJson,
+                            allocator);
+                    }
+                    return balancesJson;
+                }().Move(),
+                allocator);
+        }
+        std::ofstream ofs{
+            simulation()->logDir() / fmt::format(
+                "Replay-Balances-{}-{}-{}.json",
+                simulation()->blockIdx() * m_books.size(),
+                (simulation()->blockIdx() + 1) * m_books.size() - 1,
+                simulation()->currentTimestamp())};
+        taosim::json::dumpJson(
+            json, ofs, taosim::json::FormatOptions{.indent = taosim::json::IndentOptions{}});
+    }
 
     simulation()->m_messageQueue = MessageQueue{
         simulation()->m_messageQueue.m_queue.underlying()

@@ -26,22 +26,39 @@ class FinanceEvent(SimulationEvent):
         """
         t = json['y'] if 'y' in json else json['type']
         match t:
-            case "EVENT_SIMULATION_START" | "ESS":
+            case "EVENT_SIMULATION_START":
                 return SimulationStartEvent.from_json(json)
-            case "RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "RDPOL" | "ERDPOL":
+            case "ESS":
+                return SimulationStartEvent.model_construct(**json)
+            case "RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT" | "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_LIMIT":
                 return LimitOrderPlacementEvent.from_json(json)
-            case "RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "RDPOM" | "ERDPOM":
+            case "RDPOL" | "ERDPOL":
+                return LimitOrderPlacementEvent.model_construct(**json)
+            case "RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET" | "ERROR_RESPONSE_DISTRIBUTED_PLACE_ORDER_MARKET":
                 return MarketOrderPlacementEvent.from_json(json)
-            case "EVENT_TRADE" | "ET":
+            case "RDPOM" | "ERDPOM":
+                json['r'] = OrderCurrency(json['r'])
+                return MarketOrderPlacementEvent.model_construct(**json)
+            case "EVENT_TRADE":
                 return TradeEvent.from_json(json)
-            case "RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "RDCO" | "ERDCO":
+            case "ET":
+                return TradeEvent.model_construct(**json)
+            case "RESPONSE_DISTRIBUTED_CANCEL_ORDERS" | "ERROR_RESPONSE_DISTRIBUTED_CANCEL_ORDERS":
                 return OrderCancellationsEvent.from_json(json)
-            case "RESPONSE_DISTRIBUTED_CLOSE_POSITIONS" | "ERROR_RESPONSE_DISTRIBUTED_CLOSE_POSITIONS" | "RDCP" | "ERDCP":
+            case "RDCO" | "ERDCO":
+                return OrderCancellationsEvent.model_construct(**json)
+            case "RESPONSE_DISTRIBUTED_CLOSE_POSITIONS" | "ERROR_RESPONSE_DISTRIBUTED_CLOSE_POSITIONS":
                 return ClosePositionsEvent.from_json(json)
-            case "RESPONSE_DISTRIBUTED_RESET_AGENT" | "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT" | "RDRA" | "ERDRA":
+            case "RDCP" | "ERDCP":
+                return ClosePositionsEvent.model_construct(**json)
+            case "RESPONSE_DISTRIBUTED_RESET_AGENT" | "ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT":
                 return ResetAgentsEvent.from_json(json)
-            case "EVENT_SIMULATION_END" | "ESE":
+            case "RDRA" | "ERDRA":
+                return ResetAgentsEvent.model_construct(**json)
+            case "EVENT_SIMULATION_END":
                 return SimulationEndEvent.from_json(json)
+            case "ESE":
+                return SimulationEndEvent.model_construct(**json)
 
 class SimulationStartEvent(FinanceEvent):
     """

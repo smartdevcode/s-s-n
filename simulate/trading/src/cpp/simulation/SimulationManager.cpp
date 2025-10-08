@@ -434,30 +434,23 @@ void SimulationManager::publishStateMessagePack()
     bipc::mapped_region reqRegion{shmReq, bipc::read_write};
     std::memcpy(reqRegion.get_address(), stream.data(), stream.size());
 
-    retry:
+    retryMessagePack:
 
     const size_t packedSize = stream.size();
+    m_validatorReqMessageQueue->flush();
     const bool mqSendSuccess = m_validatorReqMessageQueue->send(
         std::span<const char>{std::bit_cast<const char*>(&packedSize), sizeof(packedSize)});
     if (!mqSendSuccess) {
         fmt::println("Sending to /{} timed out, flushing and retrying...", s_validatorReqMessageQueueName);
-        m_validatorReqMessageQueue->flush();
-        goto retry;
+        goto retryMessagePack;
     }
-
-    //m_sendRecvSemaphore->flush();
-    //if (!m_sendRecvSemaphore->timedWait()) {
-    //    fmt::println("Semaphore /{} timed out, retrying...", s_sendRecvSemaphoreName);
-    //    goto retry;
-    //}
 
     size_t resByteSize;
     const bool mqRecvSuccess = m_validatorResMessageQueue->receive(
         std::span<char>{std::bit_cast<char*>(&resByteSize), sizeof(resByteSize)}) != -1;
     if (!mqRecvSuccess) {
         fmt::println("Receive from /{} timed out, flushing and retrying...", s_validatorResMessageQueueName);
-        m_validatorResMessageQueue->flush();
-        goto retry;
+        goto retryMessagePack;
     }
 
     bipc::shared_memory_object shmRes{
@@ -843,9 +836,6 @@ std::unique_ptr<SimulationManager> SimulationManager::fromConfig(const fs::path&
 
     mngr->m_useMessagePack = node.attribute("useMessagePack").as_bool();
 
-    //mngr->m_sendRecvSemaphore = std::make_unique<ipc::PosixSemaphore>(
-    //    ipc::PosixSemaphoreDesc{.name = s_sendRecvSemaphoreName.data()});
-
     return mngr;
 }
 
@@ -861,7 +851,15 @@ std::unique_ptr<SimulationManager> SimulationManager::fromReplay(const fs::path&
     fmt::println(" - '{}' loaded successfully", configPath.c_str());
     pugi::xml_node node = doc.child("Simulation");
     node.attribute("id").set_value(
-        fmt::format("{}-replay", replayDir.filename().c_str()).c_str());
+        fmt::format(
+            "{}-replay",
+            [&] -> fs::path {
+                const auto replayDirStr = replayDir.string();
+                if (replayDirStr.ends_with(fs::path::preferred_separator)) {
+                    return replayDirStr.substr(0, replayDirStr.size() - 1);
+                }
+                return replayDir;
+            }().filename().c_str()).c_str());
     
     static constexpr const char* replayNodeName = "Replay";
     auto replayLogNode = node.child("Agents")
@@ -939,9 +937,6 @@ std::unique_ptr<SimulationManager> SimulationManager::fromReplay(const fs::path&
     mngr->m_disallowPublish = true;
 
     mngr->m_useMessagePack = node.attribute("useMessagePack").as_bool();
-
-    mngr->m_sendRecvSemaphore = std::make_unique<ipc::PosixSemaphore>(
-        ipc::PosixSemaphoreDesc{.name = s_sendRecvSemaphoreName.data()});
 
     return mngr;
 }

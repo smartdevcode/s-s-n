@@ -70,7 +70,8 @@ class MarketSimulationConfig(BaseModel):
 
         books_per_block (int): Number of order books simulated in each parallelization block.
         book_count (int): Total number of order books in the simulation.
-        book_levels (int): Number of levels for which full L3 state information is included.
+        book_levels (int): Number of levels included for each book in the state update (containing price and volume data).
+        detailed_book_levels (int): Number of levels for which full book level data is included (level composition in terms of orders).
 
         baseDecimals (int): Decimal precision for base currency values.
         quoteDecimals (int): Decimal precision for quote currency values.
@@ -196,6 +197,7 @@ class MarketSimulationConfig(BaseModel):
     books_per_block : int
     book_count : int
     book_levels : int
+    detailed_book_levels : int = 5
 
     baseDecimals : int
     quoteDecimals : int
@@ -327,6 +329,7 @@ class MarketSimulationConfig(BaseModel):
             books_per_block = int(books_config.attrib['instanceCount']),
             book_count = int(xml.attrib['blockCount']) * int(books_config.attrib['instanceCount']),
             book_levels = int(books_config.attrib['maxDepth']),
+            detailed_book_levels = int(books_config.attrib['detailedDepth']),
 
             baseDecimals = int(MBE_config.attrib['baseDecimals']),
             quoteDecimals = int(MBE_config.attrib['quoteDecimals']),
@@ -524,7 +527,7 @@ class LevelInfo(BaseModel):
     
     p : float = Field(alias='price')
     q : float = Field(alias='quantity')
-    o: list[Order] | None = Field(alias='orders')
+    o: list[Order] | None = Field(alias='orders', default=None)
 
     @property
     def price(self) -> float:

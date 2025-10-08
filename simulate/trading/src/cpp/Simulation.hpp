@@ -129,6 +129,17 @@ public:
     void setDebug(bool flag) noexcept { m_debug = flag; }
     [[nodiscard]] bool debug() const noexcept { return m_debug; }
 
+    template<typename... Args>
+    void logError(fmt::format_string<Args...> fmt, Args&&... args) const noexcept
+    {
+        if (m_error) {
+            fmt::println(fmt, std::forward<Args>(args)...);
+        }
+    }
+
+    void setError(bool flag) noexcept { m_error = flag; }
+    [[nodiscard]] bool error() const noexcept { return m_error; }
+
     void saveCheckpoint();
     void step();
 
@@ -160,6 +171,7 @@ private:
     std::string m_id;
     std::string m_config;
     bool m_debug = false;
+    bool m_error = false;
     fs::path m_logDir;
     taosim::simulation::SimulationConfig m_config2;
     uint32_t m_blockIdx{};

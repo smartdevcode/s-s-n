@@ -56,7 +56,7 @@ class BaseMinerNeuron(BaseNeuron):
         super().__init__(config=config)
 
         # Warn if allowing incoming requests from anyone.
-        if not self.config.blacklist.force_validator_permit:
+        if self.config.blacklist.allow_non_validators:
             bt.logging.warning(
                 "You are allowing non-validators to send requests to your miner. This is a security risk."
             )
@@ -192,7 +192,7 @@ class BaseMinerNeuron(BaseNeuron):
             )
             return True, "Unrecognized hotkey"
 
-        if self.config.blacklist.force_validator_permit:
+        if not self.config.blacklist.allow_non_validators:
             # If the config is set to force validator permit, then we should only allow requests from validators.
             if not self.metagraph.validator_permit[uid]:
                 bt.logging.warning(

@@ -46,7 +46,7 @@ OrderPlacementValidator::ExpectedResult
     }
     
     payload->volume = util::round(payload->volume, 
-        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
     payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);
 
     if (payload->volume <= 0_dec) {
@@ -58,7 +58,7 @@ OrderPlacementValidator::ExpectedResult
     }
 
     const decimal_t payloadTotalAmount = util::round(payload->volume * util::dec1p(payload->leverage),
-        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
 
     const auto& balances = account.at(book->id());
     const auto& baseBalance = balances.base;
@@ -319,7 +319,7 @@ OrderPlacementValidator::ExpectedResult
 
     payload->price = util::round(payload->price, m_params.priceIncrementDecimals);
     payload->volume = util::round(payload->volume, 
-        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
     payload->leverage = util::round(payload->leverage, m_params.volumeIncrementDecimals);  
 
     if (payload->volume <= 0_dec) {
@@ -343,7 +343,7 @@ OrderPlacementValidator::ExpectedResult
     }
 
     const auto payloadTotalAmount = util::round(payload->volume * util::dec1p(payload->leverage), 
-        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals); 
+        payload->currency == Currency::BASE ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals); 
 
     const auto& balances = account.at(book->id());
     const auto& baseBalance = balances.base;
@@ -530,10 +530,10 @@ OrderPlacementValidator::ExpectedResult
                         takerTotalPrice += partialQuote;
                         takerVolume += util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals);
                         m_exchange->simulation()->logDebug(
-                            "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE FOR TRADE OF BUY QUOTE-BASED ORDER {}x{}@{} AGAINST {}@{}",
+                            "{} | AGENT #{} BOOK {} : CALCULATED PRE-RESERVATION OF {} BASE FOR TRADE OF BUY QUOTE-BASED ORDER {}x{}@{} AGAINST {}@{} | pta:{} pq:{}",
                             m_exchange->simulation()->currentTimestamp(), agentId, m_exchange->simulation()->bookIdCanon(book->id()),
                             util::round(partialQuote / tick->price(), m_params.baseIncrementDecimals),
-                            util::dec1p(payload->leverage), payload->volume, payload->price, tickVolume, tick->price());
+                            util::dec1p(payload->leverage), payload->volume, payload->price, tickVolume, tick->price(), payloadTotalAmount, partialQuote);
                         done = true;
                         break;
                     }
@@ -616,7 +616,7 @@ bool OrderPlacementValidator::checkIOC(
     const auto totalVolume = util::round(
         payload->volume * util::dec1p(payload->leverage),
         payload->currency == Currency::BASE
-            ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+            ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
 
     auto takerVolumeBase = [&] -> decimal_t {
         decimal_t collectedVolume{};
@@ -726,7 +726,7 @@ bool OrderPlacementValidator::checkIOC(
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() * feeCoeff,
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -739,7 +739,7 @@ bool OrderPlacementValidator::checkIOC(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -759,7 +759,7 @@ bool OrderPlacementValidator::checkIOC(
                         if (it != activeOrders.end()) return {};
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() * feeCoeff,
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -772,7 +772,7 @@ bool OrderPlacementValidator::checkIOC(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return {};
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -787,7 +787,7 @@ bool OrderPlacementValidator::checkIOC(
                     for (const auto tick : level) {
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() * feeCoeff,
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -797,7 +797,7 @@ bool OrderPlacementValidator::checkIOC(
                     if (payload->price > level.price()) break;
                     for (const auto tick : level) {
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return totalVolume;
                     }
@@ -817,7 +817,7 @@ bool OrderPlacementValidator::checkIOC(
     payload->volume = util::round(
         takerVolume / util::dec1p(payload->leverage),
         payload->currency == Currency::BASE
-            ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+            ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
 
     return true;
 }
@@ -834,7 +834,7 @@ bool OrderPlacementValidator::checkFOK(
     const auto totalVolume = util::round(
         payload->volume * util::dec1p(payload->leverage),
         payload->currency == Currency::BASE
-            ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+            ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
     const auto& activeOrders =
             m_exchange->accounts().at(agentId).activeOrders().at(payload->bookId);
 
@@ -985,7 +985,7 @@ bool OrderPlacementValidator::checkFOK(
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() * feeCoeff,
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -998,7 +998,7 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) continue;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -1016,7 +1016,7 @@ bool OrderPlacementValidator::checkFOK(
                         if (it != activeOrders.end()) return false;
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() * feeCoeff,
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -1029,7 +1029,7 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return false;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -1047,7 +1047,7 @@ bool OrderPlacementValidator::checkFOK(
                         if (it != activeOrders.end()) return true;
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() * feeCoeff,
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -1060,7 +1060,7 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it != activeOrders.end()) return true;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         collectedVolume += tickVolume;
                         if (collectedVolume >= totalVolume) return true;
                     }
@@ -1078,7 +1078,7 @@ bool OrderPlacementValidator::checkFOK(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() * feeCoeff,
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         if (it != activeOrders.end()) {
                             dynamicTotalVolume -= tickVolume;
                             if (dynamicTotalVolume <= 0_dec) return true;
@@ -1095,7 +1095,7 @@ bool OrderPlacementValidator::checkFOK(
                         auto it = ranges::find_if(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         if (it != activeOrders.end()) {
                             dynamicTotalVolume -= tickVolume;
                             if (dynamicTotalVolume <= 0_dec) return true;
@@ -1175,7 +1175,7 @@ bool OrderPlacementValidator::checkPostOnly(
         decimal_t dynamicTotalVolume = util::round(
             payload->volume * util::dec1p(payload->leverage),
             payload->currency == Currency::BASE
-                ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+                ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
         if (payload->currency == Currency::BASE) {
             if (payload->direction == OrderDirection::BUY) {
                 for (const auto& level : book->sellQueue()) {
@@ -1216,7 +1216,7 @@ bool OrderPlacementValidator::checkPostOnly(
                         if (it == activeOrders.end()) return false;
                         const auto tickVolume = util::round(
                             tick->totalVolume() * tick->price() / util::dec1p(takerFeeRate),
-                            m_params.priceIncrementDecimals);
+                            m_params.quoteIncrementDecimals);
                         dynamicTotalVolume -= tickVolume;
                         if (dynamicTotalVolume <= 0_dec) return false;
                     }
@@ -1229,7 +1229,7 @@ bool OrderPlacementValidator::checkPostOnly(
                             activeOrders, [&](auto order) { return order->id() == tick->id(); });
                         if (it == activeOrders.end()) return false;
                         const auto tickVolume = util::round(
-                            tick->totalVolume() * tick->price(), m_params.priceIncrementDecimals);
+                            tick->totalVolume() * tick->price(), m_params.quoteIncrementDecimals);
                         dynamicTotalVolume -= tickVolume;
                         if (dynamicTotalVolume <= 0_dec) return false;
                     }
@@ -1257,7 +1257,7 @@ bool OrderPlacementValidator::checkMinOrderSizeLimit(
 
     const auto totalAmount = util::round(payload->volume * util::dec1p(payload->leverage), 
         payload->currency == Currency::BASE
-            ? m_params.volumeIncrementDecimals : m_params.priceIncrementDecimals);
+            ? m_params.volumeIncrementDecimals : m_params.quoteIncrementDecimals);
 
     if (payload->currency == Currency::BASE) {
         return totalAmount >= m_exchange->config2().minOrderSize;

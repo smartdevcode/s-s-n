@@ -10,22 +10,15 @@
 
 //-------------------------------------------------------------------------
 
-Book::Book(
-    Simulation* simulation,
-    BookId id,
-    size_t maxDepth,
-    size_t detailedDepth)
+Book::Book(Simulation* simulation, BookId id, size_t maxDepth, size_t detailedDepth)
     : m_simulation{simulation}, m_id{id}
 {
     if (maxDepth == 0) {
         throw std::invalid_argument("Book maximum depth must be non-zero");
     }
     m_maxDepth = maxDepth;
-
-    if (detailedDepth == 0) {
-        throw std::invalid_argument("Book detailed depth must be non-zero");
-    }
     m_detailedDepth = std::min(detailedDepth, maxDepth);
+
     setupL2Signal();
 }
 
@@ -160,6 +153,12 @@ bool Book::cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volu
 {
     auto it = m_orderIdMap.find(orderId);
     if (it == m_orderIdMap.end()) return false;
+    const auto maxDecimals = std::max({
+        m_simulation->exchange()->config().parameters().volumeIncrementDecimals,
+        m_simulation->exchange()->config().parameters().priceIncrementDecimals,
+        m_simulation->exchange()->config().parameters().quoteIncrementDecimals,
+        m_simulation->exchange()->config().parameters().baseIncrementDecimals
+    });
 
     auto order = it->second;
 
@@ -167,8 +166,7 @@ bool Book::cancelOrderOpt(OrderID orderId, std::optional<taosim::decimal_t> volu
     taosim::decimal_t volumeToCancelActual =
         std::min(volumeToCancel.value_or(orderVolume), orderVolume);
 
-    volumeToCancelActual = taosim::util::round(volumeToCancelActual, 
-        m_simulation->exchange()->config().parameters().volumeIncrementDecimals);
+    volumeToCancelActual = taosim::util::round(volumeToCancelActual, maxDecimals);
 
     if (m_simulation->debug()) {
         const auto ctx = m_order2clientCtx[order->id()];

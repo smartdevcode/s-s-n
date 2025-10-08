@@ -56,8 +56,8 @@ if __name__ != "__mp_main__":
     from taos.im.config import add_im_validator_args
     from taos.im.protocol.simulator import SimulatorResponseBatch
     from taos.im.protocol import MarketSimulationStateUpdate, FinanceEventNotification
-    from taos.im.protocol.models import MarketSimulationConfig
-    from taos.im.protocol.events import SimulationStartEvent
+    from taos.im.protocol.models import MarketSimulationConfig, TradeInfo
+    from taos.im.protocol.events import SimulationStartEvent, TradeEvent
 
     class Validator(BaseValidatorNeuron):
         """
@@ -85,7 +85,7 @@ if __name__ != "__mp_main__":
                     restart_simulator(self)
                 bt.logging.info(f"Synchronized ({time.time()-start:.4f}s)")
             except Exception as ex:
-                bt.logging.error(f"Failed to sync : {traceback.format_exc()}")
+                self.pagerduty_alert(f"Failed to sync : {ex}", details={"trace" : traceback.format_exc()})
             finally:
                 self.maintaining = False
 
@@ -218,19 +218,20 @@ if __name__ != "__mp_main__":
                 bt.logging.info("Saving simulation state...")
                 start = time.time()
                 # Save the state of the simulation to file.
-                torch.save(
-                    {
-                        "start_time": self.start_time,
-                        "start_timestamp": self.start_timestamp,
-                        "step_rates": self.step_rates,
-                        "initial_balances": self.initial_balances,
-                        "recent_trades": self.recent_trades,
-                        "recent_miner_trades": self.recent_miner_trades,
-                        "pending_notices": self.pending_notices,
-                        "simulation.logDir": self.simulation.logDir
-                    },
-                    self.simulation_state_file + ".tmp",
-                )
+                with open(self.simulation_state_file + ".tmp", 'wb') as file:
+                    packed_data = msgpack.packb(
+                        {
+                            "start_time": self.start_time,
+                            "start_timestamp": self.start_timestamp,
+                            "step_rates": self.step_rates,
+                            "initial_balances": self.initial_balances,
+                            "recent_trades": {book_id : [t.model_dump(mode='json') for t in book_trades] for book_id, book_trades in self.recent_trades.items()},
+                            "recent_miner_trades": {uid : {book_id : [[t.model_dump(mode='json'), r] for t, r in trades] for book_id, trades in uid_miner_trades.items()} for uid, uid_miner_trades in self.recent_miner_trades.items()},
+                            "pending_notices": self.pending_notices,
+                            "simulation.logDir": self.simulation.logDir
+                        }, use_bin_type=True
+                    )
+                    file.write(packed_data)
                 if os.path.exists(self.simulation_state_file):
                     os.remove(self.simulation_state_file)
                 os.rename(self.simulation_state_file + ".tmp", self.simulation_state_file)
@@ -273,9 +274,31 @@ if __name__ != "__mp_main__":
 
         def load_state(self) -> None:
             """Loads the state of the validator from a file."""
+            if os.path.exists(self.simulation_state_file.replace('.mp', '.pt')):
+                bt.logging.info("Pytorch simulation state file exists - converting to msgpack...")
+                pt_simulation_state = torch.load(self.simulation_state_file.replace('.mp', '.pt'), weights_only=False)
+                with open(self.simulation_state_file, 'wb') as file:
+                    packed_data = msgpack.packb(
+                        {
+                            "start_time": pt_simulation_state['start_time'],
+                            "start_timestamp": pt_simulation_state['start_timestamp'],
+                            "step_rates": pt_simulation_state['step_rates'],
+                            "initial_balances": pt_simulation_state['initial_balances'],
+                            "recent_trades": {book_id : [t.model_dump(mode='json') for t in book_trades] for book_id, book_trades in pt_simulation_state['recent_trades'].items()},
+                            "recent_miner_trades": {uid : {book_id : [[t.model_dump(mode='json'), r] for t, r in trades] for book_id, trades in uid_miner_trades.items()} for uid, uid_miner_trades in pt_simulation_state['recent_miner_trades'].items()},
+                            "pending_notices": pt_simulation_state['pending_notices'],
+                            "simulation.logDir": pt_simulation_state['simulation.logDir']
+                        }, use_bin_type=True
+                    )
+                    file.write(packed_data)
+                os.rename(self.simulation_state_file.replace('.mp', '.pt'), self.simulation_state_file.replace('.mp', '.pt') + ".bak")
+                bt.logging.info(f"Pytorch simulation state file converted to msgpack at {self.simulation_state_file}")
+                
             if not self.config.neuron.reset and os.path.exists(self.simulation_state_file):
                 bt.logging.info(f"Loading simulation state variables from {self.simulation_state_file}...")
-                simulation_state = torch.load(self.simulation_state_file, weights_only=False)
+                with open(self.simulation_state_file, 'rb') as file:
+                    byte_data = file.read()
+                simulation_state = msgpack.unpackb(byte_data, use_list=True, strict_map_key=False)
                 self.start_time = simulation_state["start_time"]
                 self.start_timestamp = simulation_state["start_timestamp"]
                 self.step_rates = simulation_state["step_rates"]
@@ -284,8 +307,8 @@ if __name__ != "__mp_main__":
                 for uid, initial_balances in self.initial_balances.items():
                     if not 'WEALTH' in initial_balances[0]:
                         self.initial_balances[uid] = {bookId : initial_balance | {'WEALTH' : self.simulation.miner_wealth} for bookId, initial_balance in initial_balances.items()}
-                self.recent_trades = simulation_state["recent_trades"]
-                self.recent_miner_trades = simulation_state["recent_miner_trades"] if "recent_miner_trades" in simulation_state else {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
+                self.recent_trades = {book_id : [TradeInfo.model_construct(**t) for t in book_trades] for book_id, book_trades in simulation_state["recent_trades"].items()} 
+                self.recent_miner_trades = {uid : {book_id : [[TradeEvent.model_construct(**t), r] for t, r in trades] for book_id, trades in uid_miner_trades.items()} for uid, uid_miner_trades in simulation_state["recent_miner_trades"].items()}  if "recent_miner_trades" in simulation_state else {uid : {bookId : [] for bookId in range(self.simulation.book_count)} for uid in range(self.subnet_info.max_uids)}
                 self.simulation.logDir = simulation_state["simulation.logDir"]
                 bt.logging.success(f"Loaded simulation state.")
             else:
@@ -410,7 +433,7 @@ if __name__ != "__mp_main__":
             self.xml_config = ET.parse(self.config.simulation.xml_config).getroot()
             self.simulation = MarketSimulationConfig.from_xml(self.xml_config)
             self.validator_state_file = self.config.neuron.full_path + f"/validator.mp"
-            self.simulation_state_file = self.config.neuron.full_path + f"/{self.simulation.label()}.pt"
+            self.simulation_state_file = self.config.neuron.full_path + f"/{self.simulation.label()}.mp"
             self.load_state()
 
         def __init__(self, config=None) -> None:
@@ -452,9 +475,7 @@ if __name__ != "__mp_main__":
 
             self.miner_stats = {uid : {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []} for uid in range(self.subnet_info.max_uids)}
             init_metrics(self)
-            publish_info(self)            
-
-            # self.sem = posix_ipc.Semaphore("/send-recv", posix_ipc.O_CREAT, mode=0o666, initial_value=0)
+            publish_info(self)
 
         def load_fundamental(self):
             if self.simulation.logDir:
@@ -615,7 +636,7 @@ if __name__ != "__mp_main__":
             """
             if not self.rewarding:
                 Thread(target=self._reward, args=(state,), daemon=True, name=f'reward_{self.step}').start()
-                
+
         async def handle_state(self, message : dict, state : MarketSimulationStateUpdate, receive_start : int) -> dict:
             # Every 1H of simulation time, check if there are any changes to the validator - if updates exist, pull them and restart.
             if self.simulation_timestamp % 3600_000_000_000 == 0 and self.simulation_timestamp != 0:
@@ -664,8 +685,8 @@ if __name__ != "__mp_main__":
             self.process_resets(state)
 
             # Await state saving, rewarding and metagraph maintenance to complete before proceeding with next step
-            while self.saving or self.rewarding or self.maintaining:
-                bt.logging.info(f"Waiting for {'state saving' if self.saving else ''}{', ' if self.saving and self.rewarding else ''}{'rewarding' if self.rewarding else ''}{', ' if (self.saving or self.rewarding) and self.maintaining else ''}{'maintaining' if self.maintaining else ''} to complete...")
+            while self.rewarding or self.maintaining:
+                bt.logging.info(f"Waiting for {'rewarding' if self.rewarding else ''}{', ' if self.rewarding and self.maintaining else ''}{'maintaining' if self.maintaining else ''} to complete before querying...")
                 time.sleep(0.5)
 
             # Calculate latest rewards and update miner scores
@@ -683,9 +704,9 @@ if __name__ != "__mp_main__":
             self.save_state()
             self.report()
             bt.logging.info(f"State update handled ({time.time()-receive_start}s)")
-            
+
             return response
-            
+
         async def _listen(self):
             def receive(mq_req) -> dict:
                 msg, priority = mq_req.receive()
@@ -701,7 +722,7 @@ if __name__ != "__mp_main__":
                 result = msgpack.unpackb(packed_data, raw=False, use_list=False, strict_map_key=False)
                 bt.logging.info(f"Unpacked state update ({time.time() - start}s)")
                 return result, receive_start
-            
+
             def respond(response) -> dict:
                 packed_res = msgpack.packb(response, use_bin_type=True)
                 byte_size_res = len(packed_res)
@@ -710,9 +731,9 @@ if __name__ != "__mp_main__":
                 with mmap.mmap(shm_res.fd, byte_size_res, mmap.MAP_SHARED, mmap.PROT_WRITE | mmap.PROT_READ) as mm:
                     shm_res.close_fd()
                     mm.write(packed_res)
-                # self.sem.release()
-                mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))            
-            
+                mq_res.send(byte_size_res.to_bytes(8, byteorder="little"))
+                mq_res.close()
+
             while True:
                 response = {"responses" : []}
                 try:
@@ -728,7 +749,8 @@ if __name__ != "__mp_main__":
                     self.pagerduty_alert(f"Exception in posix listener loop : {ex}", details={"trace" : traceback.format_exc()})
                 finally:
                     respond(response)
-            
+                    mq_req.close()
+
         def listen(self):
             """Synchronous wrapper for the asynchronous _listen method."""
             try:
@@ -756,8 +778,8 @@ if __name__ != "__mp_main__":
             del body
 
             response = await self.handle_state(message, state)
-            
-            bt.logging.info(f"State update processed ({time.time()-global_start}s)")            
+
+            bt.logging.info(f"State update processed ({time.time()-global_start}s)")
             return response
 
         async def account(self, request : Request) -> None:
@@ -785,7 +807,7 @@ if __name__ != "__mp_main__":
                 else:
                     notices.append(notice)
             await notify(self, notices) # This method forwards the event notifications to the related miners.
-            if ended:                
+            if ended:
                 self.onEnd()
 
 # The main method which runs the validator

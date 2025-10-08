@@ -185,6 +185,10 @@ void Simulation::configure(const pugi::xml_node& node)
         m_debug = true;
     }
 
+    if (node.attribute("error").as_bool()) {
+        m_error = true;
+    }
+
     m_logWindow = [&] -> Timestamp {
         static constexpr const char* attrName = "logWindow";
         const auto logWindow = node.attribute(attrName).as_ullong();

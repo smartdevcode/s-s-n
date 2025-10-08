@@ -49,9 +49,23 @@ PosixMessageQueue::~PosixMessageQueue() noexcept
 
 //-------------------------------------------------------------------------
 
+std::optional<size_t> PosixMessageQueue::size() const noexcept
+{
+    struct mq_attr attr;
+    if (mq_getattr(m_handle, &attr) == -1) {
+        return std::nullopt;
+    }
+    return std::make_optional(attr.mq_curmsgs);
+}
+
+//-------------------------------------------------------------------------
+
 bool PosixMessageQueue::send(std::span<const char> msg, uint32_t priority) noexcept
 {
-    const timespec ts = makeTimespec(m_desc.timeout.value_or(0));
+    if (!m_desc.timeout) {
+        return mq_send(m_handle, msg.data(), msg.size(), priority);
+    }
+    const timespec ts = makeTimespec(*m_desc.timeout);
     return mq_timedsend(m_handle, msg.data(), msg.size(), priority, &ts) == 0;
 }
 
@@ -59,7 +73,10 @@ bool PosixMessageQueue::send(std::span<const char> msg, uint32_t priority) noexc
 
 ssize_t PosixMessageQueue::receive(std::span<char> msg, uint32_t* priority) noexcept
 {
-    const timespec ts = makeTimespec(m_desc.timeout.value_or(0));
+    if (!m_desc.timeout) {
+        return mq_receive(m_handle, msg.data(), msg.size(), priority);
+    }
+    const timespec ts = makeTimespec(*m_desc.timeout);
     return mq_timedreceive(m_handle, msg.data(), msg.size(), priority, &ts);
 }
 
@@ -67,8 +84,9 @@ ssize_t PosixMessageQueue::receive(std::span<char> msg, uint32_t* priority) noex
 
 void PosixMessageQueue::flush() noexcept
 {
+    if (auto sz = size(); !sz || *sz == 0) return;
     std::vector<char> sink(m_desc.attr.mq_maxmsg * m_desc.attr.mq_msgsize);
-    while (mq_receive(m_handle, sink.data(), sink.size(), nullptr) != -1);
+    while (mq_receive(m_handle, sink.data(), sink.size(), nullptr) == -1);
 }
 
 //-------------------------------------------------------------------------

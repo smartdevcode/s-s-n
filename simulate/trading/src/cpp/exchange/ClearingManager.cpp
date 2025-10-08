@@ -121,6 +121,10 @@ OrderResult ClearingManager::handleOrder(const OrderDesc& orderDesc)
     auto reserved = balances.makeReservation(orderId, price > 0_dec ? price : curPrice,
         m_exchange->books()[bookId]->bestBid(), m_exchange->books()[bookId]->bestAsk(),
         validationResult.amount, validationResult.leverage, validationResult.direction, m_exchange->simulation()->bookIdCanon(bookId));
+
+    // if (validationResult.leverage > 0_dec){
+    //     throw std::runtime_error(fmt::format("Stopped to check the order with lev:{}", validationResult.leverage));
+    // }
     
     m_exchange->simulation()->logDebug(
         "{} | AGENT #{} BOOK {} : RESERVATION OF {} BASE + {} QUOTE (={} {}) CREATED FOR {} ORDER #{} ({}x{}@{}) | BEST {} : {} | MAX LEV : {}", 
@@ -378,6 +382,18 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             if (auto limitOrder = std::dynamic_pointer_cast<LimitOrder>(aggressingOrder)) {
                 // if (!reservation.has_value()) {
                 if (reservation == 0_dec) {
+                    
+                    m_exchange->simulation()->logError(
+                        "{} | AGENT #{} BOOK {} | No reservation for aggressing {} order #{} against resting order #{} "
+                        "| restVol: {}  aggVol: {}  tradeVol:{}  takerFee:{}  makerFee:{}"
+                        ,
+                        m_exchange->simulation()->currentTimestamp(), 
+                        aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
+                        aggressingOrder->direction(), aggressingOrderId, restingOrderId,
+                        restingOrder->totalVolume(), aggressingOrder->totalVolume(), trade->volume(),
+                        fees.taker, fees.maker
+                    );
+
                     throw std::runtime_error{fmt::format(
                         "{} | AGENT #{} BOOK {} : No reservation for aggressing {} order #{}.",
                         m_exchange->simulation()->currentTimestamp(), 
@@ -473,11 +489,23 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
         );
 
         if (reservation == 0_dec) {
+            
+            m_exchange->simulation()->logError(
+                "{} | AGENT #{} BOOK {} | No reservation for resting {} order #{} against aggressing order #{} "
+                "| restVol: {}  aggVol: {}  tradeVol:{}  takerFee:{}  makerFee:{}"
+                ,
+                m_exchange->simulation()->currentTimestamp(), 
+                aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
+                restingOrder->direction(), restingOrderId, aggressingOrderId,
+                restingOrder->totalVolume(), aggressingOrder->totalVolume(), trade->volume(),
+                fees.taker, fees.maker
+            );
+
             throw std::runtime_error{fmt::format(
-                "{} | AGENT #{} BOOK {} : Trade volume {}, No reservation for resting {} order #{}.",
+                "{} | AGENT #{} BOOK {} : Trade volume {}, No reservation for resting {} order #{} against aggressing order #{}.",
                 m_exchange->simulation()->currentTimestamp(),
                 restingAgentId, m_exchange->simulation()->bookIdCanon(bookId), trade->volume(),
-                restingOrder->direction(), restingOrderId)};
+                restingOrder->direction(), restingOrderId, aggressingOrderId)};
         } else if (restingOrder->totalVolume() == trade->volume()) {
             m_exchange->simulation()->logDebug(
                 "{} | AGENT #{} BOOK {} : Committing reservation amount {} for trade volume {} in {} order #{}.",

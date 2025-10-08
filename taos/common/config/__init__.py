@@ -122,10 +122,10 @@ def add_miner_args(cls, parser):
     )
 
     parser.add_argument(
-        "--blacklist.force_validator_permit",
+        "--blacklist.allow_non_validators",
         action="store_true",
         help="If set, we will force incoming requests to have a permit.",
-        default=True,
+        default=False,
     )
 
     parser.add_argument(
