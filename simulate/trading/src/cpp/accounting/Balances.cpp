@@ -70,11 +70,11 @@ ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decima
     if (getLeverage(id, direction) == 0_dec) {
         if (direction == OrderDirection::BUY) {
             const auto freed = ReservationAmounts{.quote = quote.freeReservation(id, bookId, amount)};
-            quote.checkConsistency(std::source_location::current());
+            quote.checkConsistency(std::source_location::current(), bookId);
             return freed;
         } else {
             const auto freed = ReservationAmounts{.base = base.freeReservation(id, bookId, amount)};
-            base.checkConsistency(std::source_location::current());
+            base.checkConsistency(std::source_location::current(), bookId);
             return freed;
         }
     }
@@ -114,8 +114,8 @@ ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decima
         (direction == OrderDirection::BUY ? m_buyLeverages : m_sellLeverages).erase(id);
     }
 
-    base.checkConsistency(std::source_location::current());
-    quote.checkConsistency(std::source_location::current());
+    base.checkConsistency(std::source_location::current(), bookId);
+    quote.checkConsistency(std::source_location::current(), bookId);
     
     return freed;
 }
@@ -132,11 +132,11 @@ ReservationAmounts Balances::makeReservation(OrderID id, decimal_t price, decima
     if (leverage == 0_dec) {
         if (direction == OrderDirection::BUY) {
             const ReservationAmounts reserved{.quote = quote.makeReservation(id, amount, bookId)};
-            quote.checkConsistency(std::source_location::current());
+            quote.checkConsistency(std::source_location::current(), bookId);
             return reserved;
         } else {
             const ReservationAmounts reserved{.base = base.makeReservation(id, amount, bookId)};
-            base.checkConsistency(std::source_location::current());
+            base.checkConsistency(std::source_location::current(), bookId);
             return reserved;
         }
     }
@@ -174,8 +174,8 @@ ReservationAmounts Balances::makeReservation(OrderID id, decimal_t price, decima
         }
     }();
 
-    base.checkConsistency(std::source_location::current());
-    quote.checkConsistency(std::source_location::current());
+    base.checkConsistency(std::source_location::current(), bookId);
+    quote.checkConsistency(std::source_location::current(), bookId);
 
     return reserved;
 }
@@ -220,14 +220,14 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
     if (std::holds_alternative<SettleType>(settleFlag)) {
         SettleType type = std::get<SettleType>(settleFlag);
         if (type == SettleType::NONE) {
-            base.checkConsistency(std::source_location::current());
-            quote.checkConsistency(std::source_location::current());
+            base.checkConsistency(std::source_location::current(), bookId);
+            quote.checkConsistency(std::source_location::current(), bookId);
             return {};
         } else if (type == SettleType::FIFO) {
             const auto& ids = settleLoan(
                 direction, 
                 direction == OrderDirection::BUY ? counterAmount : counterAmount - fee, 
-                direction == OrderDirection::BUY ? bestAsk : bestBid);
+                direction == OrderDirection::BUY ? bestAsk : bestBid, bookId);
             return ids;
         }
     } else if (std::holds_alternative<OrderID>(settleFlag)) {
@@ -235,7 +235,7 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
         const auto& ids = settleLoan(
             direction, 
             direction == OrderDirection::BUY ? counterAmount : counterAmount - fee, 
-            direction == OrderDirection::BUY ? bestAsk : bestBid, 
+            direction == OrderDirection::BUY ? bestAsk : bestBid, bookId,
             marginOrderId);
         return ids;
     }
@@ -427,7 +427,7 @@ Balances Balances::fromXML(pugi::xml_node node, const RoundParams& roundParams)
 //-------------------------------------------------------------------------
 
 std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
-    OrderDirection direction, decimal_t amount, decimal_t price, std::optional<OrderID> marginOrderId)
+    OrderDirection direction, decimal_t amount, decimal_t price, BookId bookId, std::optional<OrderID> marginOrderId)
 {
     /*
         Settles the loan based on FIFO by default, unless the marginOrderId is specified
@@ -490,8 +490,8 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
         }
     }
 
-    base.checkConsistency(std::source_location::current());
-    quote.checkConsistency(std::source_location::current());
+    base.checkConsistency(std::source_location::current(), bookId);
+    quote.checkConsistency(std::source_location::current(), bookId);
 
     return settledLoanIds;
 }
@@ -594,8 +594,8 @@ void Balances::borrow(
         m_loans.insert({id, loan});
     }
 
-    base.checkConsistency(std::source_location::current());
-    quote.checkConsistency(std::source_location::current());
+    base.checkConsistency(std::source_location::current(), bookId);
+    quote.checkConsistency(std::source_location::current(), bookId);
 }
 
 //-------------------------------------------------------------------------

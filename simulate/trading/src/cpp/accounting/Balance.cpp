@@ -17,7 +17,7 @@ Balance::Balance(
     uint32_t roundingDecimals)
     : m_symbol{symbol}, m_roundingDecimals{roundingDecimals}
 {
-    total = util::round(total, m_roundingDecimals);
+    total = roundAmount(total);
 
     if (total < 0_dec) {
         throw std::invalid_argument(fmt::format(
@@ -122,7 +122,6 @@ void Balance::deposit(decimal_t amount)
     // m_total = std::max(m_total + amount, {});
     m_free = m_free + amount;
     m_total = m_total + amount;
-    checkConsistency(std::source_location::current());
 }
 
 //-------------------------------------------------------------------------
@@ -150,7 +149,7 @@ decimal_t Balance::makeReservation(OrderID id, decimal_t amount, BookId bookId)
     m_reserved += amount;
     m_reservations.insert({id, amount});
 
-    checkConsistency(std::source_location::current());
+    checkConsistency(std::source_location::current(), bookId);
 
     if (auto reserved = ranges::accumulate(m_reservations | views::values, 0_dec);
         reserved != m_reserved) {
@@ -234,9 +233,10 @@ void Balance::voidReservation(OrderID id, BookId bookId, std::optional<decimal_t
 {
     if (getReservation(id).has_value()) {
         amount = freeReservation(id, bookId, amount);
+        amount = roundAmount(amount);
         m_free -= amount.value();
         m_total -= amount.value();
-        checkConsistency(std::source_location::current());
+        checkConsistency(std::source_location::current(), bookId);
     }
 }
 
@@ -366,18 +366,29 @@ std::optional<decimal_t> Balance::roundAmount(std::optional<decimal_t> amount) c
 
 //-------------------------------------------------------------------------
 
-void Balance::checkConsistency(std::source_location sl) const
+void Balance::checkConsistency(std::source_location sl, BookId bookId)
 {
     if (m_total != m_free + m_reserved) {
-        throw std::runtime_error{fmt::format(
-            "{} : Inconsistent accounting where total {}"
-            "is not equal to free {} +  reserved {} = {}",
-            sl.function_name(), m_total, m_free, m_reserved, m_free + m_reserved)};
+        if (m_total > m_free + m_reserved && util::round(m_total - m_free - m_reserved, m_roundingDecimals - 1) == 0_dec){
+            m_free = m_total - m_reserved;
+        } else if (m_total < m_free + m_reserved && util::round(m_free + m_reserved - m_total, m_roundingDecimals - 1)  == 0_dec){
+            m_total = m_free + m_reserved;
+        } else {
+            throw std::runtime_error{fmt::format(
+                "{} : In book {} there is inconsistency in the accounting where total {}"
+                " is not equal to free {} +  reserved {} = {}",
+                sl.function_name(), bookId, m_total, m_free, m_reserved, m_free + m_reserved)};
+        }
+
+        fmt::println(
+            "{} : In book {} there is inconsistency in the accounting where total {}"
+            " is not equal to free {} +  reserved {} = {}",
+            sl.function_name(), bookId, m_total, m_free, m_reserved, m_free + m_reserved);
     }
     if (m_total < 0_dec || m_free < 0_dec || m_reserved < 0_dec) {
         throw std::runtime_error{fmt::format(
-            "{} : Negative values in accounting  {} ( {} | {})",
-            sl.function_name(), m_total, m_free, m_reserved)};
+            "{} : In book {} there is negative values in accounting  {} ( {} | {})",
+            sl.function_name(), bookId, m_total, m_free, m_reserved)};
     }
 }
 

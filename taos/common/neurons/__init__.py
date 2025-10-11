@@ -125,6 +125,20 @@ class BaseNeuron(ABC):
         Abstract method for running the neuron.
         """
         ...
+    
+
+    @abstractmethod
+    def resync_metagraph(self):
+        """
+        Abstract method for resynchronizing metagraph.
+        """
+        ...
+
+    def set_weights(self):
+        """
+        Default method for setting validator weights.
+        """
+        pass
 
     def sync(self, save_state=True):
         """
@@ -140,7 +154,7 @@ class BaseNeuron(ABC):
             self.resync_metagraph()
 
         if self.should_set_weights():
-            Thread(target=self.set_weights, args=(), daemon=True, name=f'weights_{self.step}').start()
+            self.set_weights()
 
         if save_state:
             self.save_state()

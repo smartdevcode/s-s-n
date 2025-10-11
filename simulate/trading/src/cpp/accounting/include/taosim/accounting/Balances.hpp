@@ -87,7 +87,7 @@ public:
 
 private:
     [[nodiscard]] std::vector<std::pair<OrderID, decimal_t>> settleLoan(
-        OrderDirection direction, decimal_t amount, decimal_t price, std::optional<OrderID> marginOrderId = {});
+        OrderDirection direction, decimal_t amount, decimal_t price, BookId bookId, std::optional<OrderID> marginOrderId = {});
 
     void borrow(
         OrderID id,

@@ -40,13 +40,17 @@ class DendriteManager:
             connector = aiohttp.TCPConnector(
                 ssl=False,
                 limit=256,
-                limit_per_host=1,
+                limit_per_host=32,
+                ttl_dns_cache=60,
                 keepalive_timeout=60,
                 happy_eyeballs_delay=None
             )
 
             timeout = aiohttp.ClientTimeout(
-                total=self.config.neuron.timeout
+                total=self.config.neuron.timeout,
+                connect=0.5,
+                sock_read=0.5,
+                sock_connect=0.5,
             )
 
             self.dendrite._session = aiohttp.ClientSession(
@@ -215,21 +219,32 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
 
     start = time.time()
     
+    sem = asyncio.Semaphore(len(self.metagraph.axons))
     async def query_uid(uid):
-        return (uid,
-            await self.dendrite(
-                axons=self.metagraph.axons[uid],
-                synapse=axon_synapses[uid],
-                timeout=self.config.neuron.timeout,
-                deserialize=False
-            )
-        )
+        async with sem:
+            try:
+                response = await asyncio.wait_for(
+                    self.dendrite(
+                        axons=self.metagraph.axons[uid],
+                        synapse=axon_synapses[uid],
+                        timeout=self.config.neuron.timeout,
+                        deserialize=False
+                    ),
+                    timeout=self.config.neuron.query_timeout
+                )
+                return (uid, response)
+            except asyncio.TimeoutError:
+                bt.logging.warning(f"Wall-clock timeout after {self.config.neuron.query_timeout}s while querying UID {uid}")
+                axon_synapses[uid] = self.dendrite.preprocess_synapse_for_request(self.metagraph.axons[uid], axon_synapses[uid], self.config.neuron.timeout)
+                axon_synapses[uid].dendrite.status_code = 408
+                return (uid, axon_synapses[uid])
+
     synapse_responses = await asyncio.gather(
             *(query_uid(uid) for uid in range(len(self.metagraph.axons)) if uid not in self.deregistered_uids)
         )
     synapse_responses = {uid : synapse_response for uid, synapse_response in synapse_responses}
     
-    bt.logging.info(f"Dendrite call completed ({time.time()-start:.4f}s | Timeout {self.config.neuron.timeout}).")
+    bt.logging.info(f"Dendrite call completed ({time.time()-start:.4f}s | Timeout {self.config.neuron.timeout}s / {self.config.neuron.query_timeout}s).")
     self.dendrite.synapse_history = self.dendrite.synapse_history[-10:]
     
     # Validate the miner responses

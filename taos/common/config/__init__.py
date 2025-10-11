@@ -182,6 +182,13 @@ def add_validator_args(cls, parser):
     )
 
     parser.add_argument(
+        "--neuron.query_timeout",
+        type=float,
+        help="The hard wall-clock timeout for each miner query in seconds.",
+        default=6.0,
+    )
+
+    parser.add_argument(
         "--neuron.num_concurrent_forwards",
         type=int,
         help="The number of concurrent forwards running at any time.",

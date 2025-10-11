@@ -123,11 +123,11 @@ def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[i
 
 def score_inventory_values(self, inventory_values):
     if self.config.scoring.sharpe.parallel_workers == 0:
-        self.sharpe_values = {uid.item() : sharpe(uid, inventory_values[uid], self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.simulation.grace_period) for uid in self.metagraph.uids}
+        self.sharpe_values = {uid.item() : sharpe(uid, inventory_values[uid], self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.config.scoring.sharpe.min_lookback, self.simulation.grace_period, self.deregistered_uids) for uid in self.metagraph.uids}
     else:
         num_processes = self.config.scoring.sharpe.parallel_workers
         batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0,256,int(256/num_processes))]
-        self.sharpe_values = batch_sharpe(inventory_values, batches, self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.simulation.grace_period, self.deregistered_uids)
+        self.sharpe_values = batch_sharpe(inventory_values, batches, self.config.scoring.sharpe.lookback, self.config.scoring.sharpe.normalization_min, self.config.scoring.sharpe.normalization_max, self.config.scoring.sharpe.min_lookback, self.simulation.grace_period, self.deregistered_uids)
 
     inventory_scores = {uid : score_inventory_value(self, uid, self.inventory_history[uid]) for uid in self.metagraph.uids}
     return inventory_scores

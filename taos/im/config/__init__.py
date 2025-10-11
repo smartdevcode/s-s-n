@@ -125,7 +125,14 @@ def add_im_validator_args(cls, parser):
         "--scoring.sharpe.lookback",
         type=int,
         help="Number of previous liquidation value observations to use for Sharpe ratio calculation.",
-        default=1440,
+        default=7200,
+    )
+
+    parser.add_argument(
+        "--scoring.sharpe.min_lookback",
+        type=int,
+        help="Minimum number of previous liquidation value observations required for Sharpe calculation.",
+        default=3600,
     )
 
     parser.add_argument(

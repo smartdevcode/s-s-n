@@ -61,7 +61,7 @@ public:
     [[nodiscard]] static Balance fromJson(const rapidjson::Value& json);
 
 private:
-    void checkConsistency(std::source_location sl) const;
+    void checkConsistency(std::source_location sl, BookId bookId);
     void move(Balance&& other) noexcept;
 
     [[nodiscard]] decimal_t roundAmount(decimal_t amount) const;
