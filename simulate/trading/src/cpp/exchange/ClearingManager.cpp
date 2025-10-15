@@ -385,13 +385,15 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
                     
                     m_exchange->simulation()->logError(
                         "{} | AGENT #{} BOOK {} | No reservation for aggressing {} order #{} against resting order #{} "
-                        "| restVol: {}  aggVol: {}  tradeVol:{}  takerFee:{}  makerFee:{}"
+                        "| restVol: {}  aggVol: {}  tradeVol:{}  takerFee:{}  makerFee:{}  reservations(b:{}|q:{})"
                         ,
                         m_exchange->simulation()->currentTimestamp(), 
                         aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
                         aggressingOrder->direction(), aggressingOrderId, restingOrderId,
                         restingOrder->totalVolume(), aggressingOrder->totalVolume(), trade->volume(),
-                        fees.taker, fees.maker
+                        fees.taker, fees.maker,
+                        aggressingBalance.base.getReservation(aggressingOrderId).value_or(0_dec),
+                        aggressingBalance.quote.getReservation(aggressingOrderId).value_or(0_dec)
                     );
 
                     throw std::runtime_error{fmt::format(
@@ -492,13 +494,15 @@ Fees ClearingManager::handleTrade(const TradeDesc& tradeDesc)
             
             m_exchange->simulation()->logError(
                 "{} | AGENT #{} BOOK {} | No reservation for resting {} order #{} against aggressing order #{} "
-                "| restVol: {}  aggVol: {}  tradeVol:{}  takerFee:{}  makerFee:{}"
+                "| restVol: {}  aggVol: {}  tradeVol:{}  takerFee:{}  makerFee:{}  reservations(b:{}|q:{})"
                 ,
                 m_exchange->simulation()->currentTimestamp(), 
                 aggressingAgentId, m_exchange->simulation()->bookIdCanon(bookId),
                 restingOrder->direction(), restingOrderId, aggressingOrderId,
                 restingOrder->totalVolume(), aggressingOrder->totalVolume(), trade->volume(),
-                fees.taker, fees.maker
+                fees.taker, fees.maker, 
+                restingBalance.base.getReservation(restingOrderId).value_or(0_dec),
+                restingBalance.quote.getReservation(restingOrderId).value_or(0_dec)
             );
 
             throw std::runtime_error{fmt::format(

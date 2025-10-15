@@ -43,6 +43,7 @@ class DendriteManager:
                 limit_per_host=32,
                 ttl_dns_cache=60,
                 keepalive_timeout=60,
+                force_close=False,
                 happy_eyeballs_delay=None
             )
 
@@ -157,7 +158,7 @@ def update_stats(self : Validator, synapses : dict[int, MarketSimulationStateUpd
         elif synapse.dendrite.process_time:            
             self.miner_stats[uid]['call_time'].append(synapse.dendrite.process_time)
 
-async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> List[FinanceAgentResponse]:
+async def forward(self: Validator, synapse: MarketSimulationStateUpdate) -> List[FinanceAgentResponse]:
     """
     Forwards state update to miners, validates responses, calculates rewards and handles deregistered UIDs.
 
@@ -170,12 +171,10 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     responses = []
     if self.deregistered_uids != []:
         # Account balances must be reset in the simulator for deregistered agent IDs.
-        # The validator constructs a response containing the agent reset instruction for this purpose.
         response = FinanceAgentResponse(agent_id=self.uid)
         response.reset_agents(agent_ids=self.deregistered_uids)
         responses.append(response)
 
-    # Forward the simulation state update to all miners in the network
     bt.logging.info(f"Querying Miners...")
     start = time.time()
         
@@ -199,7 +198,7 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
 
     start = time.time()
     axon_synapses = {uid: create_axon_synapse(uid) for uid in range(len(self.metagraph.axons))}
-    bt.logging.info(f"Created axon synapses ({time.time()-start}s)")
+    bt.logging.info(f"Created axon synapses ({time.time()-start:.4f}s)")
     
     if self.config.compression.parallel_workers == 0:
         def compress_axon_synapse(synapse):
@@ -213,13 +212,19 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     else:
         num_processes = self.config.compression.parallel_workers if self.config.compression.parallel_workers > 0 else multiprocessing.cpu_count() // 2
         batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0, 256, int(256/num_processes))]
-        
-        axon_synapses = batch_compress(axon_synapses, compressed_books, batches, level=self.config.compression.level, engine=self.config.compression.engine, version=synapse.version)        
+        axon_synapses = batch_compress(
+            axon_synapses,
+            compressed_books,
+            batches,
+            level=self.config.compression.level,
+            engine=self.config.compression.engine,
+            version=synapse.version
+        )        
     bt.logging.info(f"Compressed synapses ({time.time()-synapse_start:.4f}s).")
 
     start = time.time()
-    
     sem = asyncio.Semaphore(len(self.metagraph.axons))
+
     async def query_uid(uid):
         async with sem:
             try:
@@ -232,19 +237,50 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
                     ),
                     timeout=self.config.neuron.query_timeout
                 )
-                return (uid, response)
+                return uid, response
             except asyncio.TimeoutError:
                 bt.logging.warning(f"Wall-clock timeout after {self.config.neuron.query_timeout}s while querying UID {uid}")
-                axon_synapses[uid] = self.dendrite.preprocess_synapse_for_request(self.metagraph.axons[uid], axon_synapses[uid], self.config.neuron.timeout)
+                axon_synapses[uid] = self.dendrite.preprocess_synapse_for_request(
+                    self.metagraph.axons[uid],
+                    axon_synapses[uid],
+                    self.config.neuron.timeout
+                )
                 axon_synapses[uid].dendrite.status_code = 408
-                return (uid, axon_synapses[uid])
+                return uid, axon_synapses[uid]
 
-    synapse_responses = await asyncio.gather(
-            *(query_uid(uid) for uid in range(len(self.metagraph.axons)) if uid not in self.deregistered_uids)
+    async def run_all_queries():
+        tasks = []
+        for uid in range(len(self.metagraph.axons)):
+            if uid in self.deregistered_uids:
+                continue
+            tasks.append(asyncio.create_task(query_uid(uid)))
+            await asyncio.sleep(0.002)  # 2ms stagger
+
+        synapse_responses = {}
+        for coro in asyncio.as_completed(tasks):
+            uid, response = await coro
+            synapse_responses[uid] = response
+        return synapse_responses
+
+    try:
+        synapse_responses = await asyncio.wait_for(
+            run_all_queries(),
+            timeout=self.config.neuron.global_query_timeout
         )
-    synapse_responses = {uid : synapse_response for uid, synapse_response in synapse_responses}
-    
-    bt.logging.info(f"Dendrite call completed ({time.time()-start:.4f}s | Timeout {self.config.neuron.timeout}s / {self.config.neuron.query_timeout}s).")
+    except asyncio.TimeoutError:
+        bt.logging.warning(f"Global dendrite query timeout after {self.config.neuron.global_query_timeout}s")
+        # Gather results from completed tasks
+        synapse_responses = {}
+        for task in asyncio.all_tasks():
+            if task.done():
+                try:
+                    uid, response = task.result()
+                    synapse_responses[uid] = response
+                except Exception:
+                    pass
+
+    bt.logging.info(f"Dendrite call completed ({time.time()-start:.4f}s | "
+                    f"Timeout {self.config.neuron.timeout}s / {self.config.neuron.query_timeout}s / {self.config.neuron.global_query_timeout}s).")
     self.dendrite.synapse_history = self.dendrite.synapse_history[-10:]
     
     # Validate the miner responses
@@ -257,13 +293,13 @@ async def forward(self : Validator, synapse : MarketSimulationStateUpdate) -> Li
     update_stats(self, synapse_responses)
     bt.logging.debug(f"Updated Stats ({time.time()-start:.4f}s).")
     
-    # Set the simulation time delays on the instructions proportional to the response time,
-    # and add the modified responses to the return array.
+    # Set simulation delays and add modified responses
     start = time.time()
     responses.extend(set_delays(self, synapse_responses))
     bt.logging.debug(f"Set Delays ({time.time()-start:.4f}s).")
     bt.logging.trace(f"Responses: {responses}")    
-    bt.logging.info(f"Received {total_responses} valid responses containing {total_instructions} instructions ({success} SUCCESS | {timeouts} TIMEOUTS | {failures} FAILURES).")
+    bt.logging.info(f"Received {total_responses} valid responses containing {total_instructions} instructions "
+                    f"({success} SUCCESS | {timeouts} TIMEOUTS | {failures} FAILURES).")
     return responses
 
 async def notify(self : Validator, notices : List[FinanceEventNotification]) -> None:

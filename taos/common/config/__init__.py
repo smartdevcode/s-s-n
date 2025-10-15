@@ -185,7 +185,14 @@ def add_validator_args(cls, parser):
         "--neuron.query_timeout",
         type=float,
         help="The hard wall-clock timeout for each miner query in seconds.",
-        default=6.0,
+        default=4.0,
+    )
+
+    parser.add_argument(
+        "--neuron.global_query_timeout",
+        type=float,
+        help="The hard wall-clock timeout for the entire dendrite query process to complete.",
+        default=12.0,
     )
 
     parser.add_argument(

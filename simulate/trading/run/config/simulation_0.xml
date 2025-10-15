@@ -137,7 +137,7 @@
             opLatencyScaleRay="0.235"
             delayMean="5000000000"
             delaySTD="1000000000"
-            scaleR="0.35"
+            scaleR="0.65"
             sigmaN="0.7"
             sigmaC="1.6"
             sigmaF="0.030"
@@ -156,7 +156,7 @@
                 scale="0.8"
                 shape="1.16"
                 seed="1337"
-                wealth="17000.0"
+                wealth="20000.0"
                 cap="3000000.0"
                 price="300.0"
             />

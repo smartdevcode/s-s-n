@@ -25,13 +25,6 @@
 #include <source_location>
 #include <thread>
 
-#include <rapidjson/document.h>
-#include <rapidjson/reader.h>
-#include <rapidjson/encodings.h>
-#include <rapidjson/error/en.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-
 //-------------------------------------------------------------------------
 
 namespace taosim::simulation
@@ -421,7 +414,7 @@ void SimulationManager::publishStateMessagePack()
 
     if (now < m_gracePeriod || !online()) return;
 
-    taosim::serialization::HumanReadableStream stream{1uz << 28};
+    taosim::serialization::HumanReadableStream stream{1uz << 27};
     const serialization::ValidatorRequest req{.mngr = this};
     msgpack::pack(stream, req);
 
@@ -525,8 +518,66 @@ void SimulationManager::publishStateMessagePack()
     if (val.type != msgpack::type::ARRAY || val.via.array.size == 0) {
         return;
     }
+    std::vector<Message::Ptr> unpackedResponses;
+    size_t responseIdx{};
+    size_t errorCounter{};
+    std::map<size_t, std::string> responseIdxToError;
     for (const auto& response : val.via.array) {
-        const auto [msg, blockIdx] = decanonize(unpackResponse(response), m_blockInfo.dimension);
+        auto handleError = [&](auto&& e) {
+            responseIdxToError[responseIdx] = e.what();
+            ++errorCounter;
+        };
+        try {
+            unpackedResponses.push_back(unpackResponse(response));
+        } catch (const std::exception& e) {
+            handleError(e);
+        }
+        ++responseIdx;
+    }
+    if (errorCounter > 0) {
+        rapidjson::Document json{rapidjson::kObjectType};
+        auto& allocator = json.GetAllocator();
+        const auto errorRatio = static_cast<float>(errorCounter) / val.via.array.size;
+        json.AddMember(
+            "messages",
+            [&] {
+                rapidjson::Value messagesJson{rapidjson::kArrayType};
+                rapidjson::Value messageJson{rapidjson::kObjectType};
+                messageJson.AddMember(
+                    "type", rapidjson::Value{"RESPONSES_ERROR_REPORT", allocator}, allocator);
+                messageJson.AddMember("timestamp", rapidjson::Value{now}, allocator);
+                messageJson.AddMember("errorRatio", rapidjson::Value{errorRatio}, allocator);
+                for (const auto& [key, val] : responseIdxToError) {
+                    messageJson.AddMember(
+                        rapidjson::Value{std::to_string(key).c_str(), allocator},
+                        rapidjson::Value{val.c_str(), allocator},
+                        allocator);
+                }
+                messagesJson.PushBack(messageJson, allocator);
+                return messagesJson;
+            }().Move(),
+            allocator);
+        rapidjson::Document res;
+        net::io_context io;
+        net::co_spawn(
+            io, asyncSendOverNetwork(json, m_netInfo.generalMsgEndpoint, res), net::detached);
+        io.run();
+        if (res.HasMember("continue") && res["continue"].GetBool() == false) {
+            throw std::runtime_error{fmt::format(
+                "{}: Teardown requested by validator; latest error rate: {}; details: {{{}}}",
+                ctx,
+                errorRatio,
+                fmt::join(
+                    responseIdxToError
+                    | views::transform([](const auto& pair) {
+                        return fmt::format("{} -> {}", pair.first, pair.second);
+                    }),
+                    ", "
+                ))};
+        }
+    }
+    for (const auto& response : unpackedResponses) {
+        const auto [msg, blockIdx] = decanonize(response, m_blockInfo.dimension);
         if (!blockIdx) {
             for (const auto& simulation : m_simulations) {
                 simulation->queueMessage(msg);

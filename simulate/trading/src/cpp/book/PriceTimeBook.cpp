@@ -61,8 +61,6 @@ taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, tao
         if (usedVolume > 0_dec) {
             processedQuote += usedVolume * bestBuyDeque->price();
             logTrade(OrderDirection::SELL, order->id(), iop->id(), usedVolume, bestBuyDeque->price());
-            m_simulation->logDebug("{} | logTrade AgainstBuy | AGENT #{} BOOK {} :   processedQute: {}  usedVoume:{}  bestBuyDeqPrice: {}", 
-                m_simulation->currentTimestamp(), restCtx.agentId, m_id, processedQuote, usedVolume, bestBuyDeque->price());
         }
 
         order->removeLeveragedVolume(usedVolume);
@@ -71,6 +69,11 @@ taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, tao
         order->setVolume(taosim::util::round(order->volume(), maxDecimals));
         iop->setVolume(taosim::util::round(iop->volume(), maxDecimals));
 
+        const auto& aggBalances = m_simulation->exchange()->accounts()[m_order2clientCtx[order->id()].agentId][m_id];
+        if ((order->volume() > 0_dec && taosim::util::round(order->volume(), volumeDecimals) == 0_dec) ||
+            aggBalances.getReservationInBase(order->id(), 1_dec) == 0_dec){
+            order->setVolume(0_dec);
+        }
 
         bestBuyDeque->updateVolume(-taosim::util::round(usedVolume, maxDecimals));
 
@@ -81,7 +84,6 @@ taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, tao
         }
 
         if (m_simulation->debug()) {
-            const auto& aggBalances = m_simulation->exchange()->accounts()[aggCtx.agentId][m_id];
             const auto& restingBalances = m_simulation->exchange()->accounts()[restCtx.agentId][m_id];    
             m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), aggCtx.agentId, m_id, aggBalances.quote, aggBalances.base);
             m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), restCtx.agentId, m_id, restingBalances.quote, restingBalances.base);
@@ -136,14 +138,13 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
             const auto& aggBalances = m_simulation->exchange()->accounts()[aggCtx.agentId][m_id];        
             restCtx = m_order2clientCtx[iop->id()];
             const auto& restingBalances = m_simulation->exchange()->accounts()[restCtx.agentId][m_id];    
-            m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), restCtx.agentId, m_id, restingBalances.quote, restingBalances.base);
+            m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", 
+                m_simulation->currentTimestamp(), restCtx.agentId, m_id, restingBalances.quote, restingBalances.base);
         }
 
         if (usedVolume > 0_dec) {
             processedQuote += usedVolume * bestSellDeque->price();
             logTrade(OrderDirection::BUY, order->id(), iop->id(), usedVolume, bestSellDeque->price());
-            m_simulation->logDebug("{} | logTrade AgainstSell | AGENT #{} BOOK {} :   processedQute: {}  usedVoume:{}  bestSellDeqPrice: {}", 
-                m_simulation->currentTimestamp(), restCtx.agentId, m_id, processedQuote, usedVolume, bestSellDeque->price());
         }
         
         order->removeLeveragedVolume(usedVolume);
@@ -152,6 +153,11 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
         order->setVolume(taosim::util::round(order->volume(), maxDecimals));
         iop->setVolume(taosim::util::round(iop->volume(), maxDecimals));
 
+        const auto& aggBalances = m_simulation->exchange()->accounts()[m_order2clientCtx[order->id()].agentId][m_id];
+        if ((order->volume() > 0_dec && taosim::util::round(order->volume(), volumeDecimals) == 0_dec) ||
+            aggBalances.getReservationInBase(order->id(), 1_dec) == 0_dec){
+            order->setVolume(0_dec);
+        }
 
         bestSellDeque->updateVolume(-taosim::util::round(usedVolume, maxDecimals));
 
@@ -162,7 +168,6 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
         }
 
         if (m_simulation->debug()) {
-            const auto& aggBalances = m_simulation->exchange()->accounts()[aggCtx.agentId][m_id];
             const auto& restingBalances = m_simulation->exchange()->accounts()[restCtx.agentId][m_id];    
             m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), aggCtx.agentId, m_id, aggBalances.quote, aggBalances.base);
             m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), restCtx.agentId, m_id, restingBalances.quote, restingBalances.base);

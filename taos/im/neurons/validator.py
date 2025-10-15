@@ -18,6 +18,7 @@
 
 if __name__ != "__mp_main__":
     import os
+    import json
     import platform
     import time
     import argparse
@@ -449,6 +450,8 @@ if __name__ != "__mp_main__":
             # Initialize subnet info and other basic validator/simulation properties
             self.subnet_info = self.subtensor.get_metagraph_info(self.config.netuid)
             self.last_state = None
+            self.last_response = None
+            self.msgpack_error_counter = 0
             self.simulation_timestamp = 0
             self.reward_weights = {"sharpe" : 1.0}
             self.start_time = None
@@ -724,6 +727,8 @@ if __name__ != "__mp_main__":
                 return result, receive_start
 
             def respond(response) -> dict:
+                import random
+                self.last_response = response
                 packed_res = msgpack.packb(response, use_bin_type=True)
                 byte_size_res = len(packed_res)
                 mq_res = posix_ipc.MessageQueue("/taosim-res", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
@@ -794,13 +799,27 @@ if __name__ != "__mp_main__":
             batch = msgspec.json.decode(body)
             bt.logging.info(f"NOTICE : {batch}")
             notices = []
-            ended = False
+            ended = False                
             for message in batch['messages']:
                 if message['type'] == 'EVENT_SIMULATION_START':
                     self.onStart(message['timestamp'], FinanceEventNotification.from_json(message).event)
                     continue
                 elif message['type'] == 'EVENT_SIMULATION_END':
                     ended = True
+                elif message['type'] == 'RESPONSES_ERROR_REPORT':
+                    dump_file = self.config.neuron.full_path + f"/{self.last_state.config.simulation_id}.{message['timestamp']}.responses.json"
+                    with open(dump_file, "w") as f:
+                        json.dump(self.last_response, f, indent=4)
+                    error_file = self.config.neuron.full_path + f"/{self.last_state.config.simulation_id}.{message['timestamp']}.error.json"
+                    with open(error_file, "w") as f:
+                        json.dump(message, f, indent=4)
+                    self.msgpack_error_counter += len(message) - 3
+                    if self.msgpack_error_counter < 10:
+                        self.pagerduty_alert(f"{self.msgpack_error_counter} msgpack deserialization errors encountered in simulator - continuing.", details=message)
+                        return { "continue": True }
+                    else:
+                        self.pagerduty_alert(f"{self.msgpack_error_counter} msgpack deserialization errors encountered in simulator - terminating simulation.", details=message)
+                        return { "continue": False }
                 notice = FinanceEventNotification.from_json(message)
                 if not notice:
                     bt.logging.error(f"Unrecognized notification : {message}")

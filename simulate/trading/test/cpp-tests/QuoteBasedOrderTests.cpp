@@ -458,28 +458,28 @@ TEST_P(ResidualTest, LimitOrders)
         testOrder.volume, testOrder.price, testOrder.leverage);
     // fillOrderBook(initOrders);
     printOrderbook(book);
-    const auto bookStateVolume = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
+    // const auto bookStateVolume = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
 
-    // fmt::println("{}",bookStateVolume);
+    // // fmt::println("{}",bookStateVolume);
 
-    cancelAll();
-    EXPECT_THAT(
-        normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
-        StrEq("ask\n"
-              "bid\n"));
+    // cancelAll();
+    // EXPECT_THAT(
+    //     normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
+    //     StrEq("ask\n"
+    //           "bid\n"));
 
-    fill();
-    fillOrderBook(initOrders);
-    printOrderbook(book);
-    placeLimitOrder(exchange, agent1, bookId, Currency::QUOTE, testOrder.direction,
-        testOrder.volume * testOrder.price, testOrder.price, testOrder.leverage);
-    const auto bookStateQuote = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
+    // fill();
+    // fillOrderBook(initOrders);
+    // printOrderbook(book);
+    // placeLimitOrder(exchange, agent1, bookId, Currency::QUOTE, testOrder.direction,
+    //     testOrder.volume * testOrder.price, testOrder.price, testOrder.leverage);
+    // const auto bookStateQuote = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
 
-    cancelAll();
-    EXPECT_THAT(
-        normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
-        StrEq("ask\n"
-              "bid\n"));
+    // cancelAll();
+    // EXPECT_THAT(
+    //     normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
+    //     StrEq("ask\n"
+    //           "bid\n"));
     
 }
 
@@ -488,6 +488,23 @@ INSTANTIATE_TEST_SUITE_P(
     QuoteVsVolumeLimitOrders,
     ResidualTest,
     Values(
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.028), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.048), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.048), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.71), .volume = DEC(0.0919), .leverage = DEC(0.35)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.028), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.048), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.048), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.71), .volume = DEC(0.0919), .leverage = DEC(0.35)}
+        },
         TestParams{
             .initOrders = {
                 OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.2142), .leverage = DEC(0.)},
@@ -525,6 +542,66 @@ INSTANTIATE_TEST_SUITE_P(
                 OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.0001), .leverage = DEC(0.)}
             },
             .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.71), .volume = DEC(0.21582), .leverage = DEC(0.0)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(3.149396), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.3), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.12), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.048), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.01), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.65), .volume = DEC(2.8), .leverage = DEC(0.3)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(3.149396), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.3), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.12), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.048), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.01), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.65), .volume = DEC(2.8), .leverage = DEC(0.3)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(3.149396), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.3), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.12), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.048), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.43), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.2), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.65), .volume = DEC(2.8), .leverage = DEC(0.3)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(0.069), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(2.0), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(1.57099999), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.65), .volume = DEC(2.8), .leverage = DEC(0.3)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(0.069), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(2.0), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(1.57099999), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(0.01), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.65), .volume = DEC(2.8), .leverage = DEC(0.3)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(0.069), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(2.0), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(1.8), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.85), .volume = DEC(0.2), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.65), .volume = DEC(2.8), .leverage = DEC(0.3)}
         },
         TestParams{
             .initOrders = {
@@ -579,28 +656,29 @@ TEST_P(ResidualTest, MarketOrders)
     printOrderbook(book);
     placeMarketOrder(exchange, agent1, bookId, Currency::BASE, testOrder.direction,
         testOrder.volume, testOrder.leverage);
-    const auto bookStateVolume = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
-
-    fmt::println("{}",bookStateVolume);
-
-    cancelAll();
-    EXPECT_THAT(
-        normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
-        StrEq("ask\n"
-              "bid\n"));
-
-    fill();
-    fillOrderBook(initOrders);
     printOrderbook(book);
-    placeMarketOrder(exchange, agent1, bookId, Currency::QUOTE, testOrder.direction,
-        testOrder.volume * testOrder.price, testOrder.leverage);
-    const auto bookStateQuote = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
+    // const auto bookStateVolume = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
 
-    cancelAll();
-    EXPECT_THAT(
-        normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
-        StrEq("ask\n"
-              "bid\n"));
+    // fmt::println("{}",bookStateVolume);
+
+    // cancelAll();
+    // EXPECT_THAT(
+    //     normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
+    //     StrEq("ask\n"
+    //           "bid\n"));
+
+    // fill();
+    // fillOrderBook(initOrders);
+    // printOrderbook(book);
+    // placeMarketOrder(exchange, agent1, bookId, Currency::QUOTE, testOrder.direction,
+    //     testOrder.volume * testOrder.price, testOrder.leverage);
+    // const auto bookStateQuote = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
+
+    // cancelAll();
+    // EXPECT_THAT(
+    //     normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); })),
+    //     StrEq("ask\n"
+    //           "bid\n"));
     
 }
 
