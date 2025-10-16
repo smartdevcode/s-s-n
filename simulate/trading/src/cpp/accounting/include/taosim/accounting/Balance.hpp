@@ -44,7 +44,7 @@ public:
     [[nodiscard]] FreeInfo canFree(OrderID id, std::optional<decimal_t> amount = {}) const noexcept;
     [[nodiscard]] bool canReserve(decimal_t amount) const noexcept;
 
-    void deposit(decimal_t amount);
+    void deposit(decimal_t amount, BookId bookId);
     decimal_t makeReservation(OrderID id, decimal_t amount, BookId bookId);
     decimal_t freeReservation(OrderID id, BookId bookId, std::optional<decimal_t> amount = {});
     decimal_t tryFreeReservation(OrderID orderId, BookId bookId, std::optional<decimal_t> amount = {});
@@ -74,8 +74,6 @@ private:
     std::map<OrderID, decimal_t> m_reservations;
     std::string m_symbol;
     uint32_t m_roundingDecimals;
-
-    friend class Balances;
 };
 
 //-------------------------------------------------------------------------

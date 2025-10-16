@@ -1,10 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
-import zlib
-import lz4.frame
 import time
-import pybase64
-import msgspec
+import traceback
 import bittensor as bt
 from ypyjson import YpyObject
 from typing import Annotated, Optional, ClassVar, Literal
@@ -280,14 +277,35 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         """
         try:
             if self.compressed:
+                start = time.time()
                 decompressed = decompress(self.compressed, self.compression_engine, self.version)
+                bt.logging.debug(f"Decompressed state update ({time.time() - start:.4f}s)")
+
+                start = time.time()
                 self.compressed = None
+
+                sstart = time.time()
                 self.books = decompressed['books']
+                bt.logging.debug(f"Populated books ({time.time() - sstart:.4f}s)")
+
+                sstart = time.time()
                 self.accounts = decompressed['accounts']
+                bt.logging.debug(f"Populated accounts ({time.time() - sstart:.4f}s)")
+
+                sstart = time.time()
                 self.notices = decompressed['notices']
+                bt.logging.debug(f"Populated notices ({time.time() - sstart:.4f}s)")
+
+                sstart = time.time()
                 self.config = decompressed['config']
+                bt.logging.debug(f"Populated config ({time.time() - sstart:.4f}s)")
+
+                sstart = time.time()
                 self.response = decompressed['response']
+                bt.logging.debug(f"Populated response ({time.time() - sstart:.4f}s)")
+
+                bt.logging.debug(f"Parsed state update ({time.time() - start:.4f}s)")
             return self
         except Exception as ex:
-            bt.logging.error(f"Failed to decompress {self.name} synapse data! {ex}")
+            bt.logging.error(f"Failed to decompress {self.name} synapse data! {ex}\n{traceback.format_exc()}")
             return None

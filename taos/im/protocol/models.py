@@ -310,13 +310,13 @@ class MarketSimulationConfig(BaseModel):
         fees_config = MBE_config.find("FeePolicy")
 
         init_config = xml.find('Agents').find('InitializationAgent')
-        init_balances_config = init_config.find("Balances") if init_config.find("Balances") else balances_config
+        init_balances_config = init_config.find("Balances") if init_config.find("Balances") != None else balances_config
         STA_config = xml.find('Agents').find('StylizedTraderAgent')
-        STA_balances_config = STA_config.find("Balances") if STA_config.find("Balances") else balances_config
+        STA_balances_config = STA_config.find("Balances") if STA_config.find("Balances") != None else balances_config
         HFT_config = xml.find('Agents').find('HighFrequencyTraderAgent')
-        HFT_balances_config = HFT_config.find("Balances") if HFT_config.find("Balances") else balances_config
+        HFT_balances_config = HFT_config.find("Balances") if HFT_config.find("Balances") != None else balances_config
         Futures_config = xml.find('Agents').find('FuturesTraderAgent')
-        Futures_balances_config = Futures_config.find("Balances") if Futures_config.find("Balances") else balances_config
+        Futures_balances_config = Futures_config.find("Balances") if Futures_config.find("Balances") != None else balances_config
         return MarketSimulationConfig(
             block_count=int(xml.attrib['blockCount']),
 

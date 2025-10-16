@@ -115,13 +115,12 @@ const std::map<OrderID, decimal_t>& Balance::getReservations() const noexcept
 
 //-------------------------------------------------------------------------
 
-void Balance::deposit(decimal_t amount)
+void Balance::deposit(decimal_t amount, BookId bookId)
 {
     amount = roundAmount(amount);
-    // m_free = std::max(m_free + amount, {});
-    // m_total = std::max(m_total + amount, {});
     m_free = m_free + amount;
     m_total = m_total + amount;
+    checkConsistency(std::source_location::current(), bookId);
 }
 
 //-------------------------------------------------------------------------
@@ -178,6 +177,9 @@ decimal_t Balance::freeReservation(OrderID id, BookId bookId, std::optional<deci
         auto it = m_reservations.find(id);
         amount = m_reservations.size() == 1 ? m_reserved : it->second;
         m_reservations.erase(it);
+        m_reserved -= amount.value();
+        m_reserved = roundAmount(m_reserved);
+        m_free = roundAmount(m_total - m_reserved);
     }
     else {
         auto it = m_reservations.find(id);
@@ -190,11 +192,14 @@ decimal_t Balance::freeReservation(OrderID id, BookId bookId, std::optional<deci
         }
         if (reservation == 0_dec) {
             m_reservations.erase(it);
-        }
+        }   
+        m_reserved -= amount.value();
+        m_free += amount.value();
+        m_reserved = roundAmount(m_reserved);
+        m_free = roundAmount(m_free);
     }
 
-    m_free += amount.value();   
-    m_reserved -= amount.value();
+    checkConsistency(std::source_location::current(), bookId);
 
     if (m_reserved > 0_dec && m_reservations.empty()) {
         throw std::runtime_error{fmt::format(
@@ -369,9 +374,9 @@ std::optional<decimal_t> Balance::roundAmount(std::optional<decimal_t> amount) c
 void Balance::checkConsistency(std::source_location sl, BookId bookId)
 {
     if (m_total != m_free + m_reserved) {
-        if (m_total > m_free + m_reserved && util::round(m_total - m_free - m_reserved, m_roundingDecimals - 1) == 0_dec){
+        if (m_total > m_free + m_reserved && util::round(m_total - m_free - m_reserved, m_roundingDecimals - 2) == 0_dec){
             m_free = m_total - m_reserved;
-        } else if (m_total < m_free + m_reserved && util::round(m_free + m_reserved - m_total, m_roundingDecimals - 1)  == 0_dec){
+        } else if (m_total < m_free + m_reserved && util::round(m_free + m_reserved - m_total, m_roundingDecimals - 2)  == 0_dec){
             m_total = m_free + m_reserved;
         } else {
             throw std::runtime_error{fmt::format(

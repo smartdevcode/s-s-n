@@ -249,12 +249,12 @@ TEST_P(DepositTest, WorksCorrectly)
 
     if (endAmount < 0_dec) {
         EXPECT_THROW({
-            balance.deposit(params.depositAmount);
+            balance.deposit(params.depositAmount, 0);
         }, std::runtime_error);
         return;
     }
 
-    balance.deposit(params.depositAmount);
+    balance.deposit(params.depositAmount, 0);
 
     EXPECT_EQ(balance.getTotal(), endAmount);
     EXPECT_EQ(balance.getFree(), endAmount);

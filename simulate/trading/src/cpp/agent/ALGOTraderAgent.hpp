@@ -121,6 +121,10 @@ public:
     virtual void receiveMessage(Message::Ptr msg) override;
 
 private:
+    struct TopLevel
+    {
+        double bid, ask;
+    };
     struct DelayBounds
     {
         Timestamp min, max;
@@ -136,6 +140,7 @@ private:
     void handleWakeup(Message::Ptr msg);
     void handleMarketOrderResponse(Message::Ptr msg);
     void handleBookResponse(Message::Ptr msg);
+    void handleL1Response(Message::Ptr msg);
 
     void execute(BookId bookId, ALGOTraderState& state);
     decimal_t drawNewVolume(uint32_t baseDecimals);
@@ -156,6 +161,7 @@ private:
     std::unique_ptr<stats::Distribution> m_orderPlacementLatencyDistribution;
     std::unique_ptr<stats::Distribution> m_volumeDrawDistribution;
     std::vector<decimal_t> m_lastPrice;
+    std::vector<TopLevel> m_topLevel;
     std::normal_distribution<double> m_departureThreshold;
     float m_wakeupProb;
     double m_volumeProb;
@@ -163,6 +169,7 @@ private:
     Timestamp m_period;
     size_t m_depth;
     std::normal_distribution<double> m_delay;
+    double m_immediateBase;
    
     u_int64_t m_lastTriggerUpdate;
 };

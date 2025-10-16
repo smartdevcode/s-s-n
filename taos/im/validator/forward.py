@@ -79,10 +79,15 @@ def validate_responses(self : Validator, synapses : dict[int, MarketSimulationSt
         valid_instructions = []
         if synapse.is_timeout:
             timeouts += 1
-        elif synapse.is_failure:
+            continue
+        elif synapse.is_failure or synapse.response is None:
             failures += 1
-        elif synapse.is_success:
-            success += 1
+            continue
+        elif not synapse.is_success:
+            failures += 1
+            bt.logging.warning(f"UID {uid} invalid state (not success/timeout/failure): {synapse.dendrite.status_message}")
+            continue
+        success += 1
         if synapse.is_success:
             synapse.decompress()
         if synapse.response:

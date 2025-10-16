@@ -70,11 +70,9 @@ ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decima
     if (getLeverage(id, direction) == 0_dec) {
         if (direction == OrderDirection::BUY) {
             const auto freed = ReservationAmounts{.quote = quote.freeReservation(id, bookId, amount)};
-            quote.checkConsistency(std::source_location::current(), bookId);
             return freed;
         } else {
             const auto freed = ReservationAmounts{.base = base.freeReservation(id, bookId, amount)};
-            base.checkConsistency(std::source_location::current(), bookId);
             return freed;
         }
     }
@@ -113,9 +111,6 @@ ReservationAmounts Balances::freeReservation(OrderID id, decimal_t price, decima
     if (getReservationInQuote(id, price) == 0_dec && m_loans.find(id) == m_loans.end()) {
         (direction == OrderDirection::BUY ? m_buyLeverages : m_sellLeverages).erase(id);
     }
-
-    base.checkConsistency(std::source_location::current(), bookId);
-    quote.checkConsistency(std::source_location::current(), bookId);
     
     return freed;
 }
@@ -132,11 +127,9 @@ ReservationAmounts Balances::makeReservation(OrderID id, decimal_t price, decima
     if (leverage == 0_dec) {
         if (direction == OrderDirection::BUY) {
             const ReservationAmounts reserved{.quote = quote.makeReservation(id, amount, bookId)};
-            quote.checkConsistency(std::source_location::current(), bookId);
             return reserved;
         } else {
             const ReservationAmounts reserved{.base = base.makeReservation(id, amount, bookId)};
-            base.checkConsistency(std::source_location::current(), bookId);
             return reserved;
         }
     }
@@ -174,9 +167,6 @@ ReservationAmounts Balances::makeReservation(OrderID id, decimal_t price, decima
         }
     }();
 
-    base.checkConsistency(std::source_location::current(), bookId);
-    quote.checkConsistency(std::source_location::current(), bookId);
-
     return reserved;
 }
 
@@ -202,26 +192,24 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::commit(
     if (leverage == 0_dec) {
         if (direction == OrderDirection::BUY) {
             quote.voidReservation(id, bookId, amount + fee);
-            base.deposit(counterAmount);
+            base.deposit(counterAmount, bookId);
         } else {
             base.voidReservation(id, bookId, amount);
-            quote.deposit(counterAmount - fee);
+            quote.deposit(counterAmount - fee, bookId);
         }
     } else {
         if (direction == OrderDirection::BUY) {
             borrow(id, direction, amount + fee, leverage, bestBid, bestAsk, marginCallPrice, bookId);
-            base.deposit(counterAmount);
+            base.deposit(counterAmount, bookId);
         } else {
             borrow(id, direction, amount, leverage, bestBid, bestAsk, marginCallPrice, bookId);
-            quote.deposit(counterAmount - fee);
+            quote.deposit(counterAmount - fee, bookId);
         }
     }
 
     if (std::holds_alternative<SettleType>(settleFlag)) {
         SettleType type = std::get<SettleType>(settleFlag);
         if (type == SettleType::NONE) {
-            base.checkConsistency(std::source_location::current(), bookId);
-            quote.checkConsistency(std::source_location::current(), bookId);
             return {};
         } else if (type == SettleType::FIFO) {
             const auto& ids = settleLoan(
@@ -453,12 +441,12 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
         m_quoteCollateral -= collateral.quote();
 
         if (direction == OrderDirection::BUY) {
-            base.deposit(collateral.base() - settleAmount);
-            quote.deposit(collateral.quote());
+            base.deposit(collateral.base() - settleAmount, bookId);
+            quote.deposit(collateral.quote(), bookId);
             m_baseLoan -= settleAmount;
         } else {
-            base.deposit(collateral.base());
-            quote.deposit(collateral.quote() - settleAmount);
+            base.deposit(collateral.base(), bookId);
+            quote.deposit(collateral.quote() - settleAmount, bookId);
             m_quoteLoan -= settleAmount;
         }
 
@@ -489,9 +477,6 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
             }
         }
     }
-
-    base.checkConsistency(std::source_location::current(), bookId);
-    quote.checkConsistency(std::source_location::current(), bookId);
 
     return settledLoanIds;
 }
@@ -594,8 +579,6 @@ void Balances::borrow(
         m_loans.insert({id, loan});
     }
 
-    base.checkConsistency(std::source_location::current(), bookId);
-    quote.checkConsistency(std::source_location::current(), bookId);
 }
 
 //-------------------------------------------------------------------------
