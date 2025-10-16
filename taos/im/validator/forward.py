@@ -80,7 +80,7 @@ def validate_responses(self : Validator, synapses : dict[int, MarketSimulationSt
         if synapse.is_timeout:
             timeouts += 1
             continue
-        elif synapse.is_failure or synapse.response is None:
+        elif synapse.is_failure:
             failures += 1
             continue
         elif not synapse.is_success:
