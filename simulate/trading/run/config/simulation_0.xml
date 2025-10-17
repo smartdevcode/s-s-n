@@ -60,11 +60,12 @@
             depth="5"
             volumeDrawRayleighScale="5500.0"
             alpha="0.3"
-            beta="0.45"
+            beta="0.49"
             gammaX="0.2"
             omega="0.00000001"
-            volatilityParetoScale="0.55"
-            volatilityScaler="20000"
+            activationMidpoint="0.025"
+            activationRate="100.0"
+            immediateBase="600.0"
             >
             <VolumeDistribution type="lognormal" mu="2.3" sigma="1.0"/>
               <Balances>

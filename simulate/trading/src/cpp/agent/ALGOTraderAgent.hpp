@@ -64,7 +64,7 @@ public:
     
     [[nodiscard]] decimal_t rollingSum() const noexcept { return m_rollingSum; }
     [[nodiscard]] double variance() const noexcept { return m_variance; }
-    [[nodiscard]] double estimatedVolatility() const noexcept { return std::pow(m_estimatedVol, 0.5); }
+    [[nodiscard]] double estimatedVolatility() const noexcept { return std::pow(m_estimatedVol, 0.5)* std::pow(86'400'000'000'000/m_period ,0.5); }
     // [[nodiscard]] double bidSlope() noexcept { return lastOLS().bid; }
     // [[nodiscard]] double askSlope() noexcept { return lastOLS().ask; }
     [[nodiscard]] double bidVolume() noexcept { return lastVolume().bid; }
@@ -93,6 +93,7 @@ private:
     std::map<Timestamp,double> m_cond_variance; 
     std::map<Timestamp,double> m_priceHistory; // Timestamped price history, close price (VWAP per exact timestamp)
     std::map<Timestamp,double> m_logRets; 
+    double m_priceLast;
     double m_variance;
     double m_estimatedVol;
     Timestamp m_lastSeq;
@@ -132,7 +133,7 @@ private:
 
     struct VolatilityBounds
     {
-        double paretoShape, paretoScale, volatilityScaler;
+        double activationRate, activationMidpoint, activationCapacity;
     };
 
     void handleSimulationStart(Message::Ptr msg);

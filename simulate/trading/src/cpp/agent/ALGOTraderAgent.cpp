@@ -48,15 +48,27 @@ ALGOTraderVolumeStats::ALGOTraderVolumeStats(size_t period,
             "{}: omega should be > 0, was {}",
             std::source_location::current().file_name(), m_omega)};
     }
- 
+    m_priceLast = 0.0;
 }
 //-------------------------------------------------------------------------
 
 void ALGOTraderVolumeStats::push_levels(Timestamp timestamp, std::vector<BookLevel>& bids, std::vector<BookLevel>& asks)
 {
     BookStat volumes = {.bid=volumeSum(bids), .ask=volumeSum(asks)};
+    double midquote = taosim::util::decimal2double(bids.front().price) + taosim::util::decimal2double(asks.front().price); 
     m_bookVolumes[timestamp] = volumes;
     m_lastSeq = timestamp; 
+    double logret;
+    if (m_priceLast <= 0.0) {
+        m_priceLast = midquote;
+        logret = std::log(midquote / m_initPrice);
+        m_estimatedVol = m_omega/(1-m_alpha-m_beta);
+    } 
+    else {
+        logret = std::log(midquote/m_priceLast);
+        m_priceLast = midquote;
+        m_estimatedVol = m_omega + m_alpha * std::pow(logret,2) + m_beta * m_estimatedVol + m_gamma * m_variance;
+    }
 }
 
 double ALGOTraderVolumeStats::volumeSum(std::vector<BookLevel>& side) {
@@ -129,17 +141,6 @@ void ALGOTraderVolumeStats::push(TimestampedVolume timestampedVolume)
             }
             return bacc::variance(accum) * (n - 1) / n;
         }();
-
-        Timestamp cur_period_seqnum = timestampedVolume.timestamp / m_period;
-        if (cur_period_seqnum == 0) {
-            m_estimatedVol = m_omega/(1-m_alpha-m_beta);
-        }
-        else {
-            m_estimatedVol = m_omega + m_alpha * std::pow(m_logRets[cur_period_seqnum - 1],2) + m_beta * m_cond_variance[cur_period_seqnum - 1] + m_gamma * m_variance;
-        }
-        m_cond_variance[cur_period_seqnum] = m_estimatedVol;
-
-
     };
 
     if (m_queue.empty()) [[unlikely]] {
@@ -307,12 +308,12 @@ void ALGOTraderAgent::configure(const pugi::xml_node& node)
     attr = node.attribute("volumeProb");
     m_volumeProb = (attr.empty() ||attr.as_double() <= 0.0) ? 0.25 : attr.as_double();
 
-    attr = node.attribute("volatilityParetoScale");
-    m_volatilityBounds.paretoScale = (attr.empty() || attr.as_double() <= 0.0) ? 1.0 : attr.as_double();
-    attr = node.attribute("volatilityParetoShape");
-    m_volatilityBounds.paretoShape = (attr.empty() || attr.as_double() <= 0.0) ? 1.16 : attr.as_double();
-    attr = node.attribute("volatilityScaler");
-    m_volatilityBounds.volatilityScaler = (attr.empty() || attr.as_double() <= 0.0) ? 100'000'000.0 : attr.as_double();
+    attr = node.attribute("activationMidpoint");
+    m_volatilityBounds.activationMidpoint = (attr.empty() || attr.as_double() <= 0.0) ? 0.025 : attr.as_double();
+    attr = node.attribute("activationRate");
+    m_volatilityBounds.activationRate = (attr.empty() || attr.as_double() <= 0.0) ? 100.0 : attr.as_double();
+    attr = node.attribute("capacity");
+    m_volatilityBounds.activationCapacity = (attr.empty() || attr.as_double() <= 0.0 || attr.as_double() > 1.0) ? 1.0 : attr.as_double();
     m_immediateBase = node.attribute("immediateBase").as_double(1000.0);
     m_topLevel = std::vector<TopLevel>(m_bookCount, TopLevel{});
 }
@@ -336,7 +337,7 @@ void ALGOTraderAgent::receiveMessage(Message::Ptr msg)
     else if (msg->type == "RESPONSE_RETRIEVE_L2") {
         handleBookResponse(msg);
     } 
-    else if (msg->type == "RESPONSE_RETRIVE_L1") {
+    else if (msg->type == "RESPONSE_RETRIEVE_L1") {
         handleL1Response(msg);
     }
 }
@@ -408,7 +409,7 @@ void ALGOTraderAgent::handleBookResponse(Message::Ptr msg)
     const auto& balances =  simulation()->account(name()).at(bookId);
     
     if (fundamental >= lastPrice) {
-         if (state.status != ALGOTraderStatus::EXECUTING  && topLevel.ask >= m_immediateBase) {
+         if (state.status != ALGOTraderStatus::EXECUTING  && state.volumeStats.askVolume() >= m_immediateBase) {
             state.status = ALGOTraderStatus::EXECUTING;
             state.direction = OrderDirection::BUY;
             state.volumeToBeExecuted = taosim::util::double2decimal(topLevel.ask,balances.m_baseDecimals);
@@ -416,7 +417,7 @@ void ALGOTraderAgent::handleBookResponse(Message::Ptr msg)
          }
     }
     else {
-        if (state.status != ALGOTraderStatus::EXECUTING  && topLevel.bid >= m_immediateBase) {
+        if (state.status != ALGOTraderStatus::EXECUTING  && state.volumeStats.bidVolume() >= m_immediateBase) {
             state.status = ALGOTraderStatus::EXECUTING;
             state.direction = OrderDirection::SELL;
             state.volumeToBeExecuted = taosim::util::double2decimal(topLevel.bid,balances.m_baseDecimals);
@@ -440,7 +441,6 @@ void ALGOTraderAgent::handleL1Response(Message::Ptr msg) {
         auto& topLevel = m_topLevel.at(bookId);
         topLevel.bid = taosim::util::decimal2double(payload->bestBidVolume);
         topLevel.ask = taosim::util::decimal2double(payload->bestAskVolume);
-    
         auto& state = m_state.at(bookId);
         execute(bookId, state);
 }
@@ -450,7 +450,6 @@ void ALGOTraderAgent::handleL1Response(Message::Ptr msg) {
 
 void ALGOTraderAgent::handleWakeup(Message::Ptr msg)
 {
-
     for (BookId bookId = 0; bookId < m_bookCount; ++bookId) {
 
         auto& state = m_state.at(bookId);
@@ -547,7 +546,7 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 
 
     simulation()->logDebug(
-        "{} ATTEMPTING TO EXECUTE {} OF {}", name(), state.direction, volumeToExecute);
+        "{} ATTEMPTING TO EXECUTE {} OF {}, | at {}", name(), state.direction, volumeToExecute, simulation()->currentTimestamp());
 
     simulation()->dispatchMessage( 
         simulation()->currentTimestamp(),
@@ -560,10 +559,9 @@ void ALGOTraderAgent::execute(BookId bookId, ALGOTraderState& state)
 }
 //-------------------------------------------------------------------------
 double ALGOTraderAgent::wakeupProb(ALGOTraderState& state) {
-    const double volatilityEstimate = state.volumeStats.estimatedVolatility() * m_volatilityBounds.volatilityScaler;
-    float paretoScale = m_volatilityBounds.paretoScale;
-    double paretoShape = m_volatilityBounds.paretoShape;
-    double probability = paretoShape* std::pow(paretoScale, paretoShape) / std::pow(volatilityEstimate, (1+paretoShape));
+    double probability = m_volatilityBounds.activationCapacity/
+        (1 + std::exp(m_volatilityBounds.activationRate*(state.volumeStats.estimatedVolatility() -  m_volatilityBounds.activationMidpoint)));
+    // redundant sanity check
     return std::min(1.0,std::max(probability,0.0));
 }
 
