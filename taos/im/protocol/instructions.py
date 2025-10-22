@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
-from pydantic import PositiveFloat, NonNegativeInt, PositiveInt, NonNegativeFloat
-from typing import Literal
+from pydantic import PositiveFloat, NonNegativeInt, PositiveInt, NonNegativeFloat, Field
+from typing import Literal, Annotated
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentInstruction, BaseModel
 from taos.im.protocol.models import OrderDirection, STP, TimeInForce, OrderCurrency, LoanSettlementOption
+
+UInt32 = Annotated[int, Field(ge=0, le=2**32 - 1)]
 
 """
 Classes representing instructions that may be submitted by miner agents in a intelligent market simulation are defined here.
@@ -22,7 +24,7 @@ class FinanceAgentInstruction(AgentInstruction):
         type (Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "CLOSE_POSITIONS", "RESET_AGENT"]): 
             String identifier for the type of the submitted instruction in the simulator.
     """
-    agentId: int
+    agentId: UInt32
     delay: NonNegativeInt = 0
     type: Literal["PLACE_ORDER_MARKET", "PLACE_ORDER_LIMIT", "CANCEL_ORDERS", "CLOSE_POSITIONS", "RESET_AGENT"]
     
@@ -42,10 +44,10 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
     Base class representing an instruction by an agent to place an order.
 
     Attributes:
-        bookId (NonNegativeInt): The ID of the book on which the order is to be placed.
+        bookId (UInt32): The ID of the book on which the order is to be placed.
         direction (Literal[OrderDirection.BUY, OrderDirection.SELL]): Indicates whether the order is to buy or sell.
         quantity (PositiveFloat): The size of the order to be placed in base currency.
-        clientOrderId (int | None): User-assigned client ID associated with the order.
+        clientOrderId (UInt32 | None): User-assigned client ID associated with the order.
         stp (Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL]): 
             Self-trade prevention strategy to be applied for the order.
         currency (Literal[OrderCurrency.BASE, OrderCurrency.QUOTE]): Currency in which the quantity is specified (BASE or QUOTE).
@@ -57,10 +59,10 @@ class PlaceOrderInstruction(FinanceAgentInstruction):
             LoanSettlementOption.FIFO : Loans will be repaid, starting from the oldest
             NonNegativeInt : Specify a specific order id for which the associated loan will be repaid
     """
-    bookId: NonNegativeInt
+    bookId: UInt32
     direction: Literal[OrderDirection.BUY, OrderDirection.SELL]
     quantity: PositiveFloat
-    clientOrderId: int | None
+    clientOrderId: UInt32 | None
     stp: Literal[STP.CANCEL_OLDEST, STP.CANCEL_NEWEST, STP.CANCEL_BOTH, STP.DECREASE_CANCEL] = STP.CANCEL_OLDEST
     currency: Literal[OrderCurrency.BASE, OrderCurrency.QUOTE] = OrderCurrency.BASE
     leverage: NonNegativeFloat = 0.0
@@ -136,11 +138,11 @@ class CancelOrderInstruction(BaseModel):
     Class representing an instruction by an agent to cancel an open limit order.
 
     Attributes:
-        orderId (int): The simulator-assigned ID of the order to be cancelled.
+        orderId (UInt32): The simulator-assigned ID of the order to be cancelled.
         volume (PositiveFloat | None): The quantity of the order that should be cancelled 
             (`None` to cancel the entire remaining order size).
     """
-    orderId: int
+    orderId: UInt32
     volume: PositiveFloat | None
 
     def serialize(self) -> dict:
@@ -158,11 +160,11 @@ class CancelOrdersInstruction(FinanceAgentInstruction):
 
     Attributes:
         type (Literal['CANCEL_ORDERS']): Fixed to 'CANCEL_ORDERS'.
-        bookId (NonNegativeInt): The ID of the book on which cancellations are to be performed.
+        bookId (UInt32): The ID of the book on which cancellations are to be performed.
         cancellations (list[CancelOrderInstruction]): A list of CancelOrderInstruction objects.
     """
     type: Literal['CANCEL_ORDERS'] = 'CANCEL_ORDERS'
-    bookId: NonNegativeInt
+    bookId: UInt32
     cancellations: list[CancelOrderInstruction]
 
     def payload(self) -> dict:
@@ -179,11 +181,11 @@ class ClosePositionInstruction(BaseModel):
     Class representing an instruction by an agent to close a margin position.
 
     Attributes:
-        orderId (int): The simulator-assigned ID of the order for which position is to be closed.
+        orderId (UInt32): The simulator-assigned ID of the order for which position is to be closed.
         volume (PositiveFloat | None): The quantity to be closed
             (`None` to close entire remaining position).
     """
-    orderId: int
+    orderId: UInt32
     volume: PositiveFloat | None
 
     def serialize(self) -> dict:
@@ -201,11 +203,11 @@ class ClosePositionsInstruction(FinanceAgentInstruction):
 
     Attributes:
         type (Literal['CLOSE_POSITIONS']): Fixed to 'CLOSE_POSITIONS'.
-        bookId (NonNegativeInt): The ID of the book on which closures are to be performed.
+        bookId (UInt32): The ID of the book on which closures are to be performed.
         closes (list[ClosePositionInstruction]): A list of ClosePositionInstruction objects.
     """
     type: Literal['CLOSE_POSITIONS'] = 'CLOSE_POSITIONS'
-    bookId: NonNegativeInt
+    bookId: UInt32
     closes: list[ClosePositionInstruction]
 
     def payload(self) -> dict:
@@ -224,10 +226,10 @@ class ResetAgentsInstruction(FinanceAgentInstruction):
 
     Attributes:
         type (Literal['RESET_AGENT']): Fixed to 'RESET_AGENT'.
-        agentIds (list[int]): List of IDs of the agents for which reset should be applied.
+        agentIds (list[UInt32]): List of IDs of the agents for which reset should be applied.
     """
     type: Literal['RESET_AGENT'] = 'RESET_AGENT'
-    agentIds: list[int]
+    agentIds: list[UInt32]
 
     def payload(self) -> dict:
         return {

@@ -22,19 +22,32 @@ int main(int argc, char* argv[])
     py::scoped_interpreter guard{};
 
     CLI::Option_group* initGroup = app.add_option_group("Init");
+
     fs::path config;
     initGroup->add_option("-f,--config-file", config, "Simulation config file")
         ->check(CLI::ExistingFile);
+
     fs::path checkpoint;
     initGroup->add_option("-c,--checkpoint-file", checkpoint, "Checkpoint file")
         ->check(CLI::ExistingFile);
+
     fs::path replayDir;
     auto optReplayDir = initGroup->add_option(
         "-r,--replay-dir", replayDir, "Log directory to use in a replay context")
         ->check(CLI::ExistingDirectory);
+
     std::optional<BookId> bookId;
     app.add_option("--book-id", bookId, "Book to replay")
         ->needs(optReplayDir);
+
+    std::vector<std::string> replacedAgents;
+    app.add_option(
+        "--replaced-agents",
+        replacedAgents,
+        "Comma-separated list of agent base names which to replace during replay")
+        ->delimiter(',')
+        ->needs(optReplayDir);
+
     initGroup->require_option(1);
 
     CLI11_PARSE(app, argc, argv);
@@ -47,9 +60,9 @@ int main(int argc, char* argv[])
     if (!replayDir.empty()) {
         auto mngr = taosim::simulation::SimulationManager::fromReplay(replayDir);
         if (bookId) {
-            mngr->runReplay(replayDir, *bookId);
+            mngr->runReplay(replayDir, *bookId, replacedAgents);
         } else {
-            mngr->runReplayAdvanced(replayDir);
+            mngr->runReplayAdvanced(replayDir, replacedAgents);
         }
     }
     else {

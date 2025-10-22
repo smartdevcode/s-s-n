@@ -88,8 +88,8 @@ def add_im_validator_args(cls, parser):
     
     parser.add_argument(
         "--compression.engine",
-        choices=['zlib', 'lz4'],
-        help="Compression engine to apply, either `zlib` or `lz4.",
+        choices=['zlib', 'lz4', 'zstd'],
+        help="Compression engine to apply, either `zlib` or `lz4` or `zstd`.",
         default="lz4",
     )
     

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
 import numpy as np
+from collections.abc import Mapping, Sequence
 from xml.etree.ElementTree import Element
 from pydantic import Field
 from ypyjson import YpyObject
@@ -58,6 +59,7 @@ class MarketSimulationConfig(BaseModel):
     Class to represent the configuration of an intelligent markets simulation.
 
     Attributes:
+        simulation_id (str | None): Unique identifier for the simulation instance.
         logDir (str | None): Directory where simulation logs are saved.
 
         block_count (int): Number of parallel "blocks" of simulation runs (related to parallelization implementation).
@@ -455,6 +457,7 @@ class Order(BaseModel):
         quantity (float): The size of the order in base currency.
         side (int): The side of the book on which the order was attempted to be placed (`0=BID`, `1=ASK`).
         price (float | None): Price of the order (`None` for market orders).
+        leverage (float): Leverage ratio applied to the order. Defaults to 0.0 (unleveraged).
     """
     y : str = "o"
     i : int = Field(alias='id')
@@ -798,13 +801,13 @@ class L2Snapshot(BaseModel):
         # Compare bids
         for price, bid in self.bids.items():
             if price in target.bids:
-                if bid.quantity != target.bids[price].quantity:
-                    discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET {target.bids[price].quantity}@{price}")
-                if bid.quantity < target.bids[price].quantity:
+                if round(bid.quantity, config.volumeDecimals) != round(target.bids[price].quantity, config.volumeDecimals):
+                    discrepancies.append(f"BID : RECON {round(bid.quantity, config.volumeDecimals)}@{price} vs. TARGET {round(target.bids[price].quantity, config.volumeDecimals)}@{price}")
+                if round(bid.quantity, config.volumeDecimals) < round(target.bids[price].quantity, config.volumeDecimals):
                     existing_volumes['bid'][price] = round(target.bids[price].quantity - bid.quantity, config.volumeDecimals)
             else:
-                discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET 0.0@{price}")
-                if bid.quantity < 0:
+                discrepancies.append(f"BID : RECON {round(bid.quantity, config.volumeDecimals)}@{price} vs. TARGET 0.0@{price}")
+                if round(bid.quantity, config.volumeDecimals) < 0:
                     existing_volumes['bid'][price] = round(-bid.quantity, config.volumeDecimals)
 
         # Add missing bids from target
@@ -816,13 +819,13 @@ class L2Snapshot(BaseModel):
         # Compare asks
         for price, ask in self.asks.items():
             if price in target.asks:
-                if ask.quantity != target.asks[price].quantity:
-                    discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET {target.asks[price].quantity}@{price}")
-                if ask.quantity < target.asks[price].quantity:
+                if round(ask.quantity, config.volumeDecimals) != round(target.asks[price].quantity, config.volumeDecimals):
+                    discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET {round(target.asks[price].quantity, config.volumeDecimals)}@{price}")
+                if round(ask.quantity, config.volumeDecimals) < round(target.asks[price].quantity, config.volumeDecimals):
                     existing_volumes['ask'][price] = round(target.asks[price].quantity - ask.quantity, config.volumeDecimals)
             else:
                 discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET 0.0@{price}")
-                if ask.quantity < 0:
+                if round(ask.quantity, config.volumeDecimals) < 0:
                     existing_volumes['ask'][price] = round(-ask.quantity, config.volumeDecimals)
 
         # Add missing asks from target
@@ -1484,7 +1487,7 @@ class Book(BaseModel):
     
     @property
     def last_trade(self) -> TradeInfo:
-        return self.trades[-1]
+        return self.trades[max(self.trades)]
     
     @property
     def OHLC(self) -> dict:       
@@ -1635,8 +1638,8 @@ class Book(BaseModel):
         """
         return L2Snapshot(
             timestamp=timestamp,
-            bids={l.price: l for l in self.bids},
-            asks={l.price: l for l in self.asks}
+            bids={l.price: LevelInfo.model_construct(price=l.price, quantity=l.quantity, orders=l.orders) for l in self.bids},
+            asks={l.price: LevelInfo.model_construct(price=l.price, quantity=l.quantity, orders=l.orders) for l in self.asks}
         )
         
     def process_history(
@@ -1883,6 +1886,7 @@ class Balance(BaseModel):
         total (float): Total currency balance in the account.
         free (float): Free currency balance available for order placement.
         reserved (float): Reserved currency balance tied up in resting orders.
+        initial (float | None): Initial balance for the currency at the start of the simulation or session.
     """
     c : str = Field(alias="currency")
     t : float = Field(alias="total")
@@ -1962,13 +1966,14 @@ class OrderCurrency(IntEnum):
     
 class Loan(BaseModel):
     """
-    Represents a loan associated with am open position for the agent.
+    Represents a loan associated with an open position for the agent.
 
     Attributes:
-        currency (str): String identifier for the currency (e.g., "USD", "BTC").
-        total (float): Total currency balance in the account.
-        free (float): Free currency balance available for order placement.
-        reserved (float): Reserved currency balance tied up in resting orders.
+        order_id (int): ID of the order associated with the loan.
+        amount (float): Total loan amount.
+        currency (OrderCurrency): Currency in which the loan is denominated.
+        base_collateral (float): Amount of base currency collateral posted for the loan.
+        quote_collateral (float): Amount of quote currency collateral posted for the loan.
     """
     i : int = Field(alias="order_id")
     a : float = Field(alias="amount")
@@ -2015,8 +2020,14 @@ class Account(BaseModel):
         book_id (int): ID of the book on which the account is able to trade.
         base_balance (Balance): Balance object for the base currency.
         quote_balance (Balance): Balance object for the quote currency.
+        base_loan (float): Amount of base currency currently borrowed.
+        quote_loan (float): Amount of quote currency currently borrowed.
+        base_collateral (float): Amount of base currency posted as collateral.
+        quote_collateral (float): Amount of quote currency posted as collateral.
         orders (list[Order]): List of the current open orders associated to the agent.
+        loans (dict[int, Loan]): Mapping from order ID to Loan objects representing open loans.
         fees (Fees | None): The current fee structure for the account.
+        traded_volume (float | None): Total volume traded by the account. Defaults to None.
     """
     i : int = Field(alias="agent_id")
     b : int = Field(alias="book_id")
@@ -2176,5 +2187,268 @@ class LoanSettlementOption(IntEnum):
                     return order_id
                 except:
                     return None
-                    
-                
+
+class LazyLevel(Sequence):
+    """
+    Lazily-parsed order book level.
+
+    This class defers construction of the `LevelInfo` and `Order` objects until their data is accessed.
+
+    Attributes:
+        _raw (dict): Raw data for the level.
+        _parsed (LevelInfo | None): Parsed LevelInfo object once loaded.
+    """
+    __slots__ = ("_raw", "_parsed")
+
+    def __init__(self, raw_level):
+        self._raw = raw_level
+        self._parsed = None
+
+    def _load(self):
+        if self._parsed is None:
+            orders = [Order.model_construct(**o) for o in self._raw.get("o", [])] if self._raw.get("o") else []
+            self._parsed = LevelInfo.model_construct(
+                p=self._raw.get("p"),
+                q=self._raw.get("q"),
+                o=orders
+            )
+            self._raw = None
+
+    def __getattr__(self, name):
+        self._load()
+        return getattr(self._parsed, name)
+
+    def __getitem__(self, index):
+        self._load()
+        return self._parsed[index]
+
+    def __len__(self):
+        self._load()
+        return len(self._parsed)
+
+    def parse(self) -> LevelInfo:
+        """Return fully parsed LevelInfo object."""
+        self._load()
+        return self._parsed
+
+
+class LazyLevels(Sequence):
+    """
+    Collection of lazily-parsed order book levels.
+
+    Attributes:
+        _raw_levels (list[dict]): Raw level data.
+        _parsed (dict[int, LazyLevel]): Cache of parsed LazyLevel objects.
+    """
+    def __init__(self, raw_levels):
+        self._raw_levels = raw_levels
+        self._parsed = {}
+
+    def __getitem__(self, i):
+        if i not in self._parsed:
+            self._parsed[i] = LazyLevel(self._raw_levels[i])
+        return self._parsed[i]
+
+    def __iter__(self):
+        for i in range(len(self._raw_levels)):
+            yield self[i]
+
+    def __len__(self):
+        return len(self._raw_levels)
+
+    def parse(self) -> list[LevelInfo]:
+        """Parse all levels and return list of LevelInfo objects."""
+        return [lvl.parse() for lvl in self]
+
+
+class LazyBook(Book):
+    """
+    Lazily-parsed order book.
+
+    Attributes:
+        _raw (dict): Raw order book data.
+        _bids (LazyLevels | None): Lazily-parsed bid levels.
+        _asks (LazyLevels | None): Lazily-parsed ask levels.
+        _events (list | None): Parsed events (Orders, Trades, Cancellations).
+    """
+    def __init__(self, raw_book):
+        self._raw = raw_book
+        self._bids = None
+        self._asks = None
+        self._events = None
+
+    @property
+    def id(self) -> int:
+        return self._raw.get("i")
+
+    @property
+    def bids(self):
+        if self._bids is None:
+            self._bids = LazyLevels(self._raw.get("b", []))
+        return self._bids
+
+    @property
+    def asks(self):
+        if self._asks is None:
+            self._asks = LazyLevels(self._raw.get("a", []))
+        return self._asks
+
+    @property
+    def events(self):
+        if self._events is None:
+            raw_events = self._raw.get("e", [])
+            parsed_events = []
+            for e in raw_events:
+                ty = e.get("y")
+                if ty == "o":
+                    parsed_events.append(Order.model_construct(**e))
+                elif ty == "t":
+                    parsed_events.append(TradeInfo.model_construct(**e))
+                elif ty == "c":
+                    parsed_events.append(Cancellation.model_construct(**e))
+                else:
+                    parsed_events.append(e)
+            self._events = parsed_events
+        return self._events
+
+    def parse(self) -> Book:
+        """Return fully parsed Book object."""
+        return Book.model_construct(
+            i=self._raw.get("i"),
+            b=self.bids.parse(),
+            a=self.asks.parse(),
+            e=self.events
+        )
+
+
+class LazyBooks(Mapping):
+    """
+    Lazily-parsed collection of order books.
+
+    Attributes:
+        _raw_books (dict[int, dict]): Raw book data keyed by book_id.
+        _parsed_books (dict[int, LazyBook]): Cache of parsed LazyBook objects.
+    """
+    def __init__(self, raw_books: dict):
+        self._raw_books = {int(k): v for k, v in raw_books.items()}
+        self._parsed_books = {}
+
+    def __getitem__(self, book_id: int):
+        if book_id not in self._parsed_books:
+            self._parsed_books[book_id] = LazyBook(self._raw_books[book_id])
+        return self._parsed_books[book_id]
+
+    def __iter__(self):
+        return iter(self._raw_books)
+
+    def __len__(self):
+        return len(self._raw_books)
+
+    def items(self):
+        for k in self._raw_books:
+            yield k, self[k]
+
+    def values(self):
+        for k in self._raw_books:
+            yield self[k]
+
+    def parse(self) -> dict[int, Book]:
+        """Return dict of fully parsed Book objects keyed by book_id."""
+        return {book_id: lb.parse() for book_id, lb in self.items()}
+
+
+class LazyAccount:
+    """
+    Lazily-parsed trading account.
+
+    Attributes:
+        _raw (dict): Raw account data.
+        _parsed (Account | None): Parsed Account object.
+    """
+    def __init__(self, raw_acc):
+        self._raw = raw_acc
+        self._parsed = None
+
+    @property
+    def data(self):
+        if self._parsed is None:
+            bb = Balance.model_construct(**self._raw.get("bb", {}))
+            qb = Balance.model_construct(**self._raw.get("qb", {}))
+            orders = [Order.model_construct(**o) for o in self._raw.get("o", [])]
+
+            loans = {}
+            for k, v in self._raw.get("l", {}).items():
+                loan = Loan.model_construct(**v)
+                loan.c = OrderCurrency(loan.c)
+                loans[int(k)] = loan
+
+            fees = Fees.model_construct(**self._raw["f"]) if self._raw.get("f") else None
+
+            self._parsed = Account.model_construct(
+                i=self._raw.get("i"),
+                b=self._raw.get("b"),
+                bb=bb,
+                qb=qb,
+                bl=self._raw.get("bl", 0.0),
+                ql=self._raw.get("ql", 0.0),
+                bc=self._raw.get("bc", 0.0),
+                qc=self._raw.get("qc", 0.0),
+                o=orders,
+                l=loans,
+                f=fees,
+                v=self._raw.get("v")
+            )
+            self._raw = None
+        return self._parsed
+
+    def __getattr__(self, name):
+        return getattr(self.data, name)
+
+    def parse(self) -> Account:
+        """Return fully parsed Account object."""
+        return self.data
+
+
+class LazyAccounts(Mapping):
+    """
+    Lazily-parsed collection of agent accounts.
+
+    Attributes:
+        _raw_accounts (dict[int, dict[int, dict]]): Outer dict keyed by agent ID (uid), inner dict keyed by book_id.
+        _parsed_accounts (dict[int, dict[int, LazyAccount]]): Cache of parsed LazyAccount objects.
+    """
+    def __init__(self, raw_accounts: dict):
+        self._raw_accounts = {
+            int(uid): {int(book_id): account for book_id, account in uid_accounts.items()}
+            for uid, uid_accounts in raw_accounts.items()
+        }
+        self._parsed_accounts = {}
+
+    def __getitem__(self, uid: int):
+        if uid not in self._parsed_accounts:
+            self._parsed_accounts[uid] = {
+                book_id: LazyAccount(raw_acc)
+                for book_id, raw_acc in self._raw_accounts[uid].items()
+            }
+        return self._parsed_accounts[uid]
+
+    def __iter__(self):
+        return iter(self._raw_accounts)
+
+    def __len__(self):
+        return len(self._raw_accounts)
+
+    def items(self):
+        for k in self._raw_accounts:
+            yield k, self[k]
+
+    def values(self):
+        for k in self._raw_accounts:
+            yield self[k]
+
+    def parse(self) -> dict[int, dict[int, Account]]:
+        """Return dict of fully parsed Account objects keyed by uid and book_id."""
+        return {
+            uid: {book_id: la.parse() for book_id, la in books.items()}
+            for uid, books in self.items()
+        }

@@ -63,9 +63,14 @@ void SimulationManager::runSimulations()
 
 //-------------------------------------------------------------------------
 
-void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
+void SimulationManager::runReplay(
+    const fs::path& replayDir, BookId bookId, std::span<const std::string> replacedAgents)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
+
+    for (const auto& simulation : m_simulations) {
+        simulation->replacedAgents() = {replacedAgents.begin(), replacedAgents.end()};
+    }
 
     auto it = ranges::find_if(
         m_simulations,
@@ -78,29 +83,65 @@ void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
     }
     const auto& simulation = *it;
 
-    auto replayLogFiles = [&] {
-        std::vector<fs::path> replayLogFiles;
-        const std::regex pat{fmt::format("^Replay-{}{}", bookId, R"(\.\d{8}-\d{8}.log$)")};
+    auto bookIdToReplayLogPaths = [&] {
+        std::vector<fs::path> replayLogPaths;
+        const std::regex pat{R"(^Replay-\d+\.\d{8}-\d{8}\.log$)"};
         for (const auto& entry : fs::directory_iterator(replayDir)) {
             const auto path = entry.path();
             if (entry.is_regular_file() && std::regex_match(path.filename().string(), pat)) {
-                replayLogFiles.push_back(path);
+                replayLogPaths.push_back(path);
             }
         }
-        ranges::sort(replayLogFiles);
-        return replayLogFiles;
+        auto parseBookId = [](auto&& path) {
+            const auto filenameStr = path.filename().string();
+            const std::regex pat{R"(^Replay-(\d+).*)"};
+            if (std::smatch match; std::regex_match(filenameStr, match, pat)) {
+                return std::stoul(match[1]);
+            }
+            return std::numeric_limits<uint64_t>::max();
+        };
+        std::vector<std::vector<fs::path>> res;
+        res.resize(m_blockInfo.count * m_blockInfo.dimension);
+        for (auto&& path : replayLogPaths) {
+            res.at(parseBookId(path)).push_back(path);
+        }
+        for (auto&& paths : res) {
+            ranges::sort(
+                paths,
+                [&](auto&& lhs, auto&& rhs) {
+                    const auto lhsStr = lhs.filename().string();
+                    const auto rhsStr = rhs.filename().string();
+                    const std::regex pat{R"(^Replay-(\d+)\.(\d{8})-(\d{8})\.log$)"};
+                    std::smatch matchLhs;
+                    std::regex_search(lhsStr, matchLhs, pat);
+                    std::smatch matchRhs;
+                    std::regex_search(rhsStr, matchRhs, pat);
+                    return std::stoi(matchLhs[2]) < std::stoi(matchRhs[2]);
+                });
+        }
+        return res;
     }();
 
     [&] {
         std::vector<fs::path> replayBalancesPaths;
-        const std::regex pat{R"(^Replay-Balances-\d+-\d+\.json$)"};
+        const std::regex pat{R"(^Replay-Balances-(\d+)-(\d+)\.json$)"};
         for (const auto& entry : fs::directory_iterator(replayDir)) {
             const auto path = entry.path();
             if (entry.is_regular_file() && std::regex_match(path.filename().string(), pat)) {
                 replayBalancesPaths.push_back(path);
             }
         }
-        ranges::sort(replayBalancesPaths);
+        ranges::sort(
+            replayBalancesPaths,
+            [&](auto&& lhs, auto&& rhs) {
+                const auto lhsStr = lhs.filename().string();
+                std::smatch matchLhs;
+                std::regex_search(lhsStr, matchLhs, pat);
+                const auto rhsStr = rhs.filename().string();
+                std::smatch matchRhs;
+                std::regex_search(rhsStr, matchRhs, pat);
+                return std::stoi(matchLhs[1]) < std::stoi(matchRhs[1]);
+            });
         for (const auto& [simulation, path] : views::zip(m_simulations, replayBalancesPaths)) {
             rapidjson::Document balancesJson = json::loadJson(path);
             for (const auto& member : balancesJson.GetObject()) {
@@ -123,7 +164,7 @@ void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
         }
     }();
 
-    for (const auto& replayLogFile : replayLogFiles) {
+    for (const auto& replayLogFile : bookIdToReplayLogPaths.at(bookId)) {
         std::ifstream ifs{replayLogFile, std::ios::in};
         std::vector<std::string> lines;
         std::string buf;
@@ -138,6 +179,7 @@ void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
             if (lines.empty()) break;
             for (const auto& line : lines) {
                 Message::Ptr msg = replay_helpers::createMessageFromLogFileEntry(line, lineCounter);
+                if (simulation->isReplacedAgent(msg->source)) continue;
                 simulation->queueMessage(msg);
                 simulation->time().duration = msg->arrival;
             }
@@ -149,9 +191,14 @@ void SimulationManager::runReplay(const fs::path& replayDir, BookId bookId)
 
 //-------------------------------------------------------------------------
 
-void SimulationManager::runReplayAdvanced(const fs::path& replayDir)
+void SimulationManager::runReplayAdvanced(
+    const fs::path& replayDir, std::span<const std::string> replacedAgents)
 {
     static constexpr auto ctx = std::source_location::current().function_name();
+
+    for (const auto& simulation : m_simulations) {
+        simulation->replacedAgents() = {replacedAgents.begin(), replacedAgents.end()};
+    }
 
     auto bookIdToReplayLogPaths = [&] {
         std::vector<fs::path> replayLogPaths;
@@ -170,40 +217,48 @@ void SimulationManager::runReplayAdvanced(const fs::path& replayDir)
             }
             return std::numeric_limits<uint64_t>::max();
         };
-        ranges::sort(
-            replayLogPaths,
-            [&](auto&& lhs, auto&& rhs) {
-                const auto lhsKey = parseBookId(lhs);
-                const auto rhsKey = parseBookId(rhs);
-                if (lhsKey == rhsKey) {
-                    return lhs < rhs;
-                }
-                return lhsKey < rhsKey;
-            });
-        return replayLogPaths
-            // TODO: Requires group-by.
-            | views::chunk_by([&](auto&& lhs, auto&& rhs) {
-                return parseBookId(lhs) == parseBookId(rhs);
-            })
-            | views::transform([](auto&& chunk) {
-                std::vector<fs::path> chunkPaths;
-                for (auto&& item : chunk) {
-                    chunkPaths.push_back(item);
-                }
-                return chunkPaths;
-            })
-            | ranges::to<std::vector>();
+        std::vector<std::vector<fs::path>> res;
+        res.resize(m_blockInfo.count * m_blockInfo.dimension);
+        for (auto&& path : replayLogPaths) {
+            res.at(parseBookId(path)).push_back(path);
+        }
+        for (auto&& paths : res) {
+            ranges::sort(
+                paths,
+                [&](auto&& lhs, auto&& rhs) {
+                    const auto lhsStr = lhs.filename().string();
+                    const auto rhsStr = rhs.filename().string();
+                    const std::regex pat{R"(^Replay-(\d+)\.(\d{8})-(\d{8})\.log$)"};
+                    std::smatch matchLhs;
+                    std::regex_search(lhsStr, matchLhs, pat);
+                    std::smatch matchRhs;
+                    std::regex_search(rhsStr, matchRhs, pat);
+                    return std::stoi(matchLhs[2]) < std::stoi(matchRhs[2]);
+                });
+        }
+        return res;
     }();
 
     [&] {
         std::vector<fs::path> replayBalancesPaths;
-        const std::regex pat{R"(^Replay-Balances-\d+-\d+\.json$)"};
+        const std::regex pat{R"(^Replay-Balances-(\d+)-(\d+)\.json$)"};
         for (const auto& entry : fs::directory_iterator(replayDir)) {
             const auto path = entry.path();
             if (entry.is_regular_file() && std::regex_match(path.filename().string(), pat)) {
                 replayBalancesPaths.push_back(path);
             }
         }
+        ranges::sort(
+            replayBalancesPaths,
+            [&](auto&& lhs, auto&& rhs) {
+                const auto lhsStr = lhs.filename().string();
+                std::smatch matchLhs;
+                std::regex_search(lhsStr, matchLhs, pat);
+                const auto rhsStr = rhs.filename().string();
+                std::smatch matchRhs;
+                std::regex_search(rhsStr, matchRhs, pat);
+                return std::stoi(matchLhs[1]) < std::stoi(matchRhs[1]);
+            });
         ranges::sort(replayBalancesPaths);
         for (const auto& [simulation, path] : views::zip(m_simulations, replayBalancesPaths)) {
             rapidjson::Document balancesJson = json::loadJson(path);
@@ -287,6 +342,7 @@ void SimulationManager::runReplayAdvanced(const fs::path& replayDir)
                 if (!state.getLine(lineBuf)) break;
                 const auto msg = replay_helpers::createMessageFromLogFileEntry(
                     lineBuf, state.currentLineCounter() - 1);
+                if (simulation->isReplacedAgent(msg->source)) continue;
                 simulation->queueMessage(msg);
                 simulation->time().duration = msg->arrival;
                 if (msg->arrival >= cutoff) break;

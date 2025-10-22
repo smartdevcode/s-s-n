@@ -188,17 +188,19 @@ async def forward(self: Validator, synapse: MarketSimulationStateUpdate) -> List
     synapse_start = time.time()
     start = time.time()
     compressed_books = compress(
-        {bookId: book.model_dump(mode='json') for bookId, book in synapse.books.items()},
+        synapse.books,
         level=self.config.compression.level,
         engine=self.config.compression.engine,
         version=synapse.version,
     )
     bt.logging.info(f"Compressed books ({time.time()-start:.4f}s).")
     
+    serialized_config = synapse.config.model_dump(mode='json')
     def create_axon_synapse(uid):
         return synapse.model_copy(update={
             "accounts": {uid: synapse.accounts[uid]},
-            "notices": {uid: synapse.notices[uid]}            
+            "notices": {uid: synapse.notices[uid]},
+            "config" : serialized_config
         })
 
     start = time.time()

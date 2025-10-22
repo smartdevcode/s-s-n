@@ -41,8 +41,9 @@ class SimulationManager
 {
 public:
     void runSimulations();
-    void runReplay(const fs::path& replayDir, BookId bookId);
-    void runReplayAdvanced(const fs::path& replayDir);
+    void runReplay(
+        const fs::path& replayDir, BookId bookId, std::span<const std::string> replacedAgents);
+    void runReplayAdvanced(const fs::path& replayDir, std::span<const std::string> replacedAgents);
     void publishStartInfo();
     void publishEndInfo();
     void publishState();

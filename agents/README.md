@@ -110,13 +110,13 @@ Note of course that these notices are part of the state update, and so all event
 
 ## Response
 
-Once a miner has received and analyzed the data, they must make a decision about what instructions they wish to submit to the simulation.  Any trading strategy is possible to implement, but note that the state is only published once every `config.publish_interval` simulation nanoseconds, and miners are only able to submit instructions in response to the state.  This implies that strategies must all operate at >=5 second timescale (we aim to lift/reduce this limitation in future).  Some simple example agent implementations can be found in this directory; **it is not expected that running any of the example agents without modification would lead to successful mining in the subnet**.
+Once a miner has received and analyzed the data, they must make a decision about what instructions they wish to submit to the simulation.  Any trading strategy is possible to implement, but note that the state is only published once every `config.publish_interval` simulation nanoseconds, and miners are only able to submit instructions in response to the state.  This implies that strategies must all operate at >= (`publish_interval / 1e9`) second timescale (we aim to lift/reduce this limitation in future).  Some simple example agent implementations can be found in this directory; **it is not expected that running any of the example agents without modification would lead to successful mining in the subnet**.
 
 Miners are expected to develop their own custom agent logic and compete to improve their risk-adjusted performance.  This section documents and explains the usage of the tools involved in agent logic implementation; it does not intend to provide any guidance as to how to design a successful strategy.  However, our simulated markets aim to accurately approximate real markets, so that the same considerations should be applied when formulating strategies as in any trading scenario.  There are further some important limitations and restrictions imposed on miner agents which must be considered when designing a trading strategy, these are also reviewed and explained in the following sections.
 
 ### The `FinanceAgentResponse` Class
 
-In order to submit instructions to the validator, a miner must respond to the validator request with an instance of the [`FinanceAgentResponse` class](/taos/im/protocol/response.py).  This class contains one property, `instructions`, which holds an array of `FinanceInstruction`, defined to encapsulate the three main instruction types which miners are able to execute : `PlaceMarketOrderInstruction`, `PlaceLimitOrderInstruction` and `CancelOrdersInstruction` (defined [here](/taos/im/protocol/instructions.py)).  The class additionally exposes convenience methods which allow to easily attach these instruction types to the `FinanceAgentResponse` instance:
+In order to submit instructions to the validator, a miner must respond to the validator request with an instance of the [`FinanceAgentResponse` class](/taos/im/protocol/response.py).  This class contains one property, `instructions`, which holds an array of `FinanceInstruction`, defined to encapsulate the four main instruction types which miners are able to execute : `PlaceMarketOrderInstruction`, `PlaceLimitOrderInstruction`, `CancelOrdersInstruction` and `ClosePositionsInstruction` (defined [here](/taos/im/protocol/instructions.py)).  The class additionally exposes convenience methods which allow to easily attach these instruction types to the `FinanceAgentResponse` instance:
 
 ---
 
@@ -266,11 +266,81 @@ response.cancel_orders(
 response.cancel_orders(book_id=1, order_ids=[42, 43, 44])
 ```
 
+#### `close_position(...)`
+
+Close a **single leveraged position** and settle the associated loan.
+
+##### **Signature**
+```python
+response.close_position(
+    book_id: int,
+    order_id: int,
+    quantity: float | None = None,
+    delay: int = 0
+)
+```
+
+##### **Arguments**
+
+| Parameter     | Type                | Description                                                                                                                               |
+|---------------|---------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `book_id`     | `int`               | ID of the order book where the leveraged order exists.                                                                                   |
+| `order_id`    | `int`               | ID of the leveraged order to close and settle.                                                                                            |
+| `quantity`    | `float` or `None`, optional | Amount (in base currency) to close. If `None`, closes the entire position associated with the specified order.                            |
+| `delay`       | `int`, optional     | Delay in simulation nanoseconds before the instruction is processed at the exchange. This delay is added to the one based on your validator response time. Defaults to `0`. |
+
+##### **Example**
+```python
+response.close_position(
+    book_id=1,
+    order_id=123,
+    quantity=0.5,  # Close half the position
+    delay=20_000_000  # 20ms delay
+)
+```
+
+---
+
+#### `close_positions(...)`
+
+Close **multiple leveraged positions** within the same order book.
+
+##### **Signature**
+```python
+response.close_positions(
+    book_id: int,
+    order_ids: list[int],
+    delay: int = 0
+)
+```
+
+##### **Arguments**
+
+| Parameter     | Type           | Description                                                                                                                                |
+|---------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `book_id`     | `int`          | ID of the order book where the leveraged orders exist.                                                                                     |
+| `order_ids`   | `list[int]`    | List of leveraged order IDs to close and settle. Each position is fully closed.                                                            |
+| `delay`       | `int`, optional| Delay in simulation nanoseconds before the instruction is processed at the exchange. This delay is added to the one based on your validator response time. Defaults to `0`. |
+
+##### **Example**
+```python
+response.close_positions(
+    book_id=1,
+    order_ids=[101, 102, 103],
+    delay=50_000_000  # 50ms delay
+)
+```
+
+
 ---
 
 ### Timeout
 
-The query logic of validators enforces a timeout which specifies how long miners may take at maximum to respond to state updates.  The exact value of the timeout is subject to change, and is set in the [validator config](/taos/im/config/__init__.py) as `neuron.timeout` (see the `default` value for the current active setting).  If a response is not received within the timeout, no instructions will be submitted to the simulator for that agent.  It is the miner agent's responsibility to ensure that they receive, decompress and process the state update, as well as generate and return instructions, before the timeout expires.  This requires to allocate sufficient resources (CPU and network bandwidth) and optimize data analysis and other processes involved in trading decision making, and it will also benefit the miner to locate nearby to key validators.
+The query logic of validators enforces a timeout which specifies how long miners may take at maximum to respond to state updates.  The exact value of the timeout is subject to change, and is set in the [validator config](/taos/im/config/__init__.py) as `neuron.timeout` (see the `default` value for the current active setting).  If a response is not received within the timeout, no instructions will be submitted to the simulator for that agent.  It is the miner agent's responsibility to ensure that they receive, decompress and process the state update, as well as generate and return instructions, before the timeout expires.  This requires to allocate sufficient resources (CPU and network bandwidth) and optimize data analysis and other processes involved in trading decision making; it will also benefit the miner to locate nearby to key validators.
+
+Parsing state updates is a major source of processing overhead for miners and can lead to timeouts even when the decision-making logic itself runs quickly. To reduce unnecessary work, the miner framework provides a configurable optimization called _lazy loading_. When enabled, deserialization defers the instantiation and validation of the Pydantic models that represent the state until their corresponding data fields are actually accessed.  This approach can drastically shorten the initial parsing time by skipping the construction and validation of unused data structures. As a result, agents that only interact with a subset of the state avoid the overhead of loading components they never use.
+
+Miners can enable this optimization by adding `lazy_load=1` to their `--agent.params` when launching the miner.
 
 ---
 
@@ -304,31 +374,31 @@ response.limit_order(
     delay=0
 )
 
-# Place another order 500ms after the instruction is received
+# Place another order 250ms after the instruction is received
 response.limit_order(
     book_id=0,
     direction=OrderDirection.BUY,
     quantity=1.0,
     price=301.00,
-    delay=500_000_000_000  # nanoseconds
+    delay=250_000_000 # nanoseconds
 )
 
-# Place a third order 1.5 after the instruction is received
+# Place a third order 500ms after the instruction is received
 response.limit_order(
     book_id=0,
     direction=OrderDirection.BUY,
     quantity=1.0,
     price=300.75,
-    delay=1_500_000_000_000
+    delay=500_000_000
 )
 
-# Place a fourth order 3 after the instruction is received
+# Place a fourth order 800ms after the instruction is received
 response.limit_order(
     book_id=0,
     direction=OrderDirection.BUY,
     quantity=1.0,
     price=300.50,
-    delay=3_000_000_000_000
+    delay=800_000_000
 )
 ```
 This allows to attempt to take advantage of movements in price during the period between state updates, where otherwise miner agents are not able to participate.  The delay you specify is added on top of your agent’s response time latency. To maximize your advantage, you should aim to respond quickly as well as carefully scheduling your actions to take advantage of price movements within the publishing interval.

@@ -75,6 +75,13 @@ taosim::decimal_t PriceTimeBook::processAgainstTheBuyQueue(Order::Ptr order, tao
             order->setVolume(0_dec);
         }
 
+        const auto& restingBalances = m_simulation->exchange()->accounts()[m_order2clientCtx[iop->id()].agentId][m_id];
+        if ((iop->volume() > 0_dec && taosim::util::round(iop->volume(), volumeDecimals) == 0_dec) ||
+            restingBalances.getReservationInBase(iop->id(), 1_dec) == 0_dec){
+            bestBuyDeque->updateVolume(-taosim::util::round(iop->totalVolume(), maxDecimals));
+            iop->setVolume(0_dec);
+        }
+
         bestBuyDeque->updateVolume(-taosim::util::round(usedVolume, maxDecimals));
 
         if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
@@ -159,6 +166,13 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
             order->setVolume(0_dec);
         }
 
+        const auto& restingBalances = m_simulation->exchange()->accounts()[m_order2clientCtx[iop->id()].agentId][m_id];
+        if ((iop->volume() > 0_dec && taosim::util::round(iop->volume(), volumeDecimals) == 0_dec) ||
+            restingBalances.getReservationInBase(iop->id(), 1_dec) == 0_dec){
+            bestSellDeque->updateVolume(-taosim::util::round(iop->totalVolume(), maxDecimals));
+            iop->setVolume(0_dec);
+        }
+
         bestSellDeque->updateVolume(-taosim::util::round(usedVolume, maxDecimals));
 
         if (taosim::util::round(iop->totalVolume(), volumeDecimals) == 0_dec) {
@@ -168,7 +182,7 @@ taosim::decimal_t PriceTimeBook::processAgainstTheSellQueue(Order::Ptr order, ta
         }
 
         if (m_simulation->debug()) {
-            const auto& restingBalances = m_simulation->exchange()->accounts()[restCtx.agentId][m_id];    
+            
             m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), aggCtx.agentId, m_id, aggBalances.quote, aggBalances.base);
             m_simulation->logDebug("{} | AGENT #{} BOOK {} : QUOTE : {}  BASE : {}", m_simulation->currentTimestamp(), restCtx.agentId, m_id, restingBalances.quote, restingBalances.base);
         }

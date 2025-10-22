@@ -4,6 +4,7 @@ import bittensor as bt
 from pydantic import Field
 from typing import Annotated, Union, List
 from annotated_types import Len
+from taos.im.protocol.instructions import UInt32
 from taos.im.protocol.simulator import *
 from taos.common.protocol import AgentResponse
 from taos.im.protocol.instructions import PlaceMarketOrderInstruction, PlaceLimitOrderInstruction, CancelOrdersInstruction, CancelOrderInstruction, ClosePositionInstruction, ClosePositionsInstruction, ResetAgentsInstruction
@@ -35,11 +36,11 @@ class FinanceAgentResponse(AgentResponse):
 
     def market_order(
         self, 
-        book_id: int, 
+        book_id: UInt32, 
         direction: OrderDirection, 
         quantity: float, 
         delay: int = 0, 
-        clientOrderId: int | None = None, 
+        clientOrderId: UInt32 | None = None, 
         stp: STP = STP.CANCEL_OLDEST, 
         currency: OrderCurrency = OrderCurrency.BASE,
         leverage: float = 0.0,
@@ -49,13 +50,13 @@ class FinanceAgentResponse(AgentResponse):
         Add a market order instruction to the agent response.
 
         Args:
-            book_id (int): The ID of the order book to place the market order in.
+            book_id (UInt32): The ID of the order book to place the market order in.
             direction (OrderDirection): Direction of the order (OrderDirection.BUY or OrderDirection.SELL).
             quantity (float): Size of the order in `currency`.
             delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
                                 This delay will be added to the delay calculated based on your response time to the validator.
                                 Defaults to 0.
-            clientOrderId (int | None, optional): Optional client-specified order ID for tracking.
+            clientOrderId (UInt32 | None, optional): Optional client-specified order ID for tracking.
             stp (STP, optional): Self-trade prevention strategy (`STP.NO_STP`, `STP.CANCEL_OLDEST`, `STP.CANCEL_NEWEST`, `STP.CANCEL_BOTH` or `STP.DECREASE_CANCEL`). 
                                 Defaults to STP.CANCEL_OLDEST.
             currency (OrderCurrency, optional): Currency to use for the order quantity (OrderCurrency.BASE or OrderCurrency.QUOTE). 
@@ -93,12 +94,12 @@ class FinanceAgentResponse(AgentResponse):
 
     def limit_order(
         self, 
-        book_id: int, 
+        book_id: UInt32, 
         direction: OrderDirection, 
         quantity: float, 
         price: float, 
         delay: int = 0, 
-        clientOrderId: int | None = None, 
+        clientOrderId: UInt32 | None = None, 
         stp: STP = STP.CANCEL_OLDEST, 
         postOnly: bool = False, 
         timeInForce: TimeInForce = TimeInForce.GTC, 
@@ -110,14 +111,14 @@ class FinanceAgentResponse(AgentResponse):
         Add a limit order instruction to the agent response.
 
         Args:
-            book_id (int): The ID of the order book to place the limit order in.
+            book_id (UInt32): The ID of the order book to place the limit order in.
             direction (OrderDirection): Direction of the order (BUY or SELL).
             quantity (float): Quantity of the asset to trade.
             price (float): Price at which to place the limit order.
             delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
                                 This delay will be added to the delay calculated based on your response time to the validator.
                                 Defaults to 0.
-            clientOrderId (int | None, optional): Optional client-specified order ID for tracking.
+            clientOrderId (UInt32 | None, optional): Optional client-specified order ID for tracking.
             stp (STP, optional): Self-trade prevention strategy (`STP.NO_STP`, `STP.CANCEL_OLDEST`, `STP.CANCEL_NEWEST`, `STP.CANCEL_BOTH` or `STP.DECREASE_CANCEL`). 
                                 Defaults to STP.CANCEL_OLDEST.
             postOnly (bool, optional): If True, prevents the order from matching immediately.  
@@ -185,8 +186,8 @@ class FinanceAgentResponse(AgentResponse):
 
     def cancel_order(
         self, 
-        book_id: int, 
-        order_id: int, 
+        book_id: UInt32, 
+        order_id: UInt32, 
         quantity: float | None = None, 
         delay: int = 0
     ) -> None:
@@ -194,8 +195,8 @@ class FinanceAgentResponse(AgentResponse):
         Add a cancellation instruction for a single order.
 
         Args:
-            book_id (int): The ID of the order book where the order exists.
-            order_id (int): The ID of the order to cancel.
+            book_id (UInt32): The ID of the order book where the order exists.
+            order_id (UInt32): The ID of the order to cancel.
             quantity (float | None, optional): Quantity (in BASE) to cancel (if None, cancels the entire order).
             delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
                                 This delay will be added to the delay calculated based on your response time to the validator.
@@ -215,16 +216,16 @@ class FinanceAgentResponse(AgentResponse):
 
     def cancel_orders(
         self, 
-        book_id: int, 
-        order_ids: list[int], 
+        book_id: UInt32, 
+        order_ids: list[UInt32], 
         delay: int = 0
     ) -> None:
         """
         Add a cancellation instruction for multiple orders.
 
         Args:
-            book_id (int): The ID of the order book where the orders exist.
-            order_ids (list[int]): A list of order IDs to cancel.
+            book_id (UInt32): The ID of the order book where the orders exist.
+            order_ids (list[UInt32]): A list of order IDs to cancel.
             delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
                                 This delay will be added to the delay calculated based on your response time to the validator.
                                 Defaults to 0.
@@ -246,8 +247,8 @@ class FinanceAgentResponse(AgentResponse):
         
     def close_position(
         self, 
-        book_id: int, 
-        order_id: int, 
+        book_id: UInt32, 
+        order_id: UInt32, 
         quantity: float | None = None, 
         delay: int = 0
     ) -> None:
@@ -255,8 +256,8 @@ class FinanceAgentResponse(AgentResponse):
         Add a close position instruction for a single order.
 
         Args:
-            book_id (int): The ID of the order book where the order exists.
-            order_id (int): The ID of the leveraged order for which to settle the associated loan.
+            book_id (UInt32): The ID of the order book where the order exists.
+            order_id (UInt32): The ID of the leveraged order for which to settle the associated loan.
             quantity (float | None, optional): Quantity (in BASE) to close (if None, closes the entire position associated with the order).
             delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
                                 This delay will be added to the delay calculated based on your response time to the validator.
@@ -276,16 +277,16 @@ class FinanceAgentResponse(AgentResponse):
 
     def close_positions(
         self, 
-        book_id: int, 
-        order_ids: list[int], 
+        book_id: UInt32, 
+        order_ids: list[UInt32], 
         delay: int = 0
     ) -> None:
         """
         Add a close position instruction for multiple orders.
 
         Args:
-            book_id (int): The ID of the order book where the orders exist.
-            order_ids (list[int]): A list of IDs of the leveraged orders for which to settle the associated loans.
+            book_id (UInt32): The ID of the order book where the orders exist.
+            order_ids (list[UInt32]): A list of IDs of the leveraged orders for which to settle the associated loans.
             delay (int, optional): Delay in simulation nanoseconds which must elapse before the instruction is processed at the exchange. 
                                 This delay will be added to the delay calculated based on your response time to the validator.
                                 Defaults to 0.
@@ -307,14 +308,14 @@ class FinanceAgentResponse(AgentResponse):
 
     def reset_agents(
         self, 
-        agent_ids: list[int], 
+        agent_ids: list[UInt32], 
         delay: int = 0
     ) -> None:
         """
         Add a reset instruction for one or more agents.
 
         Args:
-            agent_ids (list[int]): List of agent IDs to reset.
+            agent_ids (list[UInt32]): List of agent IDs to reset.
             delay (int, optional): Delay in milliseconds before executing the reset. Defaults to 0.
 
         Returns:

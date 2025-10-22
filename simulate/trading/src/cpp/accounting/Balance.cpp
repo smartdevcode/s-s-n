@@ -146,7 +146,12 @@ decimal_t Balance::makeReservation(OrderID id, decimal_t amount, BookId bookId)
 
     m_free -= amount;
     m_reserved += amount;
-    m_reservations.insert({id, amount});
+    auto it = m_reservations.find(id);
+    if (it != m_reservations.end()) {
+        it->second += amount;
+    } else {
+        m_reservations.insert({id, amount});
+    }
 
     checkConsistency(std::source_location::current(), bookId);
 

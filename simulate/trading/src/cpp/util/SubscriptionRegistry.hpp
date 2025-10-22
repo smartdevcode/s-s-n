@@ -22,17 +22,15 @@ requires (!taosim::mp::IsPointer<T>)
 class SubscriptionRegistry : public CheckpointSerializable
 {
 public:
-    SubscriptionRegistry() noexcept : m_mtx{std::make_unique<std::mutex>()} {}
+    SubscriptionRegistry() noexcept = default;
 
     [[nodiscard]] std::span<const T> subs() const noexcept
     {
-        std::scoped_lock lock{*m_mtx};
         return m_subs;
     }
 
     bool add(const T& sub) noexcept
     {
-        std::scoped_lock lock{*m_mtx};
         if (m_registry.contains(sub)) {
             return false;
         }
@@ -85,7 +83,6 @@ public:
     }
 
 private:
-    std::unique_ptr<std::mutex> m_mtx;
     std::vector<T> m_subs;
     std::unordered_set<T> m_registry;
 };

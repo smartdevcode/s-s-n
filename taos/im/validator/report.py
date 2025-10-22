@@ -166,31 +166,31 @@ async def report(self : Validator) -> None:
         for bookId, book in self.last_state.books.items():
             time.sleep(0)
             # --- Book bids ---
-            if book.bids:
+            if book['b']:
                 start = time.time()
                 bid_cumsum = 0
-                for i, level in enumerate(book.bids):
+                for i, level in enumerate(book['b']):
                     time.sleep(0)
-                    _set_if_changed(self.prometheus_book_gauges, level.price,
+                    _set_if_changed(self.prometheus_book_gauges, level['p'],
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, i, "bid")
-                    _set_if_changed(self.prometheus_book_gauges, level.quantity,
+                    _set_if_changed(self.prometheus_book_gauges, level['q'],
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, i, "bid_vol")
-                    bid_cumsum += level.quantity
+                    bid_cumsum += level['q']
                     _set_if_changed(self.prometheus_book_gauges, bid_cumsum,
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, i, "bid_vol_sum")
                     if i == 20: break
 
             # --- Book asks ---
-            if book.asks:
+            if book['a']:
                 start = time.time()
                 ask_cumsum = 0
-                for i, level in enumerate(book.asks):
+                for i, level in enumerate(book['a']):
                     time.sleep(0)
-                    _set_if_changed(self.prometheus_book_gauges, level.price,
+                    _set_if_changed(self.prometheus_book_gauges, level['p'],
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, i, "ask")
-                    _set_if_changed(self.prometheus_book_gauges, level.quantity,
+                    _set_if_changed(self.prometheus_book_gauges, level['q'],
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, i, "ask_vol")
-                    ask_cumsum += level.quantity
+                    ask_cumsum += level['q']
                     _set_if_changed(self.prometheus_book_gauges, ask_cumsum,
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, i, "ask_vol_sum")
                     if i == 20: break
@@ -198,23 +198,23 @@ async def report(self : Validator) -> None:
             bt.logging.debug(f"Book {bookId} levels metrics published ({time.time()-start:.4f}s).")
 
             # --- Book aggregate metrics ---
-            if book.bids and book.asks:
+            if book['b'] and book['a']:
                 start = time.time()
-                mid = (book.bids[0].price + book.asks[0].price) / 2
+                mid = (book['b'][0]['p'] + book['a'][0]['p']) / 2
                 _set_if_changed(self.prometheus_book_gauges, mid,
                     self.wallet.hotkey.ss58_address, self.config.netuid, bookId, 0, "mid")
 
                 def get_price(side, idx):
                     if side == 'bid':
-                        return book.bids[idx].price if len(book.bids) > idx else 0
+                        return book['b'][idx]['p'] if len(book['b']) > idx else 0
                     if side == 'ask':
-                        return book.asks[idx].price if len(book.asks) > idx else 0
+                        return book['a'][idx]['p'] if len(book['a']) > idx else 0
 
                 def get_vol(side, idx):
                     if side == 'bid':
-                        return book.bids[idx].quantity if len(book.bids) > idx else 0
+                        return book['b'][idx]['q'] if len(book['b']) > idx else 0
                     if side == 'ask':
-                        return book.asks[idx].quantity if len(book.asks) > idx else 0
+                        return book['a'][idx]['q'] if len(book['a']) > idx else 0
 
                 _set_if_changed(self.prometheus_books, 1.0,
                     self.wallet.hotkey.ss58_address, self.config.netuid, self.simulation_timestamp, simulation_duration, bookId,
@@ -227,8 +227,8 @@ async def report(self : Validator) -> None:
                 bt.logging.debug(f"Book {bookId} aggregate metrics published ({time.time()-start:.4f}s).")
 
             # --- Book trade events ---
-            if book.events:
-                trades = [event for event in book.events if isinstance(event, TradeInfo)]
+            if book['e']:
+                trades = [event for event in book['e'] if event['y'] == 't']
                 if trades:
                     start = time.time()
                     last_trade = trades[-1]
@@ -247,13 +247,13 @@ async def report(self : Validator) -> None:
                             except KeyError:
                                 pass
 
-                    _set_if_changed(self.prometheus_book_gauges, last_trade.price,
+                    _set_if_changed(self.prometheus_book_gauges, last_trade['p'],
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, 0, "trade_price")
-                    _set_if_changed(self.prometheus_book_gauges, sum([trade.quantity for trade in trades]),
+                    _set_if_changed(self.prometheus_book_gauges, sum([trade['q'] for trade in trades]),
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, 0, "trade_volume")
-                    _set_if_changed(self.prometheus_book_gauges, sum([trade.quantity for trade in trades if trade.side == 0]),
+                    _set_if_changed(self.prometheus_book_gauges, sum([trade['q'] for trade in trades if trade['s'] == 0]),
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, 0, "trade_buy_volume")
-                    _set_if_changed(self.prometheus_book_gauges, sum([trade.quantity for trade in trades if trade.side == 1]),
+                    _set_if_changed(self.prometheus_book_gauges, sum([trade['q'] for trade in trades if trade['s'] == 1]),
                         self.wallet.hotkey.ss58_address, self.config.netuid, bookId, 0, "trade_sell_volume")
                     
                     has_new_trades = True
@@ -321,19 +321,19 @@ async def report(self : Validator) -> None:
                 for bookId, account in accounts.items():
                     time.sleep(0)
                     # Agent balances & inventory
-                    _set_if_changed(self.prometheus_agent_gauges, account.base_balance.total, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_balance_total")
-                    _set_if_changed(self.prometheus_agent_gauges, account.base_balance.free, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_balance_free")
-                    _set_if_changed(self.prometheus_agent_gauges, account.base_balance.reserved, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_balance_reserved")
-                    _set_if_changed(self.prometheus_agent_gauges, account.quote_balance.total, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_balance_total")
-                    _set_if_changed(self.prometheus_agent_gauges, account.quote_balance.free, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_balance_free")
-                    _set_if_changed(self.prometheus_agent_gauges, account.quote_balance.reserved, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_balance_reserved")
-                    _set_if_changed(self.prometheus_agent_gauges, account.base_loan, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_loan")
-                    _set_if_changed(self.prometheus_agent_gauges, account.base_collateral, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_collateral")
-                    _set_if_changed(self.prometheus_agent_gauges, account.quote_loan, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_loan")
-                    _set_if_changed(self.prometheus_agent_gauges, account.quote_collateral, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_collateral")
-                    _set_if_changed(self.prometheus_agent_gauges, account.fees.volume_traded, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "fees_traded_volume")
-                    _set_if_changed(self.prometheus_agent_gauges, account.fees.maker_fee_rate, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "fees_maker_rate")
-                    _set_if_changed(self.prometheus_agent_gauges, account.fees.taker_fee_rate, self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "fees_taker_rate")
+                    _set_if_changed(self.prometheus_agent_gauges, account['bb']['t'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_balance_total")
+                    _set_if_changed(self.prometheus_agent_gauges, account['bb']['f'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_balance_free")
+                    _set_if_changed(self.prometheus_agent_gauges, account['bb']['r'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_balance_reserved")
+                    _set_if_changed(self.prometheus_agent_gauges, account['qb']['t'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_balance_total")
+                    _set_if_changed(self.prometheus_agent_gauges, account['qb']['f'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_balance_free")
+                    _set_if_changed(self.prometheus_agent_gauges, account['qb']['r'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_balance_reserved")
+                    _set_if_changed(self.prometheus_agent_gauges, account['bl'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_loan")
+                    _set_if_changed(self.prometheus_agent_gauges, account['bc'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "base_collateral")
+                    _set_if_changed(self.prometheus_agent_gauges, account['ql'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_loan")
+                    _set_if_changed(self.prometheus_agent_gauges, account['qc'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "quote_collateral")
+                    _set_if_changed(self.prometheus_agent_gauges, account['f']['v'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "fees_traded_volume")
+                    _set_if_changed(self.prometheus_agent_gauges, account['f']['m'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "fees_maker_rate")
+                    _set_if_changed(self.prometheus_agent_gauges, account['f']['t'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "fees_taker_rate")
                     _set_if_changed(self.prometheus_agent_gauges, last_inv[bookId], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "inventory_value")
                     _set_if_changed(self.prometheus_agent_gauges, last_inv[bookId] - start_inv[bookId], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "pnl")
                     _set_if_changed(self.prometheus_agent_gauges, daily_volumes[agentId][bookId]['total'], self.wallet.hotkey.ss58_address, self.config.netuid, bookId, agentId, "daily_volume")
@@ -358,7 +358,7 @@ async def report(self : Validator) -> None:
             for agentId, notices in self.last_state.notices.items():
                 if agentId < 0: continue
                 for notice in notices:
-                    if notice.type in ["EVENT_TRADE", "ET"]:
+                    if notice['y'] in ["EVENT_TRADE", "ET"]:
                         has_new_miner_trades = True
                         break
                 if has_new_miner_trades: break
@@ -395,12 +395,12 @@ async def report(self : Validator) -> None:
                 total_inventory_history[agentId] = [sum(list(inventory_value.values())) for inventory_value in list(self.inventory_history[agentId].values())]
                 pnl[agentId] = total_inventory_history[agentId][-1] - total_inventory_history[agentId][0]
 
-                total_base_balance = round(sum([accounts[bookId].base_balance.total for bookId in self.last_state.books]), self.simulation.baseDecimals)
-                total_base_loan = round(sum([accounts[bookId].base_loan for bookId in self.last_state.books]), self.simulation.baseDecimals)
-                total_base_collateral = round(sum([accounts[bookId].base_collateral for bookId in self.last_state.books]), self.simulation.baseDecimals)
-                total_quote_balance = round(sum([accounts[bookId].quote_balance.total for bookId in self.last_state.books]), self.simulation.quoteDecimals)
-                total_quote_loan = round(sum([accounts[bookId].quote_loan for bookId in self.last_state.books]), self.simulation.quoteDecimals)
-                total_quote_collateral = round(sum([accounts[bookId].quote_collateral for bookId in self.last_state.books]), self.simulation.quoteDecimals)
+                total_base_balance = round(sum([accounts[bookId]['bb']['t'] for bookId in self.last_state.books]), self.simulation.baseDecimals)
+                total_base_loan = round(sum([accounts[bookId]['bl'] for bookId in self.last_state.books]), self.simulation.baseDecimals)
+                total_base_collateral = round(sum([accounts[bookId]['bc'] for bookId in self.last_state.books]), self.simulation.baseDecimals)
+                total_quote_balance = round(sum([accounts[bookId]['qb']['t'] for bookId in self.last_state.books]), self.simulation.quoteDecimals)
+                total_quote_loan = round(sum([accounts[bookId]['ql'] for bookId in self.last_state.books]), self.simulation.quoteDecimals)
+                total_quote_collateral = round(sum([accounts[bookId]['qc'] for bookId in self.last_state.books]), self.simulation.quoteDecimals)
                 total_daily_volume = {role: round(sum([book_volume[role] for book_volume in daily_volumes[agentId].values()]), self.simulation.volumeDecimals) for role in ['total', 'maker', 'taker', 'self']}
                 average_daily_volume = {role: round(total_daily_volume[role] / len(daily_volumes[agentId]), self.simulation.volumeDecimals) for role in ['total', 'maker', 'taker', 'self']}
                 min_daily_volume = {role: min([book_volume[role] for book_volume in daily_volumes[agentId].values()]) for role in ['total', 'maker', 'taker', 'self']}

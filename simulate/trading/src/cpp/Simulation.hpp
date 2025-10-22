@@ -108,6 +108,9 @@ public:
     [[nodiscard]] uint32_t blockIdx() const noexcept { return m_blockIdx; }
     [[nodiscard]] auto&& logWindow(this auto&& self) noexcept { return self.m_logWindow; }
     [[nodiscard]] auto&& messageQueue(this auto&& self) noexcept { return self.m_messageQueue; }
+    [[nodiscard]] auto&& replacedAgents(this auto&& self) noexcept { return self.m_replacedAgents; }
+
+    [[nodiscard]] bool isReplacedAgent(const std::string& name);
 
     [[nodiscard]] BookId bookIdCanon(BookId bookId) const noexcept
     {
@@ -177,6 +180,7 @@ private:
     uint32_t m_blockIdx{};
     fs::path m_baseLogDir;
     Timestamp m_logWindow{};
+    std::set<std::string> m_replacedAgents;
 
     friend class LocalAgentManager;
     friend class MultiBookExchangeAgent;

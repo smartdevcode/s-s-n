@@ -30,6 +30,10 @@ class FinanceSimulationAgent(SimulationAgent):
         self.history = []
         self.accounts = {}
         self.event_history : dict[str, AgentEventHistory | None] = {}
+        if not hasattr(config, "lazy_load"):
+            config.lazy_load = False
+        else:
+            config.lazy_load = bool(config.lazy_load)
         super().__init__(uid, config, log_dir)
 
     def handle(self, state: MarketSimulationStateUpdate) -> FinanceAgentResponse:
@@ -272,7 +276,7 @@ class FinanceSimulationAgent(SimulationAgent):
         Returns:
             None
         """
-        self.history.append(state)
+        self.history.append(state.model_copy())
         self.history = self.history[-10:]
         self.simulation_config = state.config
         self.accounts = state.accounts[self.uid]
@@ -305,18 +309,38 @@ class FinanceSimulationAgent(SimulationAgent):
         else:
             update_text += 'NO EVENTS' + "\n"
             update_text += '-' * 50 + "\n"
-        for book_id, account in self.accounts.items():
+        for book_id in range(self.simulation_config.book_count):
             debug_text += '-' * 50 + "\n"
             debug_text += f"BOOK {book_id}" + "\n"
-            debug_text += '-' * 50 + "\n"
-            debug_text += f"TOP LEVELS" + "\n"
-            debug_text += '-' * 50 + "\n"
-            debug_text += ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in reversed(state.books[book_id].bids[:5])]) + '||' + ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in state.books[book_id].asks[:5]]) + "\n"
-            debug_text += '-' * 50 + "\n"
-            debug_text += 'BALANCES' + "\n"
-            debug_text += '-' * 50 + "\n"
-            debug_text += f"BASE  : TOTAL={account.base_balance.total:.8f} FREE={account.base_balance.free:.8f} RESERVED={account.base_balance.reserved:.8f} | LOAN={account.base_loan:.8f} COLLATERAL={account.base_collateral}" + "\n"
-            debug_text += f"QUOTE : TOTAL={account.quote_balance.total:.8f} FREE={account.quote_balance.free:.8f} RESERVED={account.quote_balance.reserved:.8f} | LOAN={account.quote_loan:.8f} COLLATERAL={account.quote_collateral}" + "\n"
+                     
+            if not self.config.lazy_load:
+                account= self.accounts[book_id]
+                debug_text += '-' * 50 + "\n"
+                debug_text += f"TOP LEVELS" + "\n"
+                debug_text += '-' * 50 + "\n"
+                debug_text += ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in reversed(state.books[book_id].bids[:5])]) + '||' + ' | '.join([f"{level.quantity:.4f}@{level.price}" for level in state.books[book_id].asks[:5]]) + "\n"
+                debug_text += '-' * 50 + "\n"
+                debug_text += 'BALANCES' + "\n"
+                debug_text += '-' * 50 + "\n"
+                debug_text += f"BASE  : TOTAL={account.base_balance.total:.8f} FREE={account.base_balance.free:.8f} RESERVED={account.base_balance.reserved:.8f} | LOAN={account.base_loan:.8f} COLLATERAL={account.base_collateral}" + "\n"
+                debug_text += f"QUOTE : TOTAL={account.quote_balance.total:.8f} FREE={account.quote_balance.free:.8f} RESERVED={account.quote_balance.reserved:.8f} | LOAN={account.quote_loan:.8f} COLLATERAL={account.quote_collateral}" + "\n"
+                if len(account.orders) > 0:
+                    debug_text += '-' * 50 + "\n"
+                    debug_text += 'ORDERS' + "\n"
+                    debug_text += '-' * 50 + "\n"
+                    for order in sorted(account.orders, key=lambda x: x.timestamp):
+                        debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {f'{1+order.leverage:.2f}x' if order.leverage > 0 else ''}{order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
+                if len(account.loans) > 0:
+                    debug_text += '-' * 50 + "\n"
+                    debug_text += 'LOANS' + "\n"
+                    debug_text += '-' * 50 + "\n"
+                    for order_id, loan in account.loans.items():
+                        debug_text += f"#{order_id} : {loan}\n"
+                if account.fees:
+                    debug_text += '-' * 50 + "\n"
+                    debug_text += f'FEES : TRADED {account.fees.volume_traded} | MAKER {account.fees.maker_fee_rate * 100}% | TAKER {account.fees.taker_fee_rate * 100}%' + "\n"
+                    debug_text += '-' * 50 + "\n"
+
             debug_text += '-' * 50 + "\n"
             debug_text += 'EVENTS' + "\n"
             debug_text += '-' * 50 + "\n"
@@ -356,22 +380,6 @@ class FinanceSimulationAgent(SimulationAgent):
                             self.log_trade_event(event, state)
                         case _:
                             bt.logging.warning(f"Unknown event : {event}")
-            if len(account.orders) > 0:
-                debug_text += '-' * 50 + "\n"
-                debug_text += 'ORDERS' + "\n"
-                debug_text += '-' * 50 + "\n"
-                for order in sorted(account.orders, key=lambda x: x.timestamp):
-                    debug_text += f"#{order.id} : {'BUY ' if order.side == 0 else 'SELL'} {f'{1+order.leverage:.2f}x' if order.leverage > 0 else ''}{order.quantity}@{order.price} [PLACED AT {duration_from_timestamp(order.timestamp)} (T={order.timestamp})]" + "\n"
-            if len(account.loans) > 0:
-                debug_text += '-' * 50 + "\n"
-                debug_text += 'LOANS' + "\n"
-                debug_text += '-' * 50 + "\n"
-                for order_id, loan in account.loans.items():
-                    debug_text += f"#{order_id} : {loan}\n"
-            if account.fees:
-                debug_text += '-' * 50 + "\n"
-                debug_text += f'FEES : TRADED {account.fees.volume_traded} | MAKER {account.fees.maker_fee_rate * 100}% | TAKER {account.fees.taker_fee_rate * 100}%' + "\n"
-                debug_text += '-' * 50 + "\n"
             debug_text += '-' * 50 + "\n"
         if simulation_ended:
             update_text += f"{event}" + "\n"

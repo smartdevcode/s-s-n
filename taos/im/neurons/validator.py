@@ -565,12 +565,12 @@ if __name__ != "__mp_main__":
             Zeroes scores and clears relevant internal variables.
             """
             for notice in state.notices[self.uid]:
-                if notice.type in ["RESPONSE_DISTRIBUTED_RESET_AGENT", "RDRA"] or notice.type in ["ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT", "ERDRA"]:
-                    for reset in notice.resets:
-                        if reset.success:
-                            bt.logging.info(f"Agent {reset.agentId} Balances Reset! {reset}")
-                            if reset.agentId in self.deregistered_uids:
-                                self.sharpe_values[reset.agentId] = {
+                if notice['y'] in ["RESPONSE_DISTRIBUTED_RESET_AGENT", "RDRA"] or notice['y'] in ["ERROR_RESPONSE_DISTRIBUTED_RESET_AGENT", "ERDRA"]:
+                    for reset in notice['r']:
+                        if reset['u']:
+                            bt.logging.info(f"Agent {reset['a']} Balances Reset! {reset}")
+                            if reset['a'] in self.deregistered_uids:
+                                self.sharpe_values[reset['a']] = {
                                     'books' : {
                                         bookId : 0.0 for bookId in range(self.simulation.book_count)
                                     },
@@ -587,17 +587,17 @@ if __name__ != "__mp_main__":
                                     'penalty' : 0.0,
                                     'score' : 0.0
                                 }
-                                self.unnormalized_scores[reset.agentId] = 0.0
-                                self.activity_factors[reset.agentId] = {bookId : 0.0 for bookId in range(self.simulation.book_count)}
-                                self.inventory_history[reset.agentId] = {}
-                                self.trade_volumes[reset.agentId] = {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)}
-                                self.initial_balances[reset.agentId] = {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : None} for bookId in range(self.simulation.book_count)}
-                                self.initial_balances_published[reset.agentId] = False
-                                self.deregistered_uids.remove(reset.agentId)
-                                self.miner_stats[reset.agentId] = {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []}
-                                self.recent_miner_trades[reset.agentId] = {bookId : [] for bookId in range(self.simulation.book_count)}
+                                self.unnormalized_scores[reset['a']] = 0.0
+                                self.activity_factors[reset['a']] = {bookId : 0.0 for bookId in range(self.simulation.book_count)}
+                                self.inventory_history[reset['a']] = {}
+                                self.trade_volumes[reset['a']] = {bookId : {'total' : {}, 'maker' : {}, 'taker' : {}, 'self' : {}} for bookId in range(self.simulation.book_count)}
+                                self.initial_balances[reset['a']] = {bookId : {'BASE' : None, 'QUOTE' : None, 'WEALTH' : None} for bookId in range(self.simulation.book_count)}
+                                self.initial_balances_published[reset['a']] = False
+                                self.deregistered_uids.remove(reset['a'])
+                                self.miner_stats[reset['a']] = {'requests' : 0, 'timeouts' : 0, 'failures' : 0, 'rejections' : 0, 'call_time' : []}
+                                self.recent_miner_trades[reset['a']] = {bookId : [] for bookId in range(self.simulation.book_count)}
                         else:
-                            self.pagerduty_alert(f"Failed to Reset Agent {reset.agentId} : {reset.message}")
+                            self.pagerduty_alert(f"Failed to Reset Agent {reset['a']} : {reset['m']}")
 
         def report(self) -> None:
             """
@@ -649,7 +649,7 @@ if __name__ != "__mp_main__":
             start = time.time()
             for uid, accounts in state.accounts.items():
                 for book_id in accounts:
-                    state.accounts[uid][book_id].v = round(sum([volume for volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals)
+                    state.accounts[uid][book_id]['v'] = round(sum([volume for volume in self.trade_volumes[uid][book_id]['total'].values()]), self.simulation.volumeDecimals)
             bt.logging.info(f"Volumes added to state ({time.time()-start:.4f}s).")
 
             # Update variables
@@ -745,9 +745,7 @@ if __name__ != "__mp_main__":
                     mq_req = posix_ipc.MessageQueue("/taosim-req", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
                     # This blocks until the queue can provide a message
                     message, receive_start = receive(mq_req)
-                    start = time.time()
-                    state = MarketSimulationStateUpdate.model_validate(message, strict=False)
-                    bt.logging.info(f"Parsed state update ({time.time() - start}s)")
+                    state = MarketSimulationStateUpdate.parse_dict(message)
                     response = await self.handle_state(message, state, receive_start)
                 except Exception as ex:
                     traceback.print_exc()

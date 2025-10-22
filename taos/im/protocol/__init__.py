@@ -26,7 +26,7 @@ FinanceNotice = Annotated[
 class FinanceEventNotification(EventNotification):
     """
     Base class for intelligent market simulator event notifications.
-    """    
+    """
     @classmethod
     def from_json(self, json : dict):
         """
@@ -48,18 +48,18 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
             Mapping from agent IDs to lists of market events relevant to them since the last state update.
         response (Optional[FinanceAgentResponse] | None): Mutable field to be populated by the miner agent with instructions to execute.
         compressed (str | dict | None): Compressed format of the state data to reduce message size during transmission.
-        compression_engine (str): Compression library used by the validator; one of `zlib` or `lz4` (default is `lz4`).
+        compression_engine (str): Compression library used by the validator; one of `zlib` or `lz4`  or `zstd` (default is `lz4`).
     """
     version : int | None = None
     timestamp : int
-    config : MarketSimulationConfig | str | None = None
-    books : dict[int,Book] | None = None
-    accounts : dict[int,dict[int, Account]] | None = None
-    notices : dict[int, list[FinanceNotice]] | None = None
+    config : MarketSimulationConfig | dict | str | None = None
+    books : dict[int,Book] | dict[int,dict] | None = None
+    accounts : dict[int,dict[int, Account]] | dict[int,dict[int, dict]] | None = None
+    notices : dict[int, list[FinanceNotice]] | dict[int, list[dict]] | None = None
     response: Optional[FinanceAgentResponse] | None  = None
     compressed : str | dict | None = None
     compression_engine : str = "lz4"
-    
+
     required_fields: ClassVar[list[str]] = None
     def get_required_fields(self) -> list[str]:
         """
@@ -81,7 +81,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         Method returning the state of the simulation agents; in the case of intelligent markets simulation, this is the accounts dictionary.
         """
         return self.accounts
-    
+
     @classmethod
     def from_simulator(cls, json : dict):
         """
@@ -91,13 +91,13 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         books = {book_id : Book.from_json(book) for book_id, book in json['books'].items()}
         bt.logging.debug(f"Books populated ({time.time()-start:.4f}s).")
         start = time.time()
-        accounts = {uid : {agentId : Account.from_json(account) for agentId, account in uid_accounts.items()} for uid, uid_accounts in json['accounts'].items()}        
+        accounts = {uid : {agentId : Account.from_json(account) for agentId, account in uid_accounts.items()} for uid, uid_accounts in json['accounts'].items()}
         bt.logging.debug(f"Accounts populated ({time.time()-start:.4f}s).")
         start = time.time()
-        notices = {int(uid) : [FinanceEvent.from_json(notice) for notice in uid_notices] for uid, uid_notices in json['notices'].items() if int(uid) >= 0}        
+        notices = {int(uid) : [FinanceEvent.from_json(notice) for notice in uid_notices] for uid, uid_notices in json['notices'].items() if int(uid) >= 0}
         bt.logging.debug(f"Notices populated ({time.time()-start:.4f}s).")
         return MarketSimulationStateUpdate(timestamp=json['timestamp'],model="im",books=books,accounts=accounts,notices=notices)
-    
+
     @classmethod
     def from_json(cls, json : dict):
         """
@@ -125,7 +125,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                         fees=Fees.from_json(account['fees'][str(book_id)]) if account['fees'] else None
                     )
         bt.logging.debug(f"Accounts populated ({time.time()-start:.4f}s).")
-        start = time.time()                        
+        start = time.time()
         notices = {int(uid) : [] for uid in payload['accounts'] if int(uid) >= 0}
         for notice in sorted(payload['notices'], key=lambda x: (x['timestamp'], -x['delay'])):
             notice = FinanceEventNotification.from_json(notice)
@@ -137,7 +137,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         notices = {agentId : sorted(agent_notices, key=lambda x: x.timestamp) for agentId, agent_notices in notices.items()}
         bt.logging.debug(f"Notices populated ({time.time()-start:.4f}s).")
         return MarketSimulationStateUpdate(timestamp=json['timestamp'],model=model,books=books,accounts=accounts,notices=notices)
-    
+
     @classmethod
     def from_ypy(cls, json: YpyObject):
         """
@@ -221,7 +221,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
             accounts=accounts,
             notices=notices
         )
-    
+
     def clear_inputs(self):
         """
         Method to empty state input data fields to prevent unnecessary data transfer from miners.
@@ -232,7 +232,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         self.config = None
         return self
 
-    def compress(self, level=-1, engine : Literal["zlib", "lz4"] | None = None, compressed_books : str = None):
+    def compress(self, level=-1, engine : Literal["zlib", "lz4", "zstd"] | None = None, compressed_books : str = None):
         """
         Method to compress large synapse fields for transmission over the network.
 
@@ -246,10 +246,10 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                     agent_id = self.response.agent_id
                 compressed = self.model_copy()
                 if not compressed_books:
-                    compressed_books = compress({bookId : book.model_dump(mode='json') for bookId, book in compressed.books.items()} if compressed.books else None, level, compressed.compression_engine, self.version)
+                    compressed_books = compress({bookId : book.model_dump(mode='json') if isinstance(book, Book) else book for bookId, book in compressed.books.items()} if compressed.books else None, level, compressed.compression_engine, self.version)
                 payload = {
-                    "accounts" : {accountId : {bookId : account.model_dump(mode='json') for bookId, account in accounts.items()} for accountId, accounts in compressed.accounts.items()} if compressed.accounts else None,
-                    "notices" : {agentId : [notice.model_dump(mode='json') for notice in notices] for agentId, notices in compressed.notices.items()} if compressed.notices else None,
+                    "accounts" : {accountId : {bookId : account.model_dump(mode='json') if isinstance(account, Account) else account for bookId, account in accounts.items()} for accountId, accounts in compressed.accounts.items()} if compressed.accounts else None,
+                    "notices" : {agentId : [notice if isinstance(notice, dict) else notice.model_dump(mode='json') for notice in notices] for agentId, notices in compressed.notices.items()} if compressed.notices else None,
                     "config" : compressed.config.model_dump(mode='json') if compressed.config else None,
                     "response" : compressed.response.model_dump(mode='json') if compressed.response else None
                 }
@@ -268,22 +268,34 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
         except Exception as ex:
             bt.logging.error(f"Failed to compress {self.name} synapse data! {ex}")
             return None
+        
+    @classmethod
+    def parse_dict(cls, data):
+        start = time.time()
+        ret = MarketSimulationStateUpdate(timestamp=data['timestamp'])
+        object.__setattr__(ret, "books", data.get("books", {}))
+        object.__setattr__(ret, "accounts", data.get("accounts", {}))
+        object.__setattr__(ret, "accounts", data.get("accounts", {}))
+        object.__setattr__(ret, "notices", data.get("notices", {}))        
+        bt.logging.info(f"Parsed state dict ({time.time() - start:.4f}s)")
+        return ret
 
-    def decompress(self):
+    def decompress(self, lazy=False):
         """
         Method to decompress large synapse fields after transmission over the network.
 
         Note this method DOES modify the synapse in place, so that the synapse can be used normally after decompression.
         """
         try:
-            if self.compressed:
-                start = time.time()
-                decompressed = decompress(self.compressed, self.compression_engine, self.version)
-                bt.logging.debug(f"Decompressed state update ({time.time() - start:.4f}s)")
+            if not self.compressed:
+                return self
 
-                start = time.time()
-                self.compressed = None
+            start = time.time()
+            decompressed = decompress(self.compressed, self.compression_engine, self.version)
+            bt.logging.debug(f"Decompressed state update ({time.time() - start:.4f}s)")
+            self.compressed = None
 
+            if not lazy:
                 sstart = time.time()
                 self.books = decompressed['books']
                 bt.logging.debug(f"Populated books ({time.time() - sstart:.4f}s)")
@@ -291,20 +303,32 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                 sstart = time.time()
                 self.accounts = decompressed['accounts']
                 bt.logging.debug(f"Populated accounts ({time.time() - sstart:.4f}s)")
+            else:
+                sstart = time.time()
+                object.__setattr__(self, "books", LazyBooks(decompressed.get("books", {})))
+                bt.logging.debug(f"Prepared books [Lazy] ({time.time() - sstart:.4f}s)")
 
                 sstart = time.time()
-                self.notices = decompressed['notices']
-                bt.logging.debug(f"Populated notices ({time.time() - sstart:.4f}s)")
+                object.__setattr__(
+                    self,
+                    "accounts",
+                    LazyAccounts(decompressed.get("accounts", {}))
+                )
+                bt.logging.debug(f"Prepared accounts [Lazy] ({time.time() - sstart:.4f}s)")
 
-                sstart = time.time()
-                self.config = decompressed['config']
-                bt.logging.debug(f"Populated config ({time.time() - sstart:.4f}s)")
+            sstart = time.time()
+            self.notices = decompressed['notices']
+            bt.logging.debug(f"Populated notices ({time.time() - sstart:.4f}s)")
 
-                sstart = time.time()
-                self.response = decompressed['response']
-                bt.logging.debug(f"Populated response ({time.time() - sstart:.4f}s)")
+            sstart = time.time()
+            self.config = decompressed['config']
+            bt.logging.debug(f"Populated config ({time.time() - sstart:.4f}s)")
 
-                bt.logging.debug(f"Parsed state update ({time.time() - start:.4f}s)")
+            sstart = time.time()
+            self.response = decompressed['response']
+            bt.logging.debug(f"Populated response ({time.time() - sstart:.4f}s)")
+
+            bt.logging.debug(f"Parsed state update ({time.time() - start:.4f}s)")
             return self
         except Exception as ex:
             bt.logging.error(f"Failed to decompress {self.name} synapse data! {ex}\n{traceback.format_exc()}")

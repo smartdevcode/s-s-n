@@ -43,6 +43,7 @@ target_link_libraries(agent
         taosim::event
         taosim::exchange
         taosim::message
+        taosim::simulation
         taosim::stats
         Eigen3::Eigen
         date::date

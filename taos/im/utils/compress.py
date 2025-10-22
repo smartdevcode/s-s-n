@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Rayleigh Research <to@rayleigh.re>
 # SPDX-License-Identifier: MIT
+import zstandard as zstd
 import zlib, lz4.frame
 import pybase64
+import base64
 import msgspec
 from typing import Literal
 from concurrent.futures import ThreadPoolExecutor
@@ -9,16 +11,22 @@ from concurrent.futures import ThreadPoolExecutor
 compressors = {
     "zlib": zlib.compress,
     "lz4": lz4.frame.compress,
+    "zstd": lambda raw, level: zstd.ZstdCompressor(level=level).compress(raw),
 }
+
 decompressors = {
     "zlib": zlib.decompress,
     "lz4": lz4.frame.decompress,
+    "zstd": lambda raw: zstd.ZstdDecompressor().decompress(raw),
 }
+
+json_encoder = msgspec.json.Encoder()
+msgpack_encoder = msgspec.msgpack.Encoder()
 
 def compress(
     payload,
     level: int = 1,
-    engine: Literal["zlib", "lz4"] = "lz4",
+    engine: Literal["zlib", "lz4", "zstd"] = "lz4",
     version: int = 45,
 ) -> str | None:
     """
@@ -27,20 +35,19 @@ def compress(
     """
     try:
         if version < 45:
-            raw = msgspec.json.encode(payload)
+            raw = json_encoder.encode(payload)
         else:
-            raw = msgspec.msgpack.encode(payload)
+            raw = msgpack_encoder.encode(payload)
 
         compressed = compressors[engine](raw, level)
-        return pybase64.b64encode(compressed).decode("ascii")
+        return base64.standard_b64encode(compressed).decode("ascii")
     except Exception as ex:
         print(f"Failed to compress! {ex}")
         return None
 
-
 def decompress(
     payload: str | dict,
-    engine: Literal["zlib", "lz4"] = "lz4",
+    engine: Literal["zlib", "lz4", "zstd"] = "lz4",
     version: int = 45,
 ) -> dict | None:
     """
@@ -83,22 +90,20 @@ def decompress(
         print(f"Failed to decompress! {ex}")
         return None
 
-
-def compress_batch(axon_synapses: dict, compressed_books : str, level: int = 1, engine: str = "lz4", version: int = 45) -> dict:    
-    for uid, axon_synapse in axon_synapses.items():
-        axon_synapse.books = None
-        dumped = axon_synapse.model_dump(mode='json')
+def compress_batch(axon_synapses: dict, batch, compressed_books: str, level: int = 1, engine: str = "lz4", version: int = 45) -> dict:
+    for uid in batch:
+        axon_synapses[uid].books = None
         payload = {
-            "accounts": dumped['accounts'],
-            "notices": dumped['notices'],
-            "config": dumped['config'],
-            "response": dumped['response'],
+            "accounts": axon_synapses[uid].accounts,
+            "notices": axon_synapses[uid].notices,
+            "config": axon_synapses[uid].config,
+            "response": axon_synapses[uid].response,
         }
-        axon_synapse.accounts = None
-        axon_synapse.notices = None
-        axon_synapse.config = None
-        axon_synapse.response = None
-        axon_synapse.compressed = {
+        axon_synapses[uid].accounts = None
+        axon_synapses[uid].notices = None
+        axon_synapses[uid].config = None
+        axon_synapses[uid].response = None
+        axon_synapses[uid].compressed = {
             "books": compressed_books,
             "payload": compress(payload, level=level, engine=engine, version=version),
         }
@@ -115,7 +120,7 @@ def batch_compress(
     compressed_batches = []
     with ThreadPoolExecutor(max_workers=len(batches)) as pool:
         tasks = [
-            pool.submit(compress_batch, {uid: axon_synapses[uid] for uid in batch}, compressed_books,  level, engine, version)
+            pool.submit(compress_batch, axon_synapses, batch, compressed_books,  level, engine, version)
             for batch in batches
         ]
         for task in tasks:

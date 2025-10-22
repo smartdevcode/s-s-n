@@ -398,10 +398,10 @@ public:
     Book::Ptr book;
 
     void fill(){
-        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::BUY, 3_dec, 291_dec, DEC(0.));
-        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::BUY, 1_dec, 297_dec, DEC(0.));
-        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::SELL, 2_dec, 303_dec, DEC(0.));
-        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::SELL, 8_dec, 307_dec, DEC(0.));
+        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::BUY, 3_dec, 291_dec, DEC(0.1));
+        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::BUY, 1_dec, 297_dec, DEC(0.1));
+        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::SELL, 2_dec, 303_dec, DEC(0.1));
+        placeLimitOrder(exchange, agent4, bookId, Currency::BASE, OrderDirection::SELL, 8_dec, 307_dec, DEC(0.1));
     }
 
     void fillOrderBook(std::vector<OrderParams> orders)
@@ -452,11 +452,10 @@ TEST_P(ResidualTest, LimitOrders)
     const auto [initOrders, testOrder] = params;
 
     fill();
-    fillOrderBook(initOrders);
-    printOrderbook(book);
     placeLimitOrder(exchange, agent1, bookId, Currency::BASE, testOrder.direction,
         testOrder.volume, testOrder.price, testOrder.leverage);
-    // fillOrderBook(initOrders);
+    printOrderbook(book);
+    fillOrderBook(initOrders);
     printOrderbook(book);
     // const auto bookStateVolume = normalizeOutput(taosim::util::captureOutput([&] { book->printCSV(); }));
 
@@ -504,6 +503,26 @@ INSTANTIATE_TEST_SUITE_P(
                 OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)}
             },
             .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.71), .volume = DEC(0.0919), .leverage = DEC(0.35)}
+        },
+        TestParams{
+            .initOrders = {
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(4.8273), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.3), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.0253), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.0594), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.0594), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.0594), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)},
+                OrderParams{.direction = OrderDirection::SELL, .price = DEC(301.53), .volume = DEC(0.01), .leverage = DEC(0.)}
+            },
+            .testOrder = OrderParams{.direction = OrderDirection::BUY, .price = DEC(302.71), .volume = DEC(3.), .leverage = DEC(0.8)}
         },
         TestParams{
             .initOrders = {

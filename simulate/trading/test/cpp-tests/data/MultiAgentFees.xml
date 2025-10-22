@@ -5,6 +5,7 @@
             <!-- <FeePolicy type="static" makerFee="0.0005" takerFee="0.001" agentIdLowerBound="-100" agentIdUpperBound="-1"/> -->
             <!-- <FeePolicy type="vip" makerFee="0.2" takerFee="0.01" agentIdLowerBound="0" agentIdUpperBound="1"/> -->
             <FeePolicy type="tiered" historySlots="30" slotPeriod="864">
+                <!-- <Tier volumeRequired="0" makerFee="0.0" takerFee="0.00023" /> -->
                 <!-- <Tier volumeRequired="0" makerFee="0.0" takerFee="0.0" /> -->
                 <Tier volumeRequired="0" makerFee="0.01" takerFee="0.02"/>
                 <Tier volumeRequired="100" makerFee="0.005" takerFee="0.01"/>
@@ -13,6 +14,8 @@
             </FeePolicy>
             <Books instanceCount="1" algorithm="PriceTime" maxDepth="21"/>
             <Balances>
+                <!-- <Base total="100.0" maxLeverage = "5" maxLoan = "10000"/>
+                <Quote total="123.6817777778" maxLeverage = "5" maxLoan = "10000"/> -->
                 <Base total="10000.0" maxLeverage = "5" maxLoan = "10000"/>
                 <Quote total="500000.0" maxLeverage = "5" maxLoan = "10000"/>
             </Balances>

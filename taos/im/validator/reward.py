@@ -28,6 +28,7 @@ from typing import Dict
 from taos.im.neurons.validator import Validator
 from taos.im.protocol import MarketSimulationStateUpdate, FinanceAgentResponse
 from taos.im.protocol.models import Account, Book, TradeInfo
+from taos.im.protocol.events import TradeEvent
 from taos.im.utils import normalize
 from taos.im.utils.sharpe import sharpe, batch_sharpe
 
@@ -48,19 +49,19 @@ def get_inventory_value(account : Account, book : Book, method='midquote') -> fl
     """
     match method:
         case "best_bid":
-            return account.own_quote + (book.bids[0].price if len(book.asks) > 0 and len(book.bids) > 0 else 0.0) * account.own_base
+            return (account['qb']['t'] - account['ql'] + account['qc']) + (book['b'][0]['p'] if len(book['a']) > 0 and len(book['b']) > 0 else 0.0) * (account['bb']['t'] - account['bl'] + account['bc'])
         case "midquote":
-            return account.own_quote + ((book.asks[0].price + book.bids[0].price) / 2 if len(book.asks) > 0 and len(book.bids) > 0 else 0.0) * account.own_base
+            return (account['qb']['t'] - account['ql'] + account['qc']) + ((book['a'][0]['p'] + book['b'][0]['p']) / 2 if len(book['a']) > 0 and len(book['b']) > 0 else 0.0) * (account['bb']['t'] - account['bl'] + account['bc'])
         case "liquidation":
             liq_value = 0
-            to_liquidate = account.base_balance.total
-            for bid in book.bids:
-                level_liq = min(to_liquidate,bid.quantity)
-                liq_value += level_liq * bid.price
+            to_liquidate = account['bb']['t']
+            for bid in book['b']:
+                level_liq = min(to_liquidate,bid['q'])
+                liq_value += level_liq * bid['p']
                 to_liquidate -= level_liq
                 if to_liquidate == 0:
                     break
-            return account.own_quote + liq_value
+            return (account['qb']['t'] - account['ql'] + account['qc']) + liq_value
 
 def score_inventory_value(self : Validator, uid : int, inventory_values : Dict[int, Dict[int,float]]) -> float:
     """
@@ -144,7 +145,7 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> list[floa
         list[float]: The new score values for all uids in the subnet.
     """
     for bookId, book in synapse.books.items():                
-        trades = [event for event in book.events if isinstance(event, TradeInfo)]
+        trades = [TradeInfo.model_construct(**event) for event in book['e'] if event['y'] == 't']
         if trades:
             self.recent_trades[bookId].extend(trades)
             self.recent_trades[bookId] = self.recent_trades[bookId][-25:]
@@ -164,9 +165,9 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> list[floa
                     self.trade_volumes[uid][book_id]['maker'][sampled_timestamp] = 0.0
                     self.trade_volumes[uid][book_id]['taker'][sampled_timestamp] = 0.0
                     self.trade_volumes[uid][book_id]['self'][sampled_timestamp] = 0.0
-            # Update trade volume history with new trades since the previous step
-            
-            trades = [notice for notice in synapse.notices[uid] if notice.type in ['EVENT_TRADE',"ET"]]
+                    
+            # Update trade volume history with new trades since the previous step            
+            trades = [TradeEvent.model_construct(**notice) for notice in synapse.notices[uid] if notice['y'] in ['EVENT_TRADE',"ET"]]
             for trade in trades:
                 roles = (["maker"] if trade.makerAgentId == uid else []) + (["taker"] if trade.takerAgentId == uid else [])
                 for role in roles:
@@ -183,9 +184,9 @@ def reward(self : Validator, synapse : MarketSimulationStateUpdate) -> list[floa
             
             for bookId, account in synapse.accounts[uid].items():                    
                 if self.initial_balances[uid][bookId]['BASE'] == None:
-                    self.initial_balances[uid][bookId]['BASE'] = account.base_balance.total
+                    self.initial_balances[uid][bookId]['BASE'] = account['bb']['t']
                 if self.initial_balances[uid][bookId]['QUOTE'] == None:
-                    self.initial_balances[uid][bookId]['QUOTE'] = account.quote_balance.total
+                    self.initial_balances[uid][bookId]['QUOTE'] = account['qb']['t']
                 if self.initial_balances[uid][bookId]['WEALTH'] == None:
                     self.initial_balances[uid][bookId]['WEALTH'] = get_inventory_value(synapse.accounts[uid][bookId], synapse.books[bookId])
             

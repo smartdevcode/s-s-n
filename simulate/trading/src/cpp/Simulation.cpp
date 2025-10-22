@@ -658,6 +658,22 @@ void Simulation::start()
             "EVENT_SIMULATION_END",
             MessagePayload::create<EmptyPayload>());
     }
+    else if (!m_replacedAgents.empty()) {
+        dispatchMessage(
+            m_time.start,
+            0,
+            "SIMULATION",
+            fmt::format("{}", fmt::join(m_replacedAgents, "|")),
+            "EVENT_SIMULATION_START",
+            MessagePayload::create<StartSimulationPayload>(logDir().generic_string()));
+        dispatchMessage(
+            m_time.start,
+            m_time.duration - 1,
+            "SIMULATION",
+            fmt::format("{}", fmt::join(m_replacedAgents, "|")),
+            "EVENT_SIMULATION_END",
+            MessagePayload::create<EmptyPayload>());
+    }
 
     m_state = taosim::simulation::SimulationState::STARTED;
     m_signals.start();
@@ -694,6 +710,18 @@ void Simulation::stop()
 {
     m_state = taosim::simulation::SimulationState::STOPPED;
     m_signals.stop();
+}
+
+//-------------------------------------------------------------------------
+
+bool Simulation::isReplacedAgent(const std::string& name)
+{
+    auto name2BaseName = [](auto&& name) {
+        std::string res = name;
+        boost::algorithm::erase_regex(res, boost::regex("(_\\d+)$"));
+        return res;
+    };
+    return m_replacedAgents.contains(name2BaseName(name));
 }
 
 //-------------------------------------------------------------------------

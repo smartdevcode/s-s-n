@@ -478,6 +478,8 @@ std::vector<std::pair<OrderID, decimal_t>> Balances::settleLoan(
         }
     }
 
+    checkNegative(std::source_location::current(), marginOrderId.value_or(0), bookId);
+
     return settledLoanIds;
 }
 
@@ -505,10 +507,6 @@ void Balances::borrow(
             decimal_t remainingBase = roundUpBase((collateralAmount - quoteReserved) / bestAsk);
             const auto baseReserved = base.getReservation(id).value_or(0_dec);
             if (remainingBase > baseReserved) {
-            //     fmt::println(
-            //         "BOOK : {}, ORDER {}: borrow with amount={} and leverage={} (CollAmount={}), bestBid={}, bestAsk={} "
-            //         "baseReserved={}, quoteReserved={}; remainingBase ({}) exceeded baseReserved ({})",
-            //         bookId, id, amount, leverage, collateralAmount, bestBid, bestAsk, baseReserved, quoteReserved, remainingBase, baseReserved);
                 remainingBase = baseReserved;
             }
             collateral.base() = remainingBase;
@@ -522,10 +520,6 @@ void Balances::borrow(
             decimal_t remainingQuote = roundUpQuote((collateralAmount - baseReserved) * bestBid);
             const auto quoteReserved = quote.getReservation(id).value_or(0_dec);
             if (remainingQuote > quoteReserved) {
-                fmt::println(
-                    "BOOK : {}, ORDER {}: borrow with amount={} and leverage={} (CollAmount={}), bestBid={}, bestAsk={} "
-                    "baseReserved={}, quoteReserved={}; remainingQuote ({}) exceeded quoteReserved ({})",
-                    bookId, id, amount, leverage, collateralAmount, bestBid, bestAsk, baseReserved, quoteReserved, remainingQuote, quoteReserved);
                 remainingQuote = quoteReserved;
             }
             collateral.base() = baseReserved;
@@ -540,12 +534,20 @@ void Balances::borrow(
         if (direction == OrderDirection::BUY) {
             const auto loanAmount =
                 roundQuote(collateral.valueInQuote(bestAsk) * util::dec1p(leverage));
-            m_quoteLoan += loanAmount;
+            if (loanAmount > amount){
+                decimal_t diff = roundQuote((loanAmount - amount) / util::dec1p(leverage));
+                quote.deposit(diff, bookId);
+                quote.makeReservation(id, diff, bookId);
+            }
             return std::min(loanAmount, amount);
         } else {
             const auto loanAmount =
-                roundBase(collateral.valueInBase(bestBid) * util::dec1p(leverage)); 
-            m_baseLoan += loanAmount;
+                roundBase(collateral.valueInBase(bestBid) * util::dec1p(leverage));
+            if (loanAmount > amount){
+                decimal_t diff = roundQuote((loanAmount - amount) * bestBid / util::dec1p(leverage));
+                quote.deposit(diff, bookId);
+                quote.makeReservation(id, diff, bookId);
+            }
             return std::min(loanAmount, amount);
         }
     }();
@@ -555,14 +557,10 @@ void Balances::borrow(
 
      // checking if there is no reservation left
     if (!base.getReservation(id).has_value() && !quote.getReservation(id).has_value()) {
-        // if (loanAmount != amount){
-        //     fmt::println(
-        //         "BOOK : {}, ORDER {}: borrow with amount={} and leverage={} (CollAmount={}), bestBid={}, bestAsk={} "
-        //         "Calculated loanAmount={} was not equal to the requested amount={} to borrow",
-        //         bookId, id, amount, leverage, collateralAmount, bestBid, bestAsk, loanAmount, amount);
-        // }
         loanAmount = amount;
-    } 
+    }
+
+    (direction == OrderDirection::BUY ? m_quoteLoan : m_baseLoan) += loanAmount;
 
     Loan loan({
         .amount = loanAmount,
@@ -578,6 +576,8 @@ void Balances::borrow(
     } else {
         m_loans.insert({id, loan});
     }
+
+    checkNegative(std::source_location::current(), id, bookId);
 
 }
 
@@ -635,6 +635,34 @@ decimal_t Balances::roundUpBase(decimal_t amount) const noexcept
 decimal_t Balances::roundUpQuote(decimal_t amount) const noexcept
 {
     return util::roundUp(amount, m_quoteDecimals);
+}
+
+//-------------------------------------------------------------------------
+
+void Balances::checkNegative(std::source_location sl, OrderID id, BookId bookId)
+{
+    if (m_baseCollateral < 0_dec){
+        fmt::println("Book {} order #{}: Base collateral {} cannot be negative!", 
+            bookId, id, m_baseCollateral);
+        m_baseCollateral = 0_dec;
+    }
+    if (m_quoteCollateral< 0_dec){
+        fmt::println("Book {} order #{}: Quote collateral {} cannot be negative!", 
+            bookId, id, m_quoteCollateral);
+        m_quoteCollateral = 0_dec;
+    }
+    if (m_baseLoan < 0_dec){
+        fmt::println("Book {} order #{}: Base loan {} cannot be negative!", 
+            bookId, id, m_baseLoan);
+        base.deposit(-m_baseLoan, bookId);
+        m_baseLoan = 0_dec;
+    }
+    if (m_quoteLoan < 0_dec){
+        fmt::println("Book {} order #{}: Quote loan {} cannot be negative!", 
+            bookId, id, m_quoteLoan);
+        quote.deposit(-m_quoteLoan, bookId);
+        m_quoteLoan = 0_dec;
+    }
 }
 
 //-------------------------------------------------------------------------

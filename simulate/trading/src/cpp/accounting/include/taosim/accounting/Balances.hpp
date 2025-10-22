@@ -107,6 +107,7 @@ private:
     [[nodiscard]] decimal_t roundUpAmount(decimal_t amount, OrderDirection direction) const noexcept;
     [[nodiscard]] decimal_t roundUpBase(decimal_t amount) const noexcept;
     [[nodiscard]] decimal_t roundUpQuote(decimal_t amount) const noexcept;
+    void checkNegative(std::source_location sl, OrderID id, BookId bookId);
 };
 
 //-------------------------------------------------------------------------

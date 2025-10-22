@@ -124,8 +124,15 @@ class Proxy(Validator):
                 bt.logging.error(f"{agent} | Failed to query {url}: {e}")
                 return uid, agent, None, response_time
 
+        serialized_config = state.config.model_dump(mode='json')
+        def create_agent_json(uid):
+            return state.model_copy(update={
+                "accounts": {uid: state.accounts[uid]},
+                "notices": {uid: state.notices[uid]},
+                "config" : serialized_config
+            }).model_dump()
         async with aiohttp.ClientSession() as session:
-            responses = await asyncio.gather(*(query_agent(uid, agent, agent_url, session, state.model_dump()) for uid, (agent, agent_url) in enumerate(self.agent_urls.items())))
+            responses = await asyncio.gather(*(query_agent(uid, agent, agent_url, session, create_agent_json(uid)) for uid, (agent, agent_url) in enumerate(self.agent_urls.items())))
         responses = {uid : (response, agent, response_time) for uid, agent, response, response_time in responses}
         synapse_responses = {}
         for uid, (response, agent, response_time) in responses.items():
@@ -175,9 +182,7 @@ class Proxy(Validator):
                 mq_req = posix_ipc.MessageQueue("/taosim-req", flags=posix_ipc.O_CREAT, max_messages=1, max_message_size=8)
                 # This blocks until the queue can provide a message
                 message, receive_start = receive(mq_req)
-                start = time.time()
-                state = MarketSimulationStateUpdate.model_validate(message, strict=False)
-                bt.logging.info(f"Parsed state update ({time.time() - start}s)")
+                state = MarketSimulationStateUpdate.parse_dict(message)
                 response = await self.handle_state(message, state, receive_start)
             except Exception as ex:
                 traceback.print_exc()
