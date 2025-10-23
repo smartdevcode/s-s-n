@@ -130,7 +130,7 @@ class Proxy(Validator):
                 "accounts": {uid: state.accounts[uid]},
                 "notices": {uid: state.notices[uid]},
                 "config" : serialized_config
-            }).model_dump()
+            }).model_dump(mode='json', warnings=False)
         async with aiohttp.ClientSession() as session:
             responses = await asyncio.gather(*(query_agent(uid, agent, agent_url, session, create_agent_json(uid)) for uid, (agent, agent_url) in enumerate(self.agent_urls.items())))
         responses = {uid : (response, agent, response_time) for uid, agent, response, response_time in responses}

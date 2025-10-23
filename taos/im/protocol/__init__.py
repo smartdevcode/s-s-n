@@ -52,10 +52,10 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
     """
     version : int | None = None
     timestamp : int
-    config : MarketSimulationConfig | dict | str | None = None
-    books : dict[int,Book] | dict[int,dict] | None = None
-    accounts : dict[int,dict[int, Account]] | dict[int,dict[int, dict]] | None = None
-    notices : dict[int, list[FinanceNotice]] | dict[int, list[dict]] | None = None
+    config : MarketSimulationConfig | str | None = None
+    books : dict[int,Book] | None = None
+    accounts : dict[int,dict[int, Account]] | None = None
+    notices : dict[int, list[FinanceNotice]] | None = None
     response: Optional[FinanceAgentResponse] | None  = None
     compressed : str | dict | None = None
     compression_engine : str = "lz4"
