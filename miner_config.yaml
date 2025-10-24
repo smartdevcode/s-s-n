@@ -1,0 +1,128 @@
+# Advanced Trading Agent Configuration for τaos Subnet 79
+# This configuration file contains all the parameters for the advanced trading agent
+
+# Core Trading Parameters
+trading:
+  # Maximum position size per trade (in base currency units)
+  max_position_size: 10.0
+  
+  # Risk tolerance per trade (as percentage of capital)
+  risk_tolerance: 0.02  # 2%
+  
+  # Maximum drawdown before stopping trading
+  max_drawdown: 0.1  # 10%
+  
+  # Order expiry period in simulation nanoseconds (2 minutes)
+  expiry_period: 120000000000
+  
+  # Minimum trade size
+  min_trade_size: 0.1
+
+# Strategy Weights (must sum to 1.0)
+strategies:
+  momentum_weight: 0.3
+  mean_reversion_weight: 0.3
+  arbitrage_weight: 0.2
+  ml_signal_weight: 0.2
+
+# Machine Learning Configuration
+ml:
+  # Model type: 'ensemble', 'ridge', 'lasso', 'random_forest'
+  model_type: 'ensemble'
+  
+  # Number of historical observations for feature calculation
+  feature_window: 20
+  
+  # Retrain model every N observations
+  retrain_interval: 100
+  
+  # Minimum samples required for training
+  min_training_samples: 50
+  
+  # Feature engineering parameters
+  feature_engineering:
+    use_technical_indicators: true
+    use_order_book_features: true
+    use_volume_features: true
+    use_volatility_features: true
+
+# Risk Management
+risk_management:
+  # Position sizing method: 'fixed', 'kelly', 'volatility_adjusted'
+  position_sizing_method: 'volatility_adjusted'
+  
+  # Maximum number of concurrent positions
+  max_concurrent_positions: 5
+  
+  # Stop loss percentage
+  stop_loss_pct: 0.05  # 5%
+  
+  # Take profit percentage
+  take_profit_pct: 0.10  # 10%
+  
+  # Portfolio heat (maximum risk per position)
+  portfolio_heat: 0.02  # 2%
+
+# Performance Monitoring
+monitoring:
+  # Enable detailed logging
+  detailed_logging: true
+  
+  # Log level: 'DEBUG', 'INFO', 'WARNING', 'ERROR'
+  log_level: 'INFO'
+  
+  # Performance metrics calculation interval
+  metrics_interval: 50
+  
+  # Save performance data to file
+  save_performance_data: true
+  
+  # Performance data directory
+  performance_data_dir: './performance_data'
+
+# History Management
+history:
+  # History retention in minutes
+  retention_mins: 30
+  
+  # Number of parallel workers for history processing
+  parallel_workers: 4
+  
+  # Enable lazy loading for better performance
+  lazy_loading: true
+
+# Network Configuration
+network:
+  # Response timeout in seconds
+  response_timeout: 3.0
+  
+  # Maximum retry attempts
+  max_retries: 3
+  
+  # Connection pool size
+  connection_pool_size: 10
+
+# Advanced Features
+advanced:
+  # Enable adaptive strategy selection
+  adaptive_strategy_selection: true
+  
+  # Enable market regime detection
+  market_regime_detection: true
+  
+  # Enable correlation analysis between books
+  correlation_analysis: true
+  
+  # Enable portfolio optimization
+  portfolio_optimization: true
+
+# Environment-specific settings
+environment:
+  # Development mode (more logging, slower execution)
+  development_mode: false
+  
+  # Enable backtesting
+  enable_backtesting: false
+  
+  # Enable paper trading
+  paper_trading: false
