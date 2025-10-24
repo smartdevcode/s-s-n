@@ -525,6 +525,10 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
                 # Calculate features
                 features = self.calculate_features(book, state.timestamp, validator)
                 if not features:
+                    # Still need to update last price even if no features
+                    if validator not in self.last_prices:
+                        self.last_prices[validator] = {}
+                    self.last_prices[validator][book_id] = mid_price
                     continue
                 
                 # Generate signals from different strategies
