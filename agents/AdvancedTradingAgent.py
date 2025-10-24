@@ -54,25 +54,25 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
     
     def initialize(self):
         """Initialize the advanced trading agent with all components."""
-        # Core configuration
+        # Core configuration - optimized for better risk management
         self.expiry_period = int(getattr(self.config, 'expiry_period', 120_000_000_000))  # 2 minutes
-        self.max_position_size = float(getattr(self.config, 'max_position_size', 10.0))
-        self.risk_tolerance = float(getattr(self.config, 'risk_tolerance', 0.02))  # 2% max risk per trade
-        self.max_drawdown = float(getattr(self.config, 'max_drawdown', 0.1))  # 10% max drawdown
+        self.max_position_size = float(getattr(self.config, 'max_position_size', 5.0))  # Reduced for safety
+        self.risk_tolerance = float(getattr(self.config, 'risk_tolerance', 0.01))  # 1% max risk per trade
+        self.max_drawdown = float(getattr(self.config, 'max_drawdown', 0.05))  # 5% max drawdown
         
-        # Strategy parameters
+        # Strategy parameters - optimized for better performance
         self.strategies = {
-            'momentum': float(getattr(self.config, 'momentum_weight', 0.3)),
+            'momentum': float(getattr(self.config, 'momentum_weight', 0.4)),
             'mean_reversion': float(getattr(self.config, 'mean_reversion_weight', 0.3)),
             'arbitrage': float(getattr(self.config, 'arbitrage_weight', 0.2)),
-            'ml_signal': float(getattr(self.config, 'ml_signal_weight', 0.2))
+            'ml_signal': float(getattr(self.config, 'ml_signal_weight', 0.1))
         }
         
-        # ML configuration
-        self.ml_model_type = getattr(self.config, 'ml_model', 'ensemble')
-        self.feature_window = int(getattr(self.config, 'feature_window', 20))
-        self.retrain_interval = int(getattr(self.config, 'retrain_interval', 100))
-        self.min_training_samples = int(getattr(self.config, 'min_training_samples', 50))
+        # ML configuration - optimized for faster learning
+        self.ml_model_type = getattr(self.config, 'ml_model', 'ridge')  # Start with simpler model
+        self.feature_window = int(getattr(self.config, 'feature_window', 30))  # Increased for better features
+        self.retrain_interval = int(getattr(self.config, 'retrain_interval', 50))  # Faster retraining
+        self.min_training_samples = int(getattr(self.config, 'min_training_samples', 30))  # Reduced for faster start
         
         # Performance tracking
         self.performance_metrics = defaultdict(lambda: {
@@ -116,12 +116,12 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
         if not book.bids or not book.asks:
             return features
             
-        # Basic price features
-        best_bid = book.bids[0].price
-        best_ask = book.asks[0].price
-        mid_price = (best_bid + best_ask) / 2
-        spread = best_ask - best_bid
-        spread_pct = spread / mid_price if mid_price > 0 else 0
+        # Basic price features with higher precision
+        best_bid = round(book.bids[0].price, 8)
+        best_ask = round(book.asks[0].price, 8)
+        mid_price = round((best_bid + best_ask) / 2, 8)
+        spread = round(best_ask - best_bid, 8)
+        spread_pct = round(spread / mid_price, 8) if mid_price > 0 else 0
         
         features['mid_price'] = mid_price
         features['spread'] = spread
@@ -515,6 +515,7 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
         for book_id, book in state.books.items():
             try:
                 if not book.bids or not book.asks:
+                    bt.logging.debug(f"BOOK {book_id}: No bids/asks, skipping")
                     continue
                 
                 # Get basic price info first
@@ -623,15 +624,17 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
                     len(self.performance_metrics[validator][book_id]['returns']) % self.retrain_interval == 0):
                     Thread(target=self.train_ml_model, args=(validator, book_id)).start()
                 
-                # Log performance
+                # Log performance with more details
                 if validator in self.performance_metrics and book_id in self.performance_metrics[validator]:
                     metrics = self.performance_metrics[validator][book_id]
                     bt.logging.info(
                         f"BOOK {book_id}: Signal={final_signal.direction}, "
                         f"Strength={final_signal.strength:.3f}, "
                         f"Confidence={final_signal.confidence:.3f}, "
+                        f"Position={position_size:.2f}, "
                         f"Sharpe={metrics['sharpe_ratio']:.3f}, "
-                        f"WinRate={metrics['win_rate']:.3f}"
+                        f"WinRate={metrics['win_rate']:.3f}, "
+                        f"Features={len(features)}"
                     )
                 
             except Exception as e:
