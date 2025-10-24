@@ -250,7 +250,7 @@ class MarketSimulationStateUpdate(SimulationStateUpdate):
                 payload = {
                     "accounts" : {accountId : {bookId : account.model_dump(mode='json') if isinstance(account, Account) else account for bookId, account in accounts.items()} for accountId, accounts in compressed.accounts.items()} if compressed.accounts else None,
                     "notices" : {agentId : [notice if isinstance(notice, dict) else notice.model_dump(mode='json') for notice in notices] for agentId, notices in compressed.notices.items()} if compressed.notices else None,
-                    "config" : compressed.config.model_dump(mode='json') if compressed.config else None,
+                    "config" : (compressed.config.model_dump(mode='json') if isinstance(compressed.config, MarketSimulationConfig) else compressed.config) if compressed.config else None,
                     "response" : compressed.response.model_dump(mode='json') if compressed.response else None
                 }
                 compressed.compressed = {

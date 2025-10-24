@@ -35,30 +35,35 @@ import multiprocessing
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 class DendriteManager:
-    async def configure_session(self):
-        if not self.dendrite._session:
-            connector = aiohttp.TCPConnector(
-                ssl=False,
-                limit=256,
-                limit_per_host=32,
-                ttl_dns_cache=60,
-                keepalive_timeout=60,
-                force_close=False,
-                happy_eyeballs_delay=None
-            )
+    @staticmethod
+    async def configure_session(validator):
+        if validator.dendrite._session and not validator.dendrite._session.closed:
+            try:
+                await validator.dendrite._session.close()
+            except Exception:
+                pass
+        
+        connector = aiohttp.TCPConnector(
+            ssl=False,
+            limit=0,
+            limit_per_host=0,
+            ttl_dns_cache=300,
+            enable_cleanup_closed=True,
+            force_close=True,
+        )
 
-            timeout = aiohttp.ClientTimeout(
-                total=self.config.neuron.timeout,
-                connect=0.5,
-                sock_read=0.5,
-                sock_connect=0.5,
-            )
+        timeout = aiohttp.ClientTimeout(
+            total=validator.config.neuron.timeout,
+            connect=1.0,
+            sock_read=1.0,
+            sock_connect=1.0,
+        )
 
-            self.dendrite._session = aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                skip_auto_headers={'User-Agent'}
-            )
+        validator.dendrite._session = aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout,
+            skip_auto_headers={'User-Agent'},
+        )
 
 def validate_responses(self : Validator, synapses : dict[int, MarketSimulationStateUpdate]) -> None:
     """
@@ -175,7 +180,6 @@ async def forward(self: Validator, synapse: MarketSimulationStateUpdate) -> List
     """ 
     responses = []
     if self.deregistered_uids != []:
-        # Account balances must be reset in the simulator for deregistered agent IDs.
         response = FinanceAgentResponse(agent_id=self.uid)
         response.reset_agents(agent_ids=self.deregistered_uids)
         responses.append(response)
@@ -187,6 +191,7 @@ async def forward(self: Validator, synapse: MarketSimulationStateUpdate) -> List
 
     synapse_start = time.time()
     start = time.time()
+    # Create miner query synapses
     compressed_books = compress(
         synapse.books,
         level=self.config.compression.level,
@@ -206,7 +211,7 @@ async def forward(self: Validator, synapse: MarketSimulationStateUpdate) -> List
     start = time.time()
     axon_synapses = {uid: create_axon_synapse(uid) for uid in range(len(self.metagraph.axons))}
     bt.logging.info(f"Created axon synapses ({time.time()-start:.4f}s)")
-    
+    # Compress miner synapse data
     if self.config.compression.parallel_workers == 0:
         def compress_axon_synapse(synapse):
             return synapse.compress(
@@ -218,7 +223,8 @@ async def forward(self: Validator, synapse: MarketSimulationStateUpdate) -> List
         axon_synapses = {uid: compress_axon_synapse(axon_synapses[uid]) for uid in range(len(self.metagraph.axons))}
     else:
         num_processes = self.config.compression.parallel_workers if self.config.compression.parallel_workers > 0 else multiprocessing.cpu_count() // 2
-        batches = [self.metagraph.uids[i:i+int(256/num_processes)] for i in range(0, 256, int(256/num_processes))]
+        num_axons = len(self.metagraph.axons)
+        batches = [self.metagraph.uids[i:i+int(num_axons/num_processes)] for i in range(0, num_axons, int(num_axons/num_processes))]
         axon_synapses = batch_compress(
             axon_synapses,
             compressed_books,
@@ -230,56 +236,102 @@ async def forward(self: Validator, synapse: MarketSimulationStateUpdate) -> List
     bt.logging.info(f"Compressed synapses ({time.time()-synapse_start:.4f}s).")
 
     start = time.time()
-    sem = asyncio.Semaphore(len(self.metagraph.axons))
+    synapse_responses = {}
 
     async def query_uid(uid):
-        async with sem:
+        try:
+            response = await asyncio.wait_for(
+                self.dendrite(
+                    axons=self.metagraph.axons[uid],
+                    synapse=axon_synapses[uid],
+                    timeout=self.config.neuron.timeout,
+                    deserialize=False
+                ),
+                timeout=self.config.neuron.query_timeout
+            )
+            return uid, response
+        except asyncio.CancelledError:
+            # Task was cancelled due to global timeout
+            bt.logging.debug(f"Query cancelled for UID {uid}")
+            axon_synapses[uid] = self.dendrite.preprocess_synapse_for_request(
+                self.metagraph.axons[uid],
+                axon_synapses[uid],
+                self.config.neuron.timeout
+            )
+            axon_synapses[uid].dendrite.status_code = 408
+            return uid, axon_synapses[uid]
+        except asyncio.TimeoutError:
+            bt.logging.debug(f"Timeout querying UID {uid}")
+            axon_synapses[uid] = self.dendrite.preprocess_synapse_for_request(
+                self.metagraph.axons[uid],
+                axon_synapses[uid],
+                self.config.neuron.timeout
+            )
+            axon_synapses[uid].dendrite.status_code = 408
+            return uid, axon_synapses[uid]
+        except Exception as e:
+            bt.logging.debug(f"Error querying UID {uid}: {e}")
+            axon_synapses[uid] = self.dendrite.preprocess_synapse_for_request(
+                self.metagraph.axons[uid],
+                axon_synapses[uid],
+                self.config.neuron.timeout
+            )
+            axon_synapses[uid].dendrite.status_code = 500
+            return uid, axon_synapses[uid]
+    # Create query tasks
+    query_tasks = []
+    for uid in range(len(self.metagraph.axons)):
+        if uid not in self.deregistered_uids:
+            query_tasks.append(asyncio.create_task(query_uid(uid)))
+    
+    bt.logging.debug(f"Created {len(query_tasks)} query tasks")
+
+    async def collect_results():
+        done, pending = await asyncio.wait(
+            query_tasks,
+            timeout=self.config.neuron.global_query_timeout,
+            return_when=asyncio.ALL_COMPLETED
+        )
+        
+        results = {}
+        for task in done:
             try:
-                response = await asyncio.wait_for(
-                    self.dendrite(
-                        axons=self.metagraph.axons[uid],
-                        synapse=axon_synapses[uid],
-                        timeout=self.config.neuron.timeout,
-                        deserialize=False
-                    ),
-                    timeout=self.config.neuron.query_timeout
-                )
-                return uid, response
-            except asyncio.TimeoutError:
-                bt.logging.warning(f"Wall-clock timeout after {self.config.neuron.query_timeout}s while querying UID {uid}")
-                axon_synapses[uid] = self.dendrite.preprocess_synapse_for_request(
-                    self.metagraph.axons[uid],
-                    axon_synapses[uid],
-                    self.config.neuron.timeout
-                )
-                axon_synapses[uid].dendrite.status_code = 408
-                return uid, axon_synapses[uid]
-
-    async def run_all_queries():
-        tasks = []
-        for uid in range(len(self.metagraph.axons)):
-            if uid in self.deregistered_uids:
-                continue
-            tasks.append(asyncio.create_task(query_uid(uid)))
-            await asyncio.sleep(0.002)  # 2ms stagger
-
-        synapse_responses = {}
-        for coro in asyncio.as_completed(tasks):
-            uid, response = await coro
-            synapse_responses[uid] = response
-        return synapse_responses
-
+                uid, response = task.result()
+                results[uid] = response
+            except Exception as e:
+                bt.logging.debug(f"Error getting task result: {e}")
+        
+        if pending:
+            bt.logging.warning(f"Global timeout hit, cancelling {len(pending)} pending tasks")
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+        
+        return results
+    # Query miners
     try:
         synapse_responses = await asyncio.wait_for(
-            run_all_queries(),
-            timeout=self.config.neuron.global_query_timeout
+            collect_results(),
+            timeout=self.config.neuron.global_query_timeout + 0.1
         )
     except asyncio.TimeoutError:
-        bt.logging.warning(f"Global dendrite query timeout after {self.config.neuron.global_query_timeout}s")
-        # Gather results from completed tasks
+        bt.logging.error(f"Hard timeout enforced after {self.config.neuron.global_query_timeout}s")
         synapse_responses = {}
-        for task in asyncio.all_tasks():
-            if task.done():
+        for task in query_tasks:
+            if task.done() and not task.cancelled():
+                try:
+                    uid, response = task.result()
+                    synapse_responses[uid] = response
+                except Exception:
+                    pass
+        for task in query_tasks:
+            if not task.done():
+                task.cancel()
+    except Exception as e:
+        bt.logging.error(f"Unexpected error during query process: {e}")
+        synapse_responses = {}
+        for task in query_tasks:
+            if task.done() and not task.cancelled():
                 try:
                     uid, response = task.result()
                     synapse_responses[uid] = response

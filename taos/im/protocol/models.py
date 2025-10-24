@@ -801,13 +801,13 @@ class L2Snapshot(BaseModel):
         # Compare bids
         for price, bid in self.bids.items():
             if price in target.bids:
-                if round(bid.quantity, config.volumeDecimals) != round(target.bids[price].quantity, config.volumeDecimals):
-                    discrepancies.append(f"BID : RECON {round(bid.quantity, config.volumeDecimals)}@{price} vs. TARGET {round(target.bids[price].quantity, config.volumeDecimals)}@{price}")
-                if round(bid.quantity, config.volumeDecimals) < round(target.bids[price].quantity, config.volumeDecimals):
+                if bid.quantity != target.bids[price].quantity:
+                    discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET {target.bids[price].quantity}@{price}")
+                if bid.quantity < target.bids[price].quantity:
                     existing_volumes['bid'][price] = round(target.bids[price].quantity - bid.quantity, config.volumeDecimals)
             else:
-                discrepancies.append(f"BID : RECON {round(bid.quantity, config.volumeDecimals)}@{price} vs. TARGET 0.0@{price}")
-                if round(bid.quantity, config.volumeDecimals) < 0:
+                discrepancies.append(f"BID : RECON {bid.quantity}@{price} vs. TARGET 0.0@{price}")
+                if bid.quantity < 0:
                     existing_volumes['bid'][price] = round(-bid.quantity, config.volumeDecimals)
 
         # Add missing bids from target
@@ -819,13 +819,13 @@ class L2Snapshot(BaseModel):
         # Compare asks
         for price, ask in self.asks.items():
             if price in target.asks:
-                if round(ask.quantity, config.volumeDecimals) != round(target.asks[price].quantity, config.volumeDecimals):
-                    discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET {round(target.asks[price].quantity, config.volumeDecimals)}@{price}")
-                if round(ask.quantity, config.volumeDecimals) < round(target.asks[price].quantity, config.volumeDecimals):
+                if ask.quantity != target.asks[price].quantity:
+                    discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET {target.asks[price].quantity}@{price}")
+                if ask.quantity < target.asks[price].quantity:
                     existing_volumes['ask'][price] = round(target.asks[price].quantity - ask.quantity, config.volumeDecimals)
             else:
                 discrepancies.append(f"ASK : RECON {ask.quantity}@{price} vs. TARGET 0.0@{price}")
-                if round(ask.quantity, config.volumeDecimals) < 0:
+                if ask.quantity < 0:
                     existing_volumes['ask'][price] = round(-ask.quantity, config.volumeDecimals)
 
         # Add missing asks from target
