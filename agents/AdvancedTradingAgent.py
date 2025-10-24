@@ -517,6 +517,11 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
                 if not book.bids or not book.asks:
                     continue
                 
+                # Get basic price info first
+                best_bid = book.bids[0].price
+                best_ask = book.asks[0].price
+                mid_price = (best_bid + best_ask) / 2
+                
                 # Calculate features
                 features = self.calculate_features(book, state.timestamp, validator)
                 if not features:
@@ -546,9 +551,6 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
                 
                 if position_size > 0 and final_signal.direction != 0:
                     # Place orders based on signal
-                    best_bid = book.bids[0].price
-                    best_ask = book.asks[0].price
-                    mid_price = (best_bid + best_ask) / 2
                     
                     if final_signal.direction == 1:  # Buy signal
                         # Place buy order slightly above best bid
