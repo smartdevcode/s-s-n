@@ -688,13 +688,18 @@ class AdvancedTradingAgent(FinanceSimulationAgent):
                         )
                 
                 # Update performance metrics
-                if validator in self.last_prices and book_id in self.last_prices[validator]:
+                if (validator in self.last_prices and 
+                    isinstance(self.last_prices[validator], dict) and 
+                    book_id in self.last_prices[validator]):
                     price_change = mid_price - self.last_prices[validator][book_id]
                     return_pct = price_change / self.last_prices[validator][book_id] if self.last_prices[validator][book_id] > 0 else 0
                     self.update_performance_metrics(validator, book_id, return_pct, 0.0)
                 
                 # Update last price
                 if validator not in self.last_prices:
+                    self.last_prices[validator] = {}
+                # Ensure it's a dict, not a float
+                if not isinstance(self.last_prices[validator], dict):
                     self.last_prices[validator] = {}
                 self.last_prices[validator][book_id] = mid_price
                 
