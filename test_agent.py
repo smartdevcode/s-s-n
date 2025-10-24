@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 def create_mock_state_update():
     """Create a mock state update for testing purposes."""
-    from taos.im.protocol.models import *
-    from taos.im.protocol import MarketSimulationStateUpdate
+    # Import at module level to avoid syntax error
+    pass
     
     # Create mock book data
     book_id = 1
